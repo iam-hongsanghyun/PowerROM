@@ -3,6 +3,12 @@
   "buildCommand": "cd frontend && npm run build",
   "outputDirectory": "frontend/.next",
   "framework": "nextjs",
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/index.py"
+    }
+  ],
   "functions": {
     "api/**/*.py": {
       "excludeFiles": "{backend/tests/**,frontend/**,docs/**,.venv/**,.pytest_cache/**}"

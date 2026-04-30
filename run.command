@@ -5,9 +5,8 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
 BACKEND_PORT="${BACKEND_PORT:-8000}"
 FRONTEND_PORT="${FRONTEND_PORT:-3000}"
-CONDA_ENV_NAME="${CONDA_ENV_NAME:-}"
+CONDA_ENV_NAME="${CONDA_ENV_NAME:-powerrom}"
 CONDA_BIN="${CONDA_BIN:-$(command -v conda || true)}"
-PYTHON_BIN="${PYTHON_BIN:-python3}"
 
 echo "PowerROM local launcher"
 echo "Repo: $ROOT_DIR"
@@ -17,58 +16,63 @@ if ! command -v npm >/dev/null 2>&1; then
   exit 1
 fi
 
-USE_CONDA=0
-CONDA_BASE=""
-if [ -n "$CONDA_ENV_NAME" ] && [ -n "$CONDA_BIN" ]; then
-  CONDA_BASE="$("$CONDA_BIN" info --base)"
-  USE_CONDA=1
-fi
-
-if [ "$USE_CONDA" -eq 0 ] && ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
-  echo "Missing Python interpreter: $PYTHON_BIN"
+if [ -z "$CONDA_BIN" ]; then
+  echo "Missing conda"
   exit 1
 fi
 
-echo "Installing backend dependencies..."
-if [ "$USE_CONDA" -eq 1 ]; then
-  echo "Using Conda environment: $CONDA_ENV_NAME"
-  "$CONDA_BIN" run -n "$CONDA_ENV_NAME" python -m pip install --upgrade pip >/dev/null
-  "$CONDA_BIN" run -n "$CONDA_ENV_NAME" python -m pip install -r "$ROOT_DIR/requirements.txt"
-else
-  echo "Using system Python: $PYTHON_BIN"
-  "$PYTHON_BIN" -m pip install --upgrade pip >/dev/null
-  "$PYTHON_BIN" -m pip install -r "$ROOT_DIR/requirements.txt"
+CONDA_BASE="$("$CONDA_BIN" info --base)"
+
+if ! "$CONDA_BIN" env list | awk '{print $1}' | grep -qx "$CONDA_ENV_NAME"; then
+  echo "Creating Conda environment: $CONDA_ENV_NAME"
+  "$CONDA_BIN" create -n "$CONDA_ENV_NAME" python=3.12 -y
 fi
+
+echo "Installing backend dependencies..."
+echo "Using Conda environment: $CONDA_ENV_NAME"
+"$CONDA_BIN" run -n "$CONDA_ENV_NAME" python -m pip install --upgrade pip >/dev/null
+"$CONDA_BIN" run -n "$CONDA_ENV_NAME" python -m pip install -r "$ROOT_DIR/requirements.txt"
 
 echo "Installing frontend dependencies..."
 npm --prefix "$ROOT_DIR/frontend" install
 
-FRONTEND_CMD="cd \"$ROOT_DIR/frontend\" && NEXT_PUBLIC_API_BASE_URL=\"http://localhost:$BACKEND_PORT/api\" npm run dev -- --port $FRONTEND_PORT"
+cleanup() {
+  if [ -n "${BACKEND_PID:-}" ] && kill -0 "$BACKEND_PID" >/dev/null 2>&1; then
+    kill "$BACKEND_PID" >/dev/null 2>&1 || true
+  fi
+  if [ -n "${FRONTEND_PID:-}" ] && kill -0 "$FRONTEND_PID" >/dev/null 2>&1; then
+    kill "$FRONTEND_PID" >/dev/null 2>&1 || true
+  fi
+}
 
-if [ "$USE_CONDA" -eq 1 ]; then
-  BACKEND_CMD="cd \"$ROOT_DIR\" && source \"$CONDA_BASE/etc/profile.d/conda.sh\" && conda activate \"$CONDA_ENV_NAME\" && uvicorn backend.main:app --host 0.0.0.0 --port $BACKEND_PORT --reload"
-else
-  BACKEND_CMD="cd \"$ROOT_DIR\" && $PYTHON_BIN -m uvicorn backend.main:app --host 0.0.0.0 --port $BACKEND_PORT --reload"
-fi
+trap cleanup EXIT INT TERM
 
 echo "Starting backend on http://localhost:$BACKEND_PORT"
-osascript <<EOF
-tell application "Terminal"
-  activate
-  do script "$BACKEND_CMD"
-end tell
-EOF
+(
+  cd "$ROOT_DIR"
+  source "$CONDA_BASE/etc/profile.d/conda.sh"
+  conda activate "$CONDA_ENV_NAME"
+  exec uvicorn backend.main:app --host 0.0.0.0 --port "$BACKEND_PORT" --reload
+) &
+BACKEND_PID=$!
 
-sleep 1
+sleep 2
 
 echo "Starting frontend on http://localhost:$FRONTEND_PORT"
-osascript <<EOF
-tell application "Terminal"
-  activate
-  do script "$FRONTEND_CMD"
-end tell
-EOF
+echo "Backend PID: $BACKEND_PID"
+echo "Press Ctrl+C to stop both servers."
+(
+  cd "$ROOT_DIR/frontend"
+  NEXT_PUBLIC_API_BASE_URL="http://localhost:$BACKEND_PORT/api" exec npm run dev -- --webpack --port "$FRONTEND_PORT"
+) &
+FRONTEND_PID=$!
 
-echo "Launched:"
-echo "  Backend:  http://localhost:$BACKEND_PORT"
-echo "  Frontend: http://localhost:$FRONTEND_PORT"
+for _ in {1..40}; do
+  if curl -fsS "http://localhost:$FRONTEND_PORT" >/dev/null 2>&1; then
+    open "http://localhost:$FRONTEND_PORT"
+    break
+  fi
+  sleep 0.5
+done
+
+wait "$FRONTEND_PID"

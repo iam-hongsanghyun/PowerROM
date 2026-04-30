@@ -6,3 +6,5 @@ pandas
 openpyxl
 pydantic
 python-multipart
+pytest
+httpx

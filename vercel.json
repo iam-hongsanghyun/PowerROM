@@ -3,7 +3,8 @@
   "outputDirectory": "frontend/.next",
   "framework": "nextjs",
   "functions": {
-    "backend/main.py": { "runtime": "python3.11" },
-    "api/index.py": { "runtime": "python3.11" }
+    "api/**/*.py": {
+      "excludeFiles": "{backend/tests/**,frontend/**,docs/**,.venv/**,.pytest_cache/**}"
+    }
   }
 }

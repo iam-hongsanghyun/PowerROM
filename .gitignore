@@ -1,15 +1,89 @@
-.DS_Store
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[codz]
+*$py.class
+*.pyc
+*.pyo
+*.pyd
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Python tooling
 .pytest_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+.hypothesis/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+.pytype/
+.ruff_cache/
 .venv/
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+.env
+.envrc
+.pdm-python
+.pdm-build/
+.pixi/
+__pypackages__/
+
+# Logs and local state
+*.log
+*.pid
+pip-log.txt
+pip-delete-this-directory.txt
+htmlcov/
+nosetests.xml
+coverage.xml
+*.cover
+*.py.cover
+
+# OS/editor
+.DS_Store
+.idea/
+.vscode/
+tempCodeRunnerFile.py
+
+# Vercel
 .vercel/
 
+# Next.js frontend
 frontend/node_modules/
 frontend/.next/
 frontend/out/
 frontend/.vercel/
 frontend/.env*
 
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
+# SQLite / local app state
+db.sqlite3
+db.sqlite3-journal
+instance/

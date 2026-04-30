@@ -1,0 +1,7 @@
+{
+  "capex_usd_kw": 2800,
+  "opex_fixed_usd_kw_yr": 45,
+  "opex_var_usd_mwh": 5,
+  "lifetime_yr": 40,
+  "emission_factor_tco2_mwh": 0.92
+}

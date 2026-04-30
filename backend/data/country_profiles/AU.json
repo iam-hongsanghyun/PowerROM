@@ -1,0 +1,93 @@
+{
+  "name": "Australia",
+  "annual_generation_twh": 273,
+  "discount_rate": 0.05,
+  "generators": {
+    "solar": {
+      "capex_usd_kw": 820,
+      "opex_fixed_usd_kw_yr": 14,
+      "opex_var_usd_mwh": 0,
+      "lifetime_yr": 25,
+      "emission_factor_tco2_mwh": 0.0,
+      "cf_base": 0.22,
+      "cf_eff_func": { "type": "logarithmic", "params": { "a": 0.22, "b": 0.07, "c": 2.8 }, "x_min": 0.08, "x_max": 0.28 },
+      "eta_func": { "type": "constant", "params": { "a": 1.0 } },
+      "integration_cost_func": { "type": "quadratic", "params": { "a": 1.8, "b": 0.6, "c": 1.7 } }
+    },
+    "wind_onshore": {
+      "capex_usd_kw": 1320,
+      "opex_fixed_usd_kw_yr": 36,
+      "opex_var_usd_mwh": 0,
+      "lifetime_yr": 25,
+      "emission_factor_tco2_mwh": 0.0,
+      "cf_base": 0.35,
+      "cf_eff_func": { "type": "logarithmic", "params": { "a": 0.35, "b": 0.08, "c": 2.2 }, "x_min": 0.14, "x_max": 0.42 },
+      "eta_func": { "type": "constant", "params": { "a": 1.0 } },
+      "integration_cost_func": { "type": "quadratic", "params": { "a": 2.0, "b": 0.7, "c": 1.9 } }
+    },
+    "gas_ccgt": {
+      "capex_usd_kw": 980,
+      "opex_fixed_usd_kw_yr": 17,
+      "opex_var_usd_mwh": 4,
+      "lifetime_yr": 30,
+      "emission_factor_tco2_mwh": 0.36,
+      "fuel_usd_mmbtu": 10.5,
+      "heat_rate_mmbtu_mwh": 6.3,
+      "cf_base": 0.55,
+      "cf_eff_func": { "type": "linear", "params": { "a": 0.62, "b": -0.52 }, "x_min": 0.1, "x_max": 0.7 },
+      "eta_func": { "type": "logarithmic", "params": { "a": 0.56, "b": 0.06, "c": 2.2 }, "x_min": 0.35, "x_max": 0.59 },
+      "integration_cost_func": { "type": "constant", "params": { "a": 0.9 } }
+    },
+    "coal": {
+      "capex_usd_kw": 2600,
+      "opex_fixed_usd_kw_yr": 42,
+      "opex_var_usd_mwh": 5,
+      "lifetime_yr": 40,
+      "emission_factor_tco2_mwh": 0.92,
+      "fuel_usd_mmbtu": 2.8,
+      "heat_rate_mmbtu_mwh": 9.2,
+      "cf_base": 0.58,
+      "cf_eff_func": { "type": "piecewise", "params": { "intercept": 0.7, "threshold": 0.3, "slope_before": -0.3, "slope_after": -0.75 }, "x_min": 0.12, "x_max": 0.72 },
+      "eta_func": { "type": "logarithmic", "params": { "a": 0.4, "b": 0.05, "c": 2.1 }, "x_min": 0.28, "x_max": 0.42 },
+      "integration_cost_func": { "type": "constant", "params": { "a": 0.7 } }
+    },
+    "nuclear": {
+      "capex_usd_kw": 5200,
+      "opex_fixed_usd_kw_yr": 120,
+      "opex_var_usd_mwh": 4,
+      "lifetime_yr": 40,
+      "emission_factor_tco2_mwh": 0.0,
+      "fuel_usd_mmbtu": 0.7,
+      "heat_rate_mmbtu_mwh": 10.0,
+      "cf_base": 0.85,
+      "cf_eff_func": { "type": "constant", "params": { "a": 0.88 }, "x_min": 0.82, "x_max": 0.92 },
+      "eta_func": { "type": "constant", "params": { "a": 0.33 }, "x_min": 0.3, "x_max": 0.36 },
+      "integration_cost_func": { "type": "constant", "params": { "a": 0.3 } }
+    },
+    "other": {
+      "capex_usd_kw": 1600,
+      "opex_fixed_usd_kw_yr": 28,
+      "opex_var_usd_mwh": 5,
+      "lifetime_yr": 30,
+      "emission_factor_tco2_mwh": 0.08,
+      "fuel_usd_mmbtu": 4.5,
+      "heat_rate_mmbtu_mwh": 7.1,
+      "cf_base": 0.42,
+      "cf_eff_func": { "type": "constant", "params": { "a": 0.42 }, "x_min": 0.25, "x_max": 0.55 },
+      "eta_func": { "type": "constant", "params": { "a": 0.4 }, "x_min": 0.35, "x_max": 0.44 },
+      "integration_cost_func": { "type": "constant", "params": { "a": 0.8 } }
+    }
+  },
+  "ess": {
+    "capex_usd_kwh": 260,
+    "lifetime_yr": 15,
+    "cycles_per_year": 320,
+    "dod": 0.85,
+    "ev_offset_gwh_per_unit": 12000,
+    "requirement_func": { "type": "power", "params": { "a": 0.11, "b": 1.95 } }
+  },
+  "sources": [
+    "IEA World Energy Outlook 2024: https://www.iea.org/reports/world-energy-outlook-2024",
+    "IRENA Renewable Power Generation Costs in 2024: https://www.irena.org/Publications/2025/Jun/Renewable-Power-Generation-Costs-in-2024"
+  ]
+}

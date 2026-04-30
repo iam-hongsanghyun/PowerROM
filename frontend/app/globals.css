@@ -1,0 +1,42 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f4f8ff;
+  --foreground: #0f172a;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-manrope);
+  --font-mono: var(--font-plex-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-manrope), sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+.slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 1rem;
+  width: 1rem;
+  border-radius: 9999px;
+  background: #0f172a;
+  border: 2px solid white;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.25);
+}
+
+.slider::-moz-range-thumb {
+  height: 1rem;
+  width: 1rem;
+  border-radius: 9999px;
+  background: #0f172a;
+  border: 2px solid white;
+}

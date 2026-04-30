@@ -133,10 +133,13 @@ def calculate_system_lcoe(
     shares: dict[str, float],
     carbon_price: float,
     ev_penetration: float = 0.0,
+    annual_demand_twh: float | None = None,
     custom_params: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     base_profile = load_country_profile(country)
     profile = deep_merge(base_profile, custom_params or {})
+    if annual_demand_twh is not None:
+        profile["annual_generation_twh"] = annual_demand_twh
     normalized_shares, normalized = normalize_shares(shares)
     vre_share = sum(normalized_shares.get(key, 0.0) for key in VRE_GENERATORS)
 
@@ -192,6 +195,8 @@ def calculate_system_lcoe(
     ess_metrics = _ess_metrics(profile, vre_share, ev_penetration)
     system_lcoe += ess_metrics["ess_lcoe"]
     stack_components["ess"] = ess_metrics["ess_lcoe"]
+    annual_system_cost_usd_billion = system_lcoe * profile["annual_generation_twh"] / 1000
+    annual_emissions_mtco2 = emission_intensity * profile["annual_generation_twh"]
 
     curve_data: list[dict[str, float]] = []
     base_non_vre = 1.0 - vre_share
@@ -234,9 +239,12 @@ def calculate_system_lcoe(
     return {
         "country": country.upper(),
         "shares": normalized_shares,
+        "annual_demand_twh": profile["annual_generation_twh"],
         "system_lcoe": system_lcoe,
+        "annual_system_cost_usd_billion": annual_system_cost_usd_billion,
         "lcoe_by_generator": breakdowns,
         "emission_intensity": emission_intensity,
+        "annual_emissions_mtco2": annual_emissions_mtco2,
         "ess_requirement_gw": ess_metrics["ess_requirement_gw"],
         "ess_requirement_gwh": ess_metrics["ess_requirement_gwh"],
         "curve_data": curve_data,
@@ -249,6 +257,7 @@ def calculate_system_lcoe(
             "notes": [
                 "ESS cost is modeled separately from generator LCOE.",
                 "Shares are normalized if they do not sum to 1.0 within tolerance.",
+                "Annual demand scales total cost, total emissions, and storage need estimates.",
             ],
         },
     }

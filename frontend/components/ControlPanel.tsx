@@ -7,20 +7,24 @@ export function ControlPanel({
   country,
   carbonPrice,
   evPenetration,
+  annualDemandTwh,
   useCustomParameters,
   onCountryChange,
   onCarbonPriceChange,
   onEvPenetrationChange,
+  onAnnualDemandChange,
   onUseCustomParametersChange,
 }: {
   countries: CountrySummary[];
   country: string;
   carbonPrice: number;
   evPenetration: number;
+  annualDemandTwh: number;
   useCustomParameters: boolean;
   onCountryChange: (country: string) => void;
   onCarbonPriceChange: (value: number) => void;
   onEvPenetrationChange: (value: number) => void;
+  onAnnualDemandChange: (value: number) => void;
   onUseCustomParametersChange: (value: boolean) => void;
 }) {
   return (
@@ -52,6 +56,22 @@ export function ControlPanel({
           step={5}
           value={carbonPrice}
           onChange={(event) => onCarbonPriceChange(Number(event.target.value))}
+          className="h-2 w-full cursor-pointer appearance-none rounded-full bg-slate-200"
+        />
+      </div>
+
+      <div className="space-y-2">
+        <div className="flex items-center justify-between text-sm font-medium text-slate-800">
+          <label>Annual Demand</label>
+          <span>{annualDemandTwh.toFixed(0)} TWh</span>
+        </div>
+        <input
+          type="range"
+          min={50}
+          max={1200}
+          step={10}
+          value={annualDemandTwh}
+          onChange={(event) => onAnnualDemandChange(Number(event.target.value))}
           className="h-2 w-full cursor-pointer appearance-none rounded-full bg-slate-200"
         />
       </div>

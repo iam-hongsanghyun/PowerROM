@@ -17,6 +17,33 @@ import {
   validateGeneratorConfig,
 } from "@/lib/api";
 
+const DEFAULT_COUNTRIES: CountrySummary[] = [
+  {
+    code: "KR",
+    name: "South Korea",
+    annual_generation_twh: 595,
+    discount_rate: 0.05,
+    generators: ["solar", "wind_onshore", "gas_ccgt", "coal", "nuclear", "other"],
+    sources: [],
+  },
+  {
+    code: "AU",
+    name: "Australia",
+    annual_generation_twh: 273,
+    discount_rate: 0.05,
+    generators: ["solar", "wind_onshore", "gas_ccgt", "coal", "nuclear", "other"],
+    sources: [],
+  },
+  {
+    code: "JP",
+    name: "Japan",
+    annual_generation_twh: 988,
+    discount_rate: 0.05,
+    generators: ["solar", "wind_onshore", "gas_ccgt", "coal", "nuclear", "other"],
+    sources: [],
+  },
+];
+
 const SystemLcoeChart = dynamic(
   () => import("@/components/charts/SystemLcoeChart").then((mod) => mod.SystemLcoeChart),
   { ssr: false },
@@ -47,22 +74,39 @@ const DEFAULT_SHARES: Shares = {
 };
 
 export function Dashboard() {
-  const [countries, setCountries] = useState<CountrySummary[]>([]);
+  const [countries, setCountries] = useState<CountrySummary[]>(DEFAULT_COUNTRIES);
   const [country, setCountry] = useState("KR");
   const [shares, setShares] = useState<Shares>(DEFAULT_SHARES);
   const [carbonPrice, setCarbonPrice] = useState(40);
   const [evPenetration, setEvPenetration] = useState(0);
+  const [annualDemandTwh, setAnnualDemandTwh] = useState(595);
   const [useCustomParameters, setUseCustomParameters] = useState(false);
   const [result, setResult] = useState<CalculateResponse | null>(null);
   const [validation, setValidation] = useState<Record<string, Record<string, string | number | null>> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
+  function handleCountryChange(nextCountry: string) {
+    setCountry(nextCountry);
+    const current = countries.find((item) => item.code === nextCountry);
+    if (current) {
+      setAnnualDemandTwh(current.annual_generation_twh);
+    }
+  }
+
   useEffect(() => {
     void fetchCountries()
-      .then((response) => setCountries(response.countries))
-      .catch((requestError: Error) => setError(requestError.message));
-  }, []);
+      .then((response) => {
+        setCountries(response.countries);
+        const current = response.countries.find((item) => item.code === country);
+        if (current) {
+          setAnnualDemandTwh(current.annual_generation_twh);
+        }
+      })
+      .catch(() => {
+        setCountries(DEFAULT_COUNTRIES);
+      });
+  }, [country]);
 
   useEffect(() => {
     startTransition(() => {
@@ -71,6 +115,7 @@ export function Dashboard() {
         shares,
         carbon_price: carbonPrice,
         ev_penetration: evPenetration,
+        annual_demand_twh: annualDemandTwh,
       })
         .then((response) => {
           setResult(response);
@@ -78,7 +123,7 @@ export function Dashboard() {
         })
         .catch((requestError: Error) => setError(requestError.message));
     });
-  }, [country, shares, carbonPrice, evPenetration]);
+  }, [annualDemandTwh, carbonPrice, country, evPenetration, shares]);
 
   async function handleExcelPoints(points: Array<[number, number]>) {
     const fit = await fitCurve({ data_points: points, func_type: "linear" });
@@ -121,10 +166,12 @@ export function Dashboard() {
               country={country}
               carbonPrice={carbonPrice}
               evPenetration={evPenetration}
+              annualDemandTwh={annualDemandTwh}
               useCustomParameters={useCustomParameters}
-              onCountryChange={setCountry}
+              onCountryChange={handleCountryChange}
               onCarbonPriceChange={setCarbonPrice}
               onEvPenetrationChange={setEvPenetration}
+              onAnnualDemandChange={setAnnualDemandTwh}
               onUseCustomParametersChange={setUseCustomParameters}
             />
             <ShareSliders shares={shares} onChange={setShares} />
@@ -175,8 +222,22 @@ export function Dashboard() {
                     </div>
                   </div>
                   <div className="rounded-2xl bg-slate-50 p-4">
+                    <div className="text-xs uppercase tracking-[0.2em] text-slate-500">Annual Cost</div>
+                    <div className="mt-2 text-2xl font-semibold">
+                      ${result?.annual_system_cost_usd_billion.toFixed(1) ?? "--"}B
+                    </div>
+                  </div>
+                  <div className="rounded-2xl bg-slate-50 p-4">
+                    <div className="text-xs uppercase tracking-[0.2em] text-slate-500">Annual Emissions</div>
+                    <div className="mt-2 text-2xl font-semibold">
+                      {result?.annual_emissions_mtco2.toFixed(1) ?? "--"} MtCO2
+                    </div>
+                  </div>
+                  <div className="rounded-2xl bg-slate-50 p-4">
                     <div className="text-xs uppercase tracking-[0.2em] text-slate-500">Status</div>
-                    <div className="mt-2 text-2xl font-semibold">{isPending ? "Updating" : "Ready"}</div>
+                    <div className="mt-2 text-2xl font-semibold">
+                      {error ? "Backend issue" : isPending ? "Updating" : result ? "Ready" : "Waiting"}
+                    </div>
                   </div>
                 </div>
               </div>

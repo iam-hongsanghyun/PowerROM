@@ -15,6 +15,7 @@ def calculate(payload: CalculateRequest) -> CalculateResponse:
         shares=payload.shares,
         carbon_price=payload.carbon_price,
         ev_penetration=payload.ev_penetration,
+        annual_demand_twh=payload.annual_demand_twh,
         custom_params=payload.custom_params,
     )
     return CalculateResponse(**result)

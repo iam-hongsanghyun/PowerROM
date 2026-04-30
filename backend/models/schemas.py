@@ -38,6 +38,7 @@ class CalculateRequest(BaseModel):
     shares: dict[str, float]
     carbon_price: float = Field(ge=0, le=500)
     ev_penetration: float = Field(default=0.0, ge=0.0, le=0.5)
+    annual_demand_twh: float | None = Field(default=None, gt=0)
     custom_params: dict[str, Any] | None = None
 
     @model_validator(mode="after")
@@ -82,9 +83,12 @@ class CalculateResponse(BaseModel):
 
     country: str
     shares: dict[str, float]
+    annual_demand_twh: float
     system_lcoe: float
+    annual_system_cost_usd_billion: float
     lcoe_by_generator: dict[str, dict[str, float | str]]
     emission_intensity: float
+    annual_emissions_mtco2: float
     ess_requirement_gw: float
     ess_requirement_gwh: float
     curve_data: list[CurveDataPoint]

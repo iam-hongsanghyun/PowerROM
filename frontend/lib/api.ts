@@ -41,9 +41,12 @@ export interface DataQuality {
 export interface CalculateResponse {
   country: string;
   shares: Record<string, number>;
+  annual_demand_twh: number;
   system_lcoe: number;
+  annual_system_cost_usd_billion: number;
   lcoe_by_generator: Record<string, Record<string, number | string>>;
   emission_intensity: number;
+  annual_emissions_mtco2: number;
   ess_requirement_gw: number;
   ess_requirement_gwh: number;
   curve_data: CurvePoint[];
@@ -101,6 +104,7 @@ export async function calculateSystem(payload: {
   shares: Shares;
   carbon_price: number;
   ev_penetration?: number;
+  annual_demand_twh?: number;
   custom_params?: Record<string, unknown> | null;
 }): Promise<CalculateResponse> {
   return request<CalculateResponse>("/calculate", {

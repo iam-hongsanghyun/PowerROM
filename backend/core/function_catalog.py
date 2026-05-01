@@ -67,10 +67,31 @@ FUNCTION_PARAM_ORDER: dict[str, list[str]] = {
 def evaluate_function(
     func_type: str,
     params: dict[str, float],
-    x: float | list[float] | np.ndarray,
+    x: float | list[float] | np.ndarray = 0.0,
     x_min: float | None = None,
     x_max: float | None = None,
+    context: dict[str, float] | None = None,
 ) -> float | np.ndarray:
+    """Evaluate a configured function.
+
+    For ``multilinear``, the ``context`` dict supplies each named predictor value.
+    For all other types the standard single-``x`` catalog is used.
+    ``context`` is ignored for non-multilinear types (present for call-site
+    convenience).
+    """
+    if func_type == "multilinear":
+        # params = {intercept: float, <var_name>: slope, ...}
+        ctx = context or {}
+        x_fallback = float(np.asarray(x).flat[0]) if not np.isscalar(x) else float(x)
+        result = float(params.get("intercept", 0.0))
+        for var, slope in params.items():
+            if var == "intercept":
+                continue
+            result += float(slope) * ctx.get(var, x_fallback)
+        lower = -math.inf if x_min is None else float(x_min)
+        upper = math.inf if x_max is None else float(x_max)
+        return float(np.clip(result, lower, upper))
+
     if func_type not in FUNCTION_CATALOG:
         raise ValueError(f"Unsupported function type: {func_type}")
 

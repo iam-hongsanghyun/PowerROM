@@ -13,6 +13,7 @@ AllowedFunctionType = Literal[
     "power",
     "piecewise",
     "constant",
+    "multilinear",
 ]
 
 

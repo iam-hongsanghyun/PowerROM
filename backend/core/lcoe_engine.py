@@ -45,7 +45,11 @@ def normalize_shares(shares: dict[str, float]) -> tuple[dict[str, float], bool]:
     return normalized, normalized_flag
 
 
-def _evaluate_configured_function(config: dict[str, Any], x_value: float) -> float:
+def _evaluate_configured_function(
+    config: dict[str, Any],
+    x_value: float,
+    context: dict[str, float] | None = None,
+) -> float:
     return float(
         evaluate_function(
             func_type=config["type"],
@@ -53,6 +57,7 @@ def _evaluate_configured_function(config: dict[str, Any], x_value: float) -> flo
             x=x_value,
             x_min=config.get("x_min"),
             x_max=config.get("x_max"),
+            context=context,
         )
     )
 
@@ -94,11 +99,11 @@ def _generator_breakdown(
         "non_vre_share": max(0.0, 1.0 - vre_share),
     }
     cf_eff_x = _resolve_x_value(generator_config["cf_eff_func"], vre_share, context)
-    cf_eff = _evaluate_configured_function(generator_config["cf_eff_func"], cf_eff_x)
+    cf_eff = _evaluate_configured_function(generator_config["cf_eff_func"], cf_eff_x, context)
     context["cf_eff"] = cf_eff
 
     eta_x = _resolve_x_value(generator_config["eta_func"], cf_eff, context)
-    eta = _evaluate_configured_function(generator_config["eta_func"], eta_x)
+    eta = _evaluate_configured_function(generator_config["eta_func"], eta_x, context)
     eta_reference = float(generator_config.get("eta_reference", generator_config["eta_func"]["params"].get("a", eta)))
     efficiency_penalty = eta_reference / max(eta, 1e-6)
     capex = (
@@ -121,7 +126,7 @@ def _generator_breakdown(
     emission_factor = float(generator_config.get("emission_factor_tco2_mwh", 0.0))
     carbon = carbon_price * emission_factor * efficiency_penalty
     int_x = _resolve_x_value(generator_config["integration_cost_func"], share, context)
-    integration = _evaluate_configured_function(generator_config["integration_cost_func"], int_x)
+    integration = _evaluate_configured_function(generator_config["integration_cost_func"], int_x, context)
 
     return {
         "generator": generator_name,
@@ -210,11 +215,11 @@ def _curtailment_metrics(
         if "curtailment_func" in gen_cfg:
             ctx = {**base_context, "own_share": share}
             cr_x = _resolve_x_value(gen_cfg["curtailment_func"], effective_vre, ctx)
-            cr = _evaluate_configured_function(gen_cfg["curtailment_func"], cr_x)
+            cr = _evaluate_configured_function(gen_cfg["curtailment_func"], cr_x, ctx)
             cr = max(0.0, min(1.0, cr))
         else:
             cf_base = float(gen_cfg.get("cf_base", 1.0))
-            cf_eff = max(_evaluate_configured_function(gen_cfg["cf_eff_func"], vre_share), 1e-6)
+            cf_eff = max(_evaluate_configured_function(gen_cfg["cf_eff_func"], vre_share, base_context), 1e-6)
             cr = max(0.0, 1.0 - cf_eff / cf_base)
         w_curtail += share * cr
         curtailed_twh += annual_twh * share * cr
@@ -255,11 +260,11 @@ def _ess_metrics(
         if "curtailment_func" in gen_cfg:
             ctx = {**ess_ctx, "own_share": share}
             cr_x = _resolve_x_value(gen_cfg["curtailment_func"], vre_share, ctx)
-            cr = _evaluate_configured_function(gen_cfg["curtailment_func"], cr_x)
+            cr = _evaluate_configured_function(gen_cfg["curtailment_func"], cr_x, ctx)
             cr = max(0.0, min(1.0, cr))
         else:
             cf_base = float(gen_cfg.get("cf_base", 1.0))
-            cf_eff = max(_evaluate_configured_function(gen_cfg["cf_eff_func"], vre_share), 1e-6)
+            cf_eff = max(_evaluate_configured_function(gen_cfg["cf_eff_func"], vre_share, ess_ctx), 1e-6)
             cr = max(0.0, 1.0 - cf_eff / cf_base)
         absorption = float(short.get(f"{gen}_absorption_fraction", 0.4))
         curtailed_gwh = share * annual_twh * 1000 * cr

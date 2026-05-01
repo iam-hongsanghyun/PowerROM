@@ -70,6 +70,7 @@ class CurveDataPoint(BaseModel):
     ess_long_gwh: float = 0.0
     curtailment_rate: float = 0.0
     curtailed_twh: float = 0.0
+    backup_flexibility: float = 1.0
 
 
 class DataQuality(BaseModel):
@@ -103,6 +104,7 @@ class CalculateResponse(BaseModel):
     ess_long_lcoe: float = 0.0
     curtailment_rate: float = 0.0
     curtailed_twh: float = 0.0
+    backup_flexibility: float = 1.0
     curve_data: list[CurveDataPoint]
     stack_components: dict[str, float]
     data_quality: DataQuality

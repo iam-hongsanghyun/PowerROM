@@ -149,12 +149,14 @@ function FunctionChart({
   funcKey,
   xLabel,
   yLabel,
+  fullHeight = false,
 }: {
   generators: string[];
   genConfigs: Record<string, GeneratorConfig>;
   funcKey: "cf_eff_func" | "eta_func" | "integration_cost_func" | "curtailment_func";
   xLabel: string;
   yLabel: string;
+  fullHeight?: boolean;
 }) {
   const xs = Array.from({ length: 51 }, (_, i) => i / 50);
 
@@ -197,7 +199,7 @@ function FunctionChart({
       {formulas.length > 0 && (
         <div className="mb-2 font-mono text-[11px] text-slate-400">{formulas.join("  ·  ")}</div>
       )}
-      <ResponsiveContainer width="100%" height={180}>
+      <ResponsiveContainer width="100%" height={fullHeight ? 340 : 180}>
         <LineChart data={data} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
           <XAxis
             dataKey="x"
@@ -313,6 +315,12 @@ export function ParametersTab({ country }: Props) {
     integration_cost_func: false,
     curtailment_func: false,
     ess: false,
+  });
+  const [funcViewMode, setFuncViewMode] = useState<Record<string, "table" | "chart">>({
+    cf_eff_func: "table",
+    eta_func: "table",
+    integration_cost_func: "table",
+    curtailment_func: "chart",
   });
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -663,6 +671,36 @@ export function ParametersTab({ country }: Props) {
             </div>
             {openSections[funcKey] && (
               <div className="px-4 pb-4">
+                {/* View toggle */}
+                <div className="mb-3 flex items-center gap-1.5">
+                  <span className="text-xs text-slate-400 mr-1">View:</span>
+                  {(["table", "chart"] as const).map((mode) => (
+                    <button
+                      key={mode}
+                      onClick={() => setFuncViewMode((prev) => ({ ...prev, [funcKey]: mode }))}
+                      className={[
+                        "rounded-md px-3 py-1 text-xs font-medium transition",
+                        funcViewMode[funcKey] === mode
+                          ? "bg-slate-900 text-white"
+                          : "bg-slate-100 text-slate-500 hover:bg-slate-200",
+                      ].join(" ")}
+                    >
+                      {mode === "table" ? "📋 Table" : "📈 Chart"}
+                    </button>
+                  ))}
+                </div>
+
+                {funcViewMode[funcKey] === "chart" ? (
+                  /* Chart-only view */
+                  <FunctionChart
+                    generators={activeGenerators}
+                    genConfigs={draft.generators}
+                    funcKey={funcKey}
+                    xLabel={xLabel}
+                    yLabel={yLabel}
+                    fullHeight
+                  />
+                ) : (
                 <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
                   {/* Parameter table */}
                   <div className="overflow-x-auto">
@@ -766,7 +804,7 @@ export function ParametersTab({ country }: Props) {
                     </table>
                   </div>
 
-                  {/* Live chart */}
+                  {/* Live chart (side panel) */}
                   <FunctionChart
                     generators={activeGenerators}
                     genConfigs={draft.generators}
@@ -775,6 +813,7 @@ export function ParametersTab({ country }: Props) {
                     yLabel={yLabel}
                   />
                 </div>
+                )}
               </div>
             )}
           </div>

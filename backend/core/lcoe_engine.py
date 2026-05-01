@@ -105,14 +105,63 @@ def _generator_breakdown(
     }
 
 
+def _backup_flexibility(
+    profile: dict[str, Any],
+    normalized_shares: dict[str, float],
+    vre_share: float,
+) -> float:
+    """Weighted flexibility of non-VRE backup generators (0 = all must-run, 1 = all dispatchable).
+
+    Uses ``1 − variability_factor`` as each generator's flexibility score:
+      - gas_ccgt  (VF=0.00) → flexibility 1.00  (fully dispatchable: can back off instantly)
+      - coal       (VF=0.10) → flexibility 0.90  (slow-ramping, partial flexibility)
+      - nuclear    (VF=0.20) → flexibility 0.80  (must-run baseload: cannot curtail output)
+      - other      (VF=0.30) → flexibility 0.70
+
+    When backup is inflexible (high must-run), VRE cannot be absorbed and must be curtailed
+    even at moderate VRE shares.  When backup is fully dispatchable (gas), the backup simply
+    backs off its output and curtailment is avoided.
+    """
+    non_vre_share = max(0.0, 1.0 - vre_share)
+    if non_vre_share < 1e-6:
+        return 1.0  # Pure VRE system — no backup; profile-only curtailment applies
+    weighted = 0.0
+    for gen, share in normalized_shares.items():
+        if gen in VRE_GENERATORS or share <= 0:
+            continue
+        vf = float(profile["generators"][gen].get("variability_factor", 0.0))
+        flexibility = 1.0 - vf
+        weighted += (share / non_vre_share) * flexibility
+    return max(0.0, min(1.0, weighted))
+
+
 def _curtailment_metrics(
     profile: dict[str, Any],
     normalized_shares: dict[str, float],
     vre_share: float,
 ) -> dict[str, float]:
+    """Curtailment is driven by two factors:
+
+    1. **VRE share** — more VRE → more temporal surplus → more curtailment.
+    2. **Backup flexibility** — dispatchable backup (gas) can back off and absorb VRE
+       output; must-run backup (nuclear, coal) cannot → forces curtailment at the same VRE share.
+
+    The model computes an ``effective_vre`` = VRE_share × flex_scale, where:
+        flex_scale = 1 / backup_flexibility   (range ≈ 1.0 for all-gas to 1.25 for all-nuclear)
+
+    The per-generator ``curtailment_func`` is evaluated at ``effective_vre`` rather than the
+    raw VRE share, so grids with more must-run capacity see higher curtailment.
+    """
     if vre_share <= 0:
-        return {"curtailment_rate": 0.0, "curtailed_twh": 0.0}
+        return {"curtailment_rate": 0.0, "curtailed_twh": 0.0, "backup_flexibility": 1.0}
     annual_twh = profile["annual_generation_twh"]
+
+    # Backup flexibility: how well non-VRE generators can follow / back off
+    backup_flex = _backup_flexibility(profile, normalized_shares, vre_share)
+    # flex_scale > 1 when backup is inflexible (nuclear) → amplifies effective curtailment pressure
+    flex_scale = 1.0 / max(backup_flex, 0.5)   # capped at 2× amplification
+    effective_vre = min(1.0, vre_share * flex_scale)
+
     w_curtail = 0.0
     curtailed_twh = 0.0
     for gen in VRE_GENERATORS:
@@ -121,7 +170,7 @@ def _curtailment_metrics(
             continue
         gen_cfg = profile["generators"][gen]
         if "curtailment_func" in gen_cfg:
-            cr = _evaluate_configured_function(gen_cfg["curtailment_func"], vre_share)
+            cr = _evaluate_configured_function(gen_cfg["curtailment_func"], effective_vre)
             cr = max(0.0, min(1.0, cr))
         else:
             cf_base = float(gen_cfg.get("cf_base", 1.0))
@@ -132,6 +181,7 @@ def _curtailment_metrics(
     return {
         "curtailment_rate": w_curtail / vre_share,
         "curtailed_twh": curtailed_twh,
+        "backup_flexibility": backup_flex,
     }
 
 
@@ -325,6 +375,7 @@ def calculate_system_lcoe(
                 "ess_long_gwh": point_result["ess_long_gwh"],
                 "curtailment_rate": point_result["curtailment_rate"],
                 "curtailed_twh": point_result["curtailed_twh"],
+                "backup_flexibility": point_result["backup_flexibility"],
             }
         )
 
@@ -347,6 +398,7 @@ def calculate_system_lcoe(
         "ess_long_lcoe": ess_metrics["ess_long_lcoe"],
         "curtailment_rate": curtailment_metrics["curtailment_rate"],
         "curtailed_twh": curtailment_metrics["curtailed_twh"],
+        "backup_flexibility": curtailment_metrics["backup_flexibility"],
         "curve_data": curve_data,
         "stack_components": stack_components,
         "data_quality": {
@@ -417,5 +469,6 @@ def calculate_system_lcoe_point(
         "ess_long_gwh": ess_metrics["ess_long_gwh"],
         "curtailment_rate": curtailment_metrics["curtailment_rate"],
         "curtailed_twh": curtailment_metrics["curtailed_twh"],
+        "backup_flexibility": curtailment_metrics["backup_flexibility"],
         "stack_components": stack_components,
     }

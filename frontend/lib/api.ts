@@ -23,6 +23,7 @@ export interface CurvePoint {
   ess_long_gwh: number;
   curtailment_rate: number;
   curtailed_twh: number;
+  backup_flexibility: number;
 }
 
 export interface CountrySummary {
@@ -61,6 +62,7 @@ export interface CalculateResponse {
   ess_long_lcoe: number;
   curtailment_rate: number;
   curtailed_twh: number;
+  backup_flexibility: number;
   curve_data: CurvePoint[];
   stack_components: Record<string, number>;
   data_quality: DataQuality;

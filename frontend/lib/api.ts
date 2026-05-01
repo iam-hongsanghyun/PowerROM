@@ -19,6 +19,10 @@ export interface CurvePoint {
   carbon: number;
   integration: number;
   ess: number;
+  ess_short_gwh: number;
+  ess_long_gwh: number;
+  curtailment_rate: number;
+  curtailed_twh: number;
 }
 
 export interface CountrySummary {
@@ -49,6 +53,14 @@ export interface CalculateResponse {
   annual_emissions_mtco2: number;
   ess_requirement_gw: number;
   ess_requirement_gwh: number;
+  ess_short_gwh: number;
+  ess_short_gw: number;
+  ess_short_lcoe: number;
+  ess_long_gwh: number;
+  ess_long_gw: number;
+  ess_long_lcoe: number;
+  curtailment_rate: number;
+  curtailed_twh: number;
   curve_data: CurvePoint[];
   stack_components: Record<string, number>;
   data_quality: DataQuality;
@@ -172,9 +184,35 @@ export interface GeneratorConfig {
   cf_eff_func?: FuncConfig;
   eta_func?: FuncConfig;
   integration_cost_func?: FuncConfig;
+  variability_factor?: number;
+  curtailment_func?: FuncConfig;
+}
+
+export interface EssShortDurConfig {
+  capex_usd_kwh?: number;
+  lifetime_yr?: number;
+  cycles_per_year?: number;
+  dod?: number;
+  duration_hr?: number;
+  ev_offset_gwh_per_unit?: number;
+  solar_absorption_fraction?: number;
+  wind_onshore_absorption_fraction?: number;
+}
+
+export interface EssLongDurConfig {
+  capex_usd_kwh?: number;
+  lifetime_yr?: number;
+  cycles_per_year?: number;
+  dod?: number;
+  duration_hr?: number;
+  threshold?: number;
+  requirement_func?: FuncConfig;
 }
 
 export interface EssConfig {
+  short_dur?: EssShortDurConfig;
+  long_dur?: EssLongDurConfig;
+  // legacy flat fields
   capex_usd_kwh?: number;
   lifetime_yr?: number;
   cycles_per_year?: number;

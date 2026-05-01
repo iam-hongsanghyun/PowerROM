@@ -105,51 +105,105 @@ def _generator_breakdown(
     }
 
 
+def _curtailment_metrics(
+    profile: dict[str, Any],
+    normalized_shares: dict[str, float],
+    vre_share: float,
+) -> dict[str, float]:
+    if vre_share <= 0:
+        return {"curtailment_rate": 0.0, "curtailed_twh": 0.0}
+    annual_twh = profile["annual_generation_twh"]
+    w_curtail = 0.0
+    curtailed_twh = 0.0
+    for gen in VRE_GENERATORS:
+        share = normalized_shares.get(gen, 0.0)
+        if share <= 0:
+            continue
+        gen_cfg = profile["generators"][gen]
+        if "curtailment_func" in gen_cfg:
+            cr = _evaluate_configured_function(gen_cfg["curtailment_func"], vre_share)
+            cr = max(0.0, min(1.0, cr))
+        else:
+            cf_base = float(gen_cfg.get("cf_base", 1.0))
+            cf_eff = max(_evaluate_configured_function(gen_cfg["cf_eff_func"], vre_share), 1e-6)
+            cr = max(0.0, 1.0 - cf_eff / cf_base)
+        w_curtail += share * cr
+        curtailed_twh += annual_twh * share * cr
+    return {
+        "curtailment_rate": w_curtail / vre_share,
+        "curtailed_twh": curtailed_twh,
+    }
+
+
 def _ess_metrics(
     profile: dict[str, Any],
+    normalized_shares: dict[str, float],
     vre_share: float,
     ev_penetration: float = 0.0,
 ) -> dict[str, float]:
-    """Compute ESS capacity and LCOE contribution.
+    """Compute ESS capacity and LCOE contribution split into short- and long-duration.
 
-    ``requirement_ratio`` represents the fraction of annual electricity generation
-    that must pass through storage.  Physical battery capacity is therefore:
-
-        battery_gwh = annual_throughput_gwh / (cycles_per_year * dod)
-
-    The LCOE contribution ($/MWh of generation) is:
-
-        ess_lcoe = capex [$/kWh] * battery_capacity [kWh] * CRF / annual_gen [MWh]
-                 = capex * CRF * requirement_ratio * 1000 / (cycles * dod)
-
-    The factor of 1000 converts from $/kWh_battery → $/MWh_generated.
+    Short-duration: absorbs curtailed VRE from each generator.
+    Long-duration: last-gap seasonal storage activated above a VRE share threshold.
     """
-    annual_generation_twh = profile["annual_generation_twh"]
-    requirement_ratio = _evaluate_configured_function(profile["ess"]["requirement_func"], vre_share)
-    annual_throughput_gwh = requirement_ratio * annual_generation_twh * 1000  # GWh cycled per year
-    ev_offset = ev_penetration * profile["ess"].get("ev_offset_gwh_per_unit", 0.0)
-    net_throughput_gwh = max(annual_throughput_gwh - ev_offset, 0.0)
+    annual_twh = profile["annual_generation_twh"]
+    ess = profile["ess"]
+    short = ess["short_dur"]
+    long = ess["long_dur"]
 
-    cycles = profile["ess"]["cycles_per_year"]
-    dod = profile["ess"]["dod"]
-    # Physical battery capacity (GWh) — same battery reused cycles×dod times per year
-    ess_gwh = net_throughput_gwh / (cycles * dod)
-    ess_gw = ess_gwh / 4.0  # assume 4-hour discharge duration
+    # Short-duration: curtailment absorption per VRE generator
+    throughput_gwh = 0.0
+    for gen in VRE_GENERATORS:
+        share = normalized_shares.get(gen, 0.0)
+        if share <= 0:
+            continue
+        gen_cfg = profile["generators"][gen]
+        if "curtailment_func" in gen_cfg:
+            cr = _evaluate_configured_function(gen_cfg["curtailment_func"], vre_share)
+            cr = max(0.0, min(1.0, cr))
+        else:
+            cf_base = float(gen_cfg.get("cf_base", 1.0))
+            cf_eff = max(_evaluate_configured_function(gen_cfg["cf_eff_func"], vre_share), 1e-6)
+            cr = max(0.0, 1.0 - cf_eff / cf_base)
+        absorption = float(short.get(f"{gen}_absorption_fraction", 0.4))
+        curtailed_gwh = share * annual_twh * 1000 * cr
+        throughput_gwh += curtailed_gwh * absorption
 
-    # LCOE contribution: $/MWh of generation
-    # = capex [$/kWh] * ess_gwh [GWh] * 10^6 [kWh/GWh] * CRF / (annual_gen_twh [TWh] * 10^6 [MWh/TWh])
-    # = capex * ess_gwh * CRF / annual_gen_twh  [$/MWh]
-    ess_lcoe = (
-        profile["ess"]["capex_usd_kwh"]
-        * crf(profile["discount_rate"], profile["ess"]["lifetime_yr"])
-        * ess_gwh
-        / annual_generation_twh
+    ev_offset = ev_penetration * short.get("ev_offset_gwh_per_unit", 0.0)
+    net_throughput = max(throughput_gwh - ev_offset, 0.0)
+    short_cycles = short["cycles_per_year"]
+    short_dod = short["dod"]
+    short_gwh = net_throughput / (short_cycles * short_dod) if (short_cycles * short_dod) > 0 else 0.0
+    short_gw = short_gwh / float(short.get("duration_hr", 4.0))
+    short_lcoe = (
+        short["capex_usd_kwh"]
+        * crf(profile["discount_rate"], short["lifetime_yr"])
+        * short_gwh
+        / annual_twh
+    )
+
+    # Long-duration: last-gap seasonal storage, VRE-share power law above threshold
+    shifted = max(0.0, vre_share - float(long.get("threshold", 0.65)))
+    long_ratio = _evaluate_configured_function(long["requirement_func"], shifted)
+    long_gwh = (long_ratio * annual_twh * 1000) / (long["cycles_per_year"] * long["dod"])
+    long_gw = long_gwh / float(long.get("duration_hr", 168.0))
+    long_lcoe = (
+        long["capex_usd_kwh"]
+        * crf(profile["discount_rate"], long["lifetime_yr"])
+        * long_gwh
+        / annual_twh
     )
 
     return {
-        "ess_requirement_gwh": ess_gwh,
-        "ess_requirement_gw": ess_gw,
-        "ess_lcoe": ess_lcoe,
+        "ess_requirement_gwh": short_gwh + long_gwh,
+        "ess_requirement_gw": short_gw + long_gw,
+        "ess_lcoe": short_lcoe + long_lcoe,
+        "ess_short_gwh": short_gwh,
+        "ess_short_gw": short_gw,
+        "ess_short_lcoe": short_lcoe,
+        "ess_long_gwh": long_gwh,
+        "ess_long_gw": long_gw,
+        "ess_long_lcoe": long_lcoe,
     }
 
 
@@ -217,7 +271,8 @@ def calculate_system_lcoe(
         for key in ("capex", "fixed_opex", "variable_opex", "fuel", "carbon", "integration"):
             stack_components[key] += share * generator_breakdown[key]
 
-    ess_metrics = _ess_metrics(profile, vre_share, ev_penetration)
+    ess_metrics = _ess_metrics(profile, normalized_shares, vre_share, ev_penetration)
+    curtailment_metrics = _curtailment_metrics(profile, normalized_shares, vre_share)
     system_lcoe += ess_metrics["ess_lcoe"]
     stack_components["ess"] = ess_metrics["ess_lcoe"]
     annual_system_cost_usd_billion = system_lcoe * profile["annual_generation_twh"] / 1000
@@ -245,7 +300,15 @@ def calculate_system_lcoe(
         for key in normalized_shares:
             curve_shares.setdefault(key, 0.0)
 
-        point_result = calculate_system_lcoe_point(profile, curve_shares, carbon_price, ev_penetration)
+        # Guard: if no shares are positive (e.g. 100% VRE portfolio at vre_point=0),
+        # substitute a tiny solar share so the curve point doesn't crash.
+        if sum(max(v, 0.0) for v in curve_shares.values()) <= 0:
+            curve_shares["solar"] = 1e-6
+
+        point_result = calculate_system_lcoe_point(
+            profile, curve_shares, carbon_price, ev_penetration,
+            vre_share_override=vre_point,
+        )
         curve_data.append(
             {
                 "vre_share": vre_point,
@@ -258,6 +321,10 @@ def calculate_system_lcoe(
                 "carbon": point_result["stack_components"]["carbon"],
                 "integration": point_result["stack_components"]["integration"],
                 "ess": point_result["stack_components"]["ess"],
+                "ess_short_gwh": point_result["ess_short_gwh"],
+                "ess_long_gwh": point_result["ess_long_gwh"],
+                "curtailment_rate": point_result["curtailment_rate"],
+                "curtailed_twh": point_result["curtailed_twh"],
             }
         )
 
@@ -272,6 +339,14 @@ def calculate_system_lcoe(
         "annual_emissions_mtco2": annual_emissions_mtco2,
         "ess_requirement_gw": ess_metrics["ess_requirement_gw"],
         "ess_requirement_gwh": ess_metrics["ess_requirement_gwh"],
+        "ess_short_gwh": ess_metrics["ess_short_gwh"],
+        "ess_short_gw": ess_metrics["ess_short_gw"],
+        "ess_short_lcoe": ess_metrics["ess_short_lcoe"],
+        "ess_long_gwh": ess_metrics["ess_long_gwh"],
+        "ess_long_gw": ess_metrics["ess_long_gw"],
+        "ess_long_lcoe": ess_metrics["ess_long_lcoe"],
+        "curtailment_rate": curtailment_metrics["curtailment_rate"],
+        "curtailed_twh": curtailment_metrics["curtailed_twh"],
         "curve_data": curve_data,
         "stack_components": stack_components,
         "data_quality": {
@@ -293,9 +368,14 @@ def calculate_system_lcoe_point(
     shares: dict[str, float],
     carbon_price: float,
     ev_penetration: float = 0.0,
+    vre_share_override: float | None = None,
 ) -> dict[str, Any]:
     normalized_shares, _ = normalize_shares(shares)
-    vre_share = sum(normalized_shares.get(key, 0.0) for key in VRE_GENERATORS)
+    vre_share = (
+        vre_share_override
+        if vre_share_override is not None
+        else sum(normalized_shares.get(key, 0.0) for key in VRE_GENERATORS)
+    )
     system_lcoe = 0.0
     emission_intensity = 0.0
     stack_components = {
@@ -323,7 +403,8 @@ def calculate_system_lcoe_point(
         for key in ("capex", "fixed_opex", "variable_opex", "fuel", "carbon", "integration"):
             stack_components[key] += share * generator_breakdown[key]
 
-    ess_metrics = _ess_metrics(profile, vre_share, ev_penetration)
+    ess_metrics = _ess_metrics(profile, normalized_shares, vre_share, ev_penetration)
+    curtailment_metrics = _curtailment_metrics(profile, normalized_shares, vre_share)
     system_lcoe += ess_metrics["ess_lcoe"]
     stack_components["ess"] = ess_metrics["ess_lcoe"]
 
@@ -332,5 +413,9 @@ def calculate_system_lcoe_point(
         "emission_intensity": emission_intensity,
         "ess_requirement_gw": ess_metrics["ess_requirement_gw"],
         "ess_requirement_gwh": ess_metrics["ess_requirement_gwh"],
+        "ess_short_gwh": ess_metrics["ess_short_gwh"],
+        "ess_long_gwh": ess_metrics["ess_long_gwh"],
+        "curtailment_rate": curtailment_metrics["curtailment_rate"],
+        "curtailed_twh": curtailment_metrics["curtailed_twh"],
         "stack_components": stack_components,
     }

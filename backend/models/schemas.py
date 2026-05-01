@@ -66,6 +66,10 @@ class CurveDataPoint(BaseModel):
     carbon: float
     integration: float
     ess: float
+    ess_short_gwh: float = 0.0
+    ess_long_gwh: float = 0.0
+    curtailment_rate: float = 0.0
+    curtailed_twh: float = 0.0
 
 
 class DataQuality(BaseModel):
@@ -91,6 +95,14 @@ class CalculateResponse(BaseModel):
     annual_emissions_mtco2: float
     ess_requirement_gw: float
     ess_requirement_gwh: float
+    ess_short_gwh: float = 0.0
+    ess_short_gw: float = 0.0
+    ess_short_lcoe: float = 0.0
+    ess_long_gwh: float = 0.0
+    ess_long_gw: float = 0.0
+    ess_long_lcoe: float = 0.0
+    curtailment_rate: float = 0.0
+    curtailed_twh: float = 0.0
     curve_data: list[CurveDataPoint]
     stack_components: dict[str, float]
     data_quality: DataQuality

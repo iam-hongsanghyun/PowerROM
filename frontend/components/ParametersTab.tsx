@@ -33,6 +33,7 @@ const BASIC_FIELDS: Array<{ key: keyof GeneratorConfig; label: string; unit: str
   { key: "fuel_usd_mmbtu", label: "Fuel Cost", unit: "USD/MMBtu", thermal: true },
   { key: "heat_rate_mmbtu_mwh", label: "Heat Rate", unit: "MMBtu/MWh", thermal: true },
   { key: "cf_base", label: "Base CF", unit: "(0–1)" },
+  { key: "variability_factor", label: "Variability Factor", unit: "(0–1)" },
 ];
 
 const FUNC_FIELDS: Array<{ key: "cf_eff_func" | "eta_func" | "integration_cost_func"; label: string }> = [
@@ -218,7 +219,31 @@ export function ParametersTab({ country }: Props) {
   function setEssField(field: string, val: string) {
     if (!draft) return;
     const n = parseNum(val);
-    if (field.startsWith("req_param_")) {
+    if (field.startsWith("short_dur.")) {
+      const k = field.slice("short_dur.".length);
+      const short = draft.ess?.short_dur ?? {};
+      setDraft({ ...draft, ess: { ...draft.ess, short_dur: { ...short, [k]: n } } });
+    } else if (field.startsWith("long_dur.req_param_")) {
+      const pk = field.slice("long_dur.req_param_".length);
+      const long = draft.ess?.long_dur ?? {};
+      const reqFunc = long.requirement_func ?? { type: "power", params: {} };
+      setDraft({
+        ...draft,
+        ess: {
+          ...draft.ess,
+          long_dur: { ...long, requirement_func: { ...reqFunc, params: { ...reqFunc.params, [pk]: n ?? 0 } } },
+        },
+      });
+    } else if (field === "long_dur.req_type") {
+      const long = draft.ess?.long_dur ?? {};
+      const reqFunc = long.requirement_func ?? { type: "power", params: {} };
+      setDraft({ ...draft, ess: { ...draft.ess, long_dur: { ...long, requirement_func: { ...reqFunc, type: val } } } });
+    } else if (field.startsWith("long_dur.")) {
+      const k = field.slice("long_dur.".length);
+      const long = draft.ess?.long_dur ?? {};
+      setDraft({ ...draft, ess: { ...draft.ess, long_dur: { ...long, [k]: n } } });
+    } else if (field.startsWith("req_param_")) {
+      // legacy flat
       const pk = field.replace("req_param_", "");
       const reqFunc = draft.ess?.requirement_func ?? { type: "power", params: {} };
       setDraft({
@@ -548,44 +573,123 @@ export function ParametersTab({ country }: Props) {
           />
         </div>
         {openSections.ess && (
-          <div className="px-4 pb-4">
-            <table className="w-full text-sm max-w-md">
-              <tbody className="divide-y divide-slate-50">
-                {[
-                  { field: "capex_usd_kwh", label: "CAPEX", unit: "USD/kWh" },
-                  { field: "lifetime_yr", label: "Lifetime", unit: "yr" },
-                  { field: "cycles_per_year", label: "Cycles/year", unit: "" },
-                  { field: "dod", label: "Depth of Discharge", unit: "(0–1)" },
-                  { field: "ev_offset_gwh_per_unit", label: "EV Offset", unit: "GWh/unit" },
-                ].map(({ field, label, unit }) => (
-                  <TableRow key={field} label={label} unit={unit}>
-                    <Cell
-                      value={num((draft.ess as Record<string, number | undefined>)[field])}
-                      onChange={(v) => setEssField(field, v)}
-                    />
+          <div className="px-4 pb-4 space-y-4">
+            {draft.ess?.short_dur !== undefined ? (
+              <>
+                {/* Short-duration */}
+                <div>
+                  <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Short-Duration (4 hr)</p>
+                  <table className="w-full text-sm max-w-md">
+                    <tbody className="divide-y divide-slate-50">
+                      {[
+                        { field: "short_dur.capex_usd_kwh", label: "CAPEX", unit: "USD/kWh" },
+                        { field: "short_dur.lifetime_yr", label: "Lifetime", unit: "yr" },
+                        { field: "short_dur.cycles_per_year", label: "Cycles/year", unit: "" },
+                        { field: "short_dur.dod", label: "Depth of Discharge", unit: "(0–1)" },
+                        { field: "short_dur.duration_hr", label: "Duration", unit: "hr" },
+                        { field: "short_dur.ev_offset_gwh_per_unit", label: "EV Offset", unit: "GWh/unit" },
+                        { field: "short_dur.solar_absorption_fraction", label: "Solar Absorption", unit: "(0–1)" },
+                        { field: "short_dur.wind_onshore_absorption_fraction", label: "Wind Absorption", unit: "(0–1)" },
+                      ].map(({ field, label, unit }) => {
+                        const k = field.slice("short_dur.".length) as keyof typeof draft.ess.short_dur;
+                        return (
+                          <TableRow key={field} label={label} unit={unit}>
+                            <Cell
+                              value={num(draft.ess?.short_dur?.[k] as number | undefined)}
+                              onChange={(v) => setEssField(field, v)}
+                            />
+                          </TableRow>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                {/* Long-duration */}
+                <div>
+                  <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Long-Duration (168 hr)</p>
+                  <table className="w-full text-sm max-w-md">
+                    <tbody className="divide-y divide-slate-50">
+                      {[
+                        { field: "long_dur.capex_usd_kwh", label: "CAPEX", unit: "USD/kWh" },
+                        { field: "long_dur.lifetime_yr", label: "Lifetime", unit: "yr" },
+                        { field: "long_dur.cycles_per_year", label: "Cycles/year", unit: "" },
+                        { field: "long_dur.dod", label: "Depth of Discharge", unit: "(0–1)" },
+                        { field: "long_dur.duration_hr", label: "Duration", unit: "hr" },
+                        { field: "long_dur.threshold", label: "VRE Threshold", unit: "(0–1)" },
+                      ].map(({ field, label, unit }) => {
+                        const k = field.slice("long_dur.".length) as keyof typeof draft.ess.long_dur;
+                        return (
+                          <TableRow key={field} label={label} unit={unit}>
+                            <Cell
+                              value={num(draft.ess?.long_dur?.[k] as number | undefined)}
+                              onChange={(v) => setEssField(field, v)}
+                            />
+                          </TableRow>
+                        );
+                      })}
+                      <TableRow label="Req. Func Type" unit="">
+                        <select
+                          value={draft.ess?.long_dur?.requirement_func?.type ?? "power"}
+                          onChange={(e) => setEssField("long_dur.req_type", e.target.value)}
+                          className="rounded border border-slate-200 bg-white px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-sky-300"
+                        >
+                          {FUNC_TYPES.map((t) => (
+                            <option key={t} value={t}>{t}</option>
+                          ))}
+                        </select>
+                      </TableRow>
+                      {Object.entries(draft.ess?.long_dur?.requirement_func?.params ?? {}).map(([pk, pv]) => (
+                        <TableRow key={pk} label={`  param: ${pk}`} unit="">
+                          <Cell
+                            value={num(pv)}
+                            onChange={(v) => setEssField(`long_dur.req_param_${pk}`, v)}
+                          />
+                        </TableRow>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            ) : (
+              /* Legacy flat ESS */
+              <table className="w-full text-sm max-w-md">
+                <tbody className="divide-y divide-slate-50">
+                  {[
+                    { field: "capex_usd_kwh", label: "CAPEX", unit: "USD/kWh" },
+                    { field: "lifetime_yr", label: "Lifetime", unit: "yr" },
+                    { field: "cycles_per_year", label: "Cycles/year", unit: "" },
+                    { field: "dod", label: "Depth of Discharge", unit: "(0–1)" },
+                    { field: "ev_offset_gwh_per_unit", label: "EV Offset", unit: "GWh/unit" },
+                  ].map(({ field, label, unit }) => (
+                    <TableRow key={field} label={label} unit={unit}>
+                      <Cell
+                        value={num((draft.ess as Record<string, number | undefined>)[field])}
+                        onChange={(v) => setEssField(field, v)}
+                      />
+                    </TableRow>
+                  ))}
+                  <TableRow label="Requirement Func Type" unit="">
+                    <select
+                      value={draft.ess?.requirement_func?.type ?? "power"}
+                      onChange={(e) => setEssField("req_type", e.target.value)}
+                      className="rounded border border-slate-200 bg-white px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-sky-300"
+                    >
+                      {FUNC_TYPES.map((t) => (
+                        <option key={t} value={t}>{t}</option>
+                      ))}
+                    </select>
                   </TableRow>
-                ))}
-                <TableRow label="Requirement Func Type" unit="">
-                  <select
-                    value={draft.ess?.requirement_func?.type ?? "power"}
-                    onChange={(e) => setEssField("req_type", e.target.value)}
-                    className="rounded border border-slate-200 bg-white px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-sky-300"
-                  >
-                    {FUNC_TYPES.map((t) => (
-                      <option key={t} value={t}>{t}</option>
-                    ))}
-                  </select>
-                </TableRow>
-                {Object.entries(draft.ess?.requirement_func?.params ?? {}).map(([pk, pv]) => (
-                  <TableRow key={pk} label={`  param: ${pk}`} unit="">
-                    <Cell
-                      value={num(pv)}
-                      onChange={(v) => setEssField(`req_param_${pk}`, v)}
-                    />
-                  </TableRow>
-                ))}
-              </tbody>
-            </table>
+                  {Object.entries(draft.ess?.requirement_func?.params ?? {}).map(([pk, pv]) => (
+                    <TableRow key={pk} label={`  param: ${pk}`} unit="">
+                      <Cell
+                        value={num(pv)}
+                        onChange={(v) => setEssField(`req_param_${pk}`, v)}
+                      />
+                    </TableRow>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </div>
         )}
       </div>

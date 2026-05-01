@@ -33,12 +33,13 @@ GENERATOR_BASIC_COLS: list[str] = [
     "fuel_usd_mmbtu",
     "heat_rate_mmbtu_mwh",
     "cf_base",
+    "variability_factor",
 ]
 
 # All possible function param keys across all function types
 FUNC_PARAM_COLS: list[str] = ["a", "b", "c", "intercept", "threshold", "slope_before", "slope_after"]
 
-FUNC_SHEETS: list[str] = ["cf_eff_func", "eta_func", "integration_cost_func"]
+FUNC_SHEETS: list[str] = ["cf_eff_func", "eta_func", "integration_cost_func", "curtailment_func"]
 
 # Styling
 HEADER_FILL = PatternFill("solid", fgColor="1E293B")
@@ -153,19 +154,32 @@ def _write_ess_sheet(wb: Workbook, profile: dict) -> None:
         _style_header(cell)
 
     ess: dict = profile.get("ess", {})
-    req_func: dict = ess.get("requirement_func", {})
-    req_params: dict = req_func.get("params", {})
+    rows: list[tuple[str, Any]] = []
 
-    rows = [
-        ("capex_usd_kwh", ess.get("capex_usd_kwh", "")),
-        ("lifetime_yr", ess.get("lifetime_yr", "")),
-        ("cycles_per_year", ess.get("cycles_per_year", "")),
-        ("dod", ess.get("dod", "")),
-        ("ev_offset_gwh_per_unit", ess.get("ev_offset_gwh_per_unit", "")),
-        ("requirement_func_type", req_func.get("type", "")),
-    ]
-    for pk, pv in req_params.items():
-        rows.append((f"requirement_func_{pk}", pv))
+    if "short_dur" in ess:
+        short = ess["short_dur"]
+        for k, v in short.items():
+            if not isinstance(v, dict):
+                rows.append((f"short_dur.{k}", v))
+    else:
+        # legacy flat
+        for k, v in ess.items():
+            if k != "requirement_func" and not isinstance(v, dict):
+                rows.append((k, v))
+        req_func = ess.get("requirement_func", {})
+        rows.append(("requirement_func_type", req_func.get("type", "")))
+        for pk, pv in req_func.get("params", {}).items():
+            rows.append((f"requirement_func_{pk}", pv))
+
+    if "long_dur" in ess:
+        long = ess["long_dur"]
+        for k, v in long.items():
+            if k == "requirement_func":
+                rows.append(("long_dur.requirement_func_type", v.get("type", "")))
+                for pk, pv in v.get("params", {}).items():
+                    rows.append((f"long_dur.requirement_func_{pk}", pv))
+            elif not isinstance(v, dict):
+                rows.append((f"long_dur.{k}", v))
 
     for r, (k, v) in enumerate(rows, 2):
         ws.cell(row=r, column=1, value=k)
@@ -293,9 +307,14 @@ def _read_ess_sheet(wb: Workbook) -> dict:
     rows = _sheet_rows(wb, "ess")
     if not rows:
         return {}
-    ess: dict = {}
-    req_func_type = None
-    req_params: dict = {}
+
+    short: dict = {}
+    long: dict = {}
+    long_req_type = None
+    long_req_params: dict = {}
+    legacy: dict = {}
+    legacy_req_type = None
+    legacy_req_params: dict = {}
 
     for row in rows[1:]:
         if not row or row[0] is None:
@@ -303,18 +322,38 @@ def _read_ess_sheet(wb: Workbook) -> dict:
         key, value = str(row[0]), row[1]
         if value is None or value == "":
             continue
-        if key == "requirement_func_type":
-            req_func_type = str(value)
+        val = float(value) if isinstance(value, (int, float)) else value
+
+        if key.startswith("short_dur."):
+            short[key[len("short_dur."):]] = val
+        elif key.startswith("long_dur.requirement_func_type"):
+            long_req_type = str(value)
+        elif key.startswith("long_dur.requirement_func_"):
+            pk = key[len("long_dur.requirement_func_"):]
+            long_req_params[pk] = float(value)
+        elif key.startswith("long_dur."):
+            long[key[len("long_dur."):]] = val
+        elif key == "requirement_func_type":
+            legacy_req_type = str(value)
         elif key.startswith("requirement_func_"):
             pk = key[len("requirement_func_"):]
-            req_params[pk] = float(value)
+            legacy_req_params[pk] = float(value)
         else:
-            ess[key] = float(value) if isinstance(value, (int, float)) else value
+            legacy[key] = val
 
-    if req_func_type:
-        ess["requirement_func"] = {"type": req_func_type, "params": req_params}
-
-    return ess
+    if short or long:
+        result: dict = {}
+        if short:
+            result["short_dur"] = short
+        if long:
+            if long_req_type:
+                long["requirement_func"] = {"type": long_req_type, "params": long_req_params}
+            result["long_dur"] = long
+        return result
+    else:
+        if legacy_req_type:
+            legacy["requirement_func"] = {"type": legacy_req_type, "params": legacy_req_params}
+        return legacy
 
 
 # ---------------------------------------------------------------------------

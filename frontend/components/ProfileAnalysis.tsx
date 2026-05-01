@@ -135,7 +135,7 @@ export function ProfileAnalysis({
         carbon_price: price,
         ev_penetration: evPenetration,
         annual_demand_twh: annualDemandTwh,
-        custom_params: { ess: { capex_usd_kwh: essCostUsdKwh } },
+        custom_params: { ess: { short_dur: { capex_usd_kwh: essCostUsdKwh } } },
       }),
     );
 
@@ -215,10 +215,29 @@ export function ProfileAnalysis({
     hovertemplate: `${label}: $%{y:.1f}/MWh<extra></extra>`,
   }));
 
+  // Secondary Y-axis: curtailment rate
+  const curtailmentTrace: Plotly.Data = {
+    type: "scatter" as const,
+    mode: "lines" as const,
+    name: "Curtailment Rate",
+    x: vrePct,
+    y: curve.map((p) => p.curtailment_rate * 100),
+    yaxis: "y2",
+    line: { color: "#f97316", width: 1.5, dash: "dash" as const },
+    hovertemplate: "Curtailment: %{y:.1f}%<extra></extra>",
+  };
+
   const chart1Layout: Partial<Plotly.Layout> = {
     ...PLOT_BASE,
     xaxis: { title: { text: "VRE Share (%)" }, gridcolor: "#e2e8f0", range: [0, 100] },
     yaxis: { title: { text: "LCOE ($/MWh)" }, gridcolor: "#e2e8f0" },
+    yaxis2: {
+      title: { text: "Curtailment (%)" },
+      overlaying: "y",
+      side: "right",
+      gridcolor: "rgba(0,0,0,0)",
+      range: [0, 100],
+    },
     shapes: [
       vertLine(currentVrePct),
       {
@@ -434,6 +453,63 @@ export function ProfileAnalysis({
     ],
   };
 
+  // ─── Chart 5: ESS split (short + long duration) ─────────────────────────────
+  const essShortTrace: Plotly.Data = {
+    type: "scatter" as const,
+    mode: "lines" as const,
+    name: "Short-duration ESS",
+    x: vrePct,
+    y: curve.map((p) => p.ess_short_gwh),
+    stackgroup: "ess",
+    fillcolor: "#3b82f6cc",
+    line: { color: "#3b82f6", width: 0.5 },
+    hovertemplate: "Short ESS: %{y:.0f} GWh @ %{x:.0f}% VRE<extra></extra>",
+  };
+
+  const essLongTrace: Plotly.Data = {
+    type: "scatter" as const,
+    mode: "lines" as const,
+    name: "Long-duration ESS",
+    x: vrePct,
+    y: curve.map((p) => p.ess_long_gwh),
+    stackgroup: "ess",
+    fillcolor: "#8b5cf6cc",
+    line: { color: "#8b5cf6", width: 0.5 },
+    hovertemplate: "Long ESS: %{y:.0f} GWh @ %{x:.0f}% VRE<extra></extra>",
+  };
+
+  const chart5Layout: Partial<Plotly.Layout> = {
+    ...PLOT_BASE,
+    xaxis: { title: { text: "VRE Share (%)" }, gridcolor: "#e2e8f0", range: [0, 100] },
+    yaxis: { title: { text: "Storage Capacity (GWh)" }, gridcolor: "#e2e8f0" },
+    shapes: [
+      vertLine(currentVrePct),
+      {
+        type: "line",
+        xref: "x",
+        yref: "paper",
+        x0: 65,
+        x1: 65,
+        y0: 0,
+        y1: 1,
+        line: { color: "#8b5cf6", width: 1.5, dash: "dash" },
+      },
+    ],
+    annotations: [
+      {
+        x: 65,
+        y: 1,
+        xref: "x",
+        yref: "paper",
+        text: "65% VRE (long-dur threshold)",
+        showarrow: false,
+        font: { size: 9, color: "#8b5cf6" },
+        xanchor: "left",
+        yanchor: "top",
+      },
+    ],
+  };
+
   // ─── Render ──────────────────────────────────────────────────────────────────
 
   // Find min-LCOE point
@@ -476,10 +552,10 @@ export function ProfileAnalysis({
       <div className="grid gap-6 lg:grid-cols-2">
         <ChartCard
           title="Cost Composition vs VRE Share"
-          subtitle="How CAPEX, fuel, carbon, integration and storage costs evolve as renewables grow"
+          subtitle="How CAPEX, fuel, carbon, integration and storage costs evolve as renewables grow (dashed = curtailment %)"
         >
           <Plot
-            data={stackTraces}
+            data={[...stackTraces, curtailmentTrace]}
             layout={chart1Layout}
             config={PLOT_CONFIG}
             style={{ width: "100%", height: "100%" }}
@@ -525,6 +601,23 @@ export function ProfileAnalysis({
             useResizeHandler
           />
         </ChartCard>
+      </div>
+
+      {/* Chart 5: ESS split — full width */}
+      <div className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-[0_20px_80px_-48px_rgba(15,23,42,0.35)]">
+        <div className="mb-3">
+          <h3 className="text-sm font-semibold text-slate-800">Storage Capacity Split: Short- vs Long-Duration</h3>
+          <p className="text-xs text-slate-400">Stacked GWh required by storage tier vs VRE share — long-duration kicks in above 65% VRE (purple dashed line)</p>
+        </div>
+        <div style={{ height: 280 }}>
+          <Plot
+            data={[essShortTrace, essLongTrace]}
+            layout={chart5Layout}
+            config={PLOT_CONFIG}
+            style={{ width: "100%", height: "100%" }}
+            useResizeHandler
+          />
+        </div>
       </div>
     </div>
   );

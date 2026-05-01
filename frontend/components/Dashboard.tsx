@@ -101,7 +101,7 @@ export function Dashboard() {
         carbon_price: carbonPrice,
         ev_penetration: evPenetration,
         annual_demand_twh: annualDemandTwh,
-        custom_params: { ess: { capex_usd_kwh: essCostUsdKwh } },
+        custom_params: { ess: { short_dur: { capex_usd_kwh: essCostUsdKwh } } },
       })
         .then((response) => {
           setResult(response);
@@ -214,6 +214,14 @@ export function Dashboard() {
                       ESS:{" "}
                       <strong className="text-slate-900">
                         {result?.ess_requirement_gwh.toFixed(0) ?? "--"} GWh
+                        ({result?.ess_short_gwh.toFixed(0) ?? "--"} S + {result?.ess_long_gwh.toFixed(0) ?? "--"} L)
+                      </strong>
+                    </span>
+                    <span className="text-slate-500">
+                      Curtailment:{" "}
+                      <strong className="text-slate-900">
+                        {result ? (result.curtailment_rate * 100).toFixed(1) : "--"}%
+                        ({result?.curtailed_twh.toFixed(0) ?? "--"} TWh/yr)
                       </strong>
                     </span>
                     <span className="text-slate-500">

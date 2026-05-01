@@ -906,9 +906,11 @@ function TableRow({
 
 interface Props {
   country: string;
+  /** Called whenever the user edits parameters (null = reset to server defaults). */
+  onProfileEdited?: (draft: CountryProfile | null) => void;
 }
 
-export function ParametersTab({ country }: Props) {
+export function ParametersTab({ country, onProfileEdited }: Props) {
   const [original, setOriginal] = useState<CountryProfile | null>(null);
   const [draft, setDraft] = useState<CountryProfile | null>(null);
   const [loading, setLoading] = useState(false);
@@ -928,12 +930,21 @@ export function ParametersTab({ country }: Props) {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Update draft AND notify parent so edits propagate to calculations immediately.
+  // Only call this from user-triggered actions, not from the initial server fetch.
+  function updateDraft(next: CountryProfile) {
+    setDraft(next);
+    onProfileEdited?.(next);
+  }
+
   useEffect(() => {
     setLoading(true);
     setError(null);
     fetchProfile(country)
       .then((p) => {
         setOriginal(p);
+        // Use setDraft (not updateDraft) — initial fetch should NOT override the
+        // parent's customProfile with server defaults.
         setDraft(cloneDeep(p));
       })
       .catch((e: Error) => setError(e.message))
@@ -949,28 +960,29 @@ export function ParametersTab({ country }: Props) {
   function setCountryField(field: "annual_generation_twh" | "discount_rate", val: string) {
     if (!draft) return;
     const n = parseNum(val);
-    setDraft({ ...draft, [field]: n ?? draft[field] });
+    updateDraft({ ...draft, [field]: n ?? draft[field] });
   }
 
   function setGenField(gen: string, field: keyof GeneratorConfig, val: string) {
     if (!draft) return;
     const n = parseNum(val);
     const prev = draft.generators[gen] ?? {};
-    setDraft({ ...draft, generators: { ...draft.generators, [gen]: { ...prev, [field]: n } } });
+    updateDraft({ ...draft, generators: { ...draft.generators, [gen]: { ...prev, [field]: n } } });
   }
 
   function setEssField(field: string, val: string) {
     if (!draft) return;
     const n = parseNum(val);
+    let next: CountryProfile;
     if (field.startsWith("short_dur.")) {
       const k = field.slice("short_dur.".length);
       const short = draft.ess?.short_dur ?? {};
-      setDraft({ ...draft, ess: { ...draft.ess, short_dur: { ...short, [k]: n } } });
+      next = { ...draft, ess: { ...draft.ess, short_dur: { ...short, [k]: n } } };
     } else if (field.startsWith("long_dur.req_param_")) {
       const pk = field.slice("long_dur.req_param_".length);
       const long = draft.ess?.long_dur ?? {};
       const reqFunc = long.requirement_func ?? { type: "power", params: {} };
-      setDraft({
+      next = {
         ...draft,
         ess: {
           ...draft.ess,
@@ -979,34 +991,35 @@ export function ParametersTab({ country }: Props) {
             requirement_func: { ...reqFunc, params: { ...reqFunc.params, [pk]: n ?? 0 } },
           },
         },
-      });
+      };
     } else if (field === "long_dur.req_type") {
       const long = draft.ess?.long_dur ?? {};
       const reqFunc = long.requirement_func ?? { type: "power", params: {} };
-      setDraft({
+      next = {
         ...draft,
         ess: { ...draft.ess, long_dur: { ...long, requirement_func: { ...reqFunc, type: val } } },
-      });
+      };
     } else if (field.startsWith("long_dur.")) {
       const k = field.slice("long_dur.".length);
       const long = draft.ess?.long_dur ?? {};
-      setDraft({ ...draft, ess: { ...draft.ess, long_dur: { ...long, [k]: n } } });
+      next = { ...draft, ess: { ...draft.ess, long_dur: { ...long, [k]: n } } };
     } else if (field.startsWith("req_param_")) {
       const pk = field.replace("req_param_", "");
       const reqFunc = draft.ess?.requirement_func ?? { type: "power", params: {} };
-      setDraft({
+      next = {
         ...draft,
         ess: {
           ...draft.ess,
           requirement_func: { ...reqFunc, params: { ...reqFunc.params, [pk]: n ?? 0 } },
         },
-      });
+      };
     } else if (field === "req_type") {
       const reqFunc = draft.ess?.requirement_func ?? { type: "power", params: {} };
-      setDraft({ ...draft, ess: { ...draft.ess, requirement_func: { ...reqFunc, type: val } } });
+      next = { ...draft, ess: { ...draft.ess, requirement_func: { ...reqFunc, type: val } } };
     } else {
-      setDraft({ ...draft, ess: { ...draft.ess, [field]: n } });
+      next = { ...draft, ess: { ...draft.ess, [field]: n } };
     }
+    updateDraft(next);
   }
 
   // Open the editor popup for a generator
@@ -1023,7 +1036,7 @@ export function ParametersTab({ country }: Props) {
   function handleApplyEdit(newFunc: FuncConfig) {
     if (!editingGen || !draft) return;
     const genCfg = draft.generators[editingGen] ?? {};
-    setDraft({
+    updateDraft({
       ...draft,
       generators: {
         ...draft.generators,
@@ -1041,6 +1054,9 @@ export function ParametersTab({ country }: Props) {
       const savedProfile = await saveProfile(country, draft);
       setOriginal(savedProfile);
       setDraft(cloneDeep(savedProfile));
+      // Server now has the saved values — clear customProfile so calculations
+      // use the server profile directly (no redundant custom_params).
+      onProfileEdited?.(null);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch (e: unknown) {
@@ -1051,7 +1067,11 @@ export function ParametersTab({ country }: Props) {
   }
 
   function handleReset() {
-    if (original) setDraft(cloneDeep(original));
+    if (original) {
+      setDraft(cloneDeep(original));
+      // Reset: back to server defaults, clear parent's customProfile.
+      onProfileEdited?.(null);
+    }
   }
 
   async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -1068,6 +1088,8 @@ export function ParametersTab({ country }: Props) {
       const newProfile = (await res.json()) as CountryProfile;
       setOriginal(newProfile);
       setDraft(cloneDeep(newProfile));
+      // Uploaded profile is now on the server — clear customProfile.
+      onProfileEdited?.(null);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch (err: unknown) {

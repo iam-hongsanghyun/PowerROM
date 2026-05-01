@@ -17,6 +17,7 @@ import {
   fetchCountries,
   fitCurve,
   type CalculateResponse,
+  type CountryProfile,
   type CountrySummary,
   type Shares,
   validateGeneratorConfig,
@@ -67,6 +68,9 @@ export function Dashboard() {
   const [annualDemandTwh, setAnnualDemandTwh] = useState(595);
   const [essCostUsdKwh, setEssCostUsdKwh] = useState(280);
   const [useCustomParameters, setUseCustomParameters] = useState(false);
+  // Holds the user's in-progress parameter edits from the Parameters tab.
+  // Persists across tab switches; reset only on country change or explicit reset.
+  const [customProfile, setCustomProfile] = useState<CountryProfile | null>(null);
   const [result, setResult] = useState<CalculateResponse | null>(null);
   const [validation, setValidation] = useState<Record<string, Record<string, string | number | null>> | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -75,6 +79,7 @@ export function Dashboard() {
 
   function handleCountryChange(nextCountry: string) {
     setCountry(nextCountry);
+    setCustomProfile(null); // clear edits when switching country
     const current = countries.find((item) => item.code === nextCountry);
     if (current) {
       setAnnualDemandTwh(current.annual_generation_twh);
@@ -96,6 +101,21 @@ export function Dashboard() {
   }, [country]);
 
   useEffect(() => {
+    // Build custom_params: merge the user's profile edits (if any) with the
+    // sidebar ESS-cost slider. The sidebar always wins for ESS capex.
+    const custom_params: Record<string, unknown> = customProfile
+      ? ({
+          ...customProfile,
+          ess: {
+            ...customProfile.ess,
+            short_dur: {
+              ...(customProfile.ess?.short_dur ?? {}),
+              capex_usd_kwh: essCostUsdKwh,
+            },
+          },
+        } as Record<string, unknown>)
+      : { ess: { short_dur: { capex_usd_kwh: essCostUsdKwh } } };
+
     startTransition(() => {
       void calculateSystem({
         country,
@@ -103,7 +123,7 @@ export function Dashboard() {
         carbon_price: carbonPrice,
         ev_penetration: evPenetration,
         annual_demand_twh: annualDemandTwh,
-        custom_params: { ess: { short_dur: { capex_usd_kwh: essCostUsdKwh } } },
+        custom_params,
       })
         .then((response) => {
           setResult(response);
@@ -111,7 +131,7 @@ export function Dashboard() {
         })
         .catch((requestError: Error) => setError(requestError.message));
     });
-  }, [annualDemandTwh, carbonPrice, country, essCostUsdKwh, evPenetration, shares]);
+  }, [annualDemandTwh, carbonPrice, country, customProfile, essCostUsdKwh, evPenetration, shares]);
 
   async function handleExcelPoints(points: Array<[number, number]>) {
     const fit = await fitCurve({ data_points: points, func_type: "linear" });
@@ -250,6 +270,11 @@ export function Dashboard() {
                         ${result?.annual_system_cost_usd_billion.toFixed(1) ?? "--"}B
                       </strong>
                     </span>
+                    {customProfile && (
+                      <span className="rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">
+                        Custom params active
+                      </span>
+                    )}
                     <span
                       className={
                         error
@@ -299,9 +324,12 @@ export function Dashboard() {
                 )}
               </Tabs.Content>
 
-              {/* Parameters tab */}
-              <Tabs.Content value="parameters">
-                <ParametersTab country={country} />
+              {/* Parameters tab — forceMount keeps state alive across tab switches */}
+              <Tabs.Content value="parameters" forceMount className="data-[state=inactive]:hidden">
+                <ParametersTab
+                  country={country}
+                  onProfileEdited={setCustomProfile}
+                />
               </Tabs.Content>
             </Tabs.Root>
           </main>

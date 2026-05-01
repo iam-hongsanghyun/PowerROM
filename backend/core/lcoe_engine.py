@@ -12,6 +12,35 @@ from backend.core.function_catalog import evaluate_function
 PROFILE_DIR = Path(__file__).resolve().parents[1] / "data" / "country_profiles"
 VRE_GENERATORS = {"solar", "wind_onshore"}
 
+# ── Model constants ────────────────────────────────────────────────────────────
+# These are the only numeric literals that are NOT read from country profiles.
+# If you change a profile JSON field that mirrors one of these, update it here too.
+
+# Curtailment / flexibility
+# Minimum effective backup flexibility used as a denominator so flex_scale
+# never exceeds 1/0.5 = 2×.  Prevents extreme curtailment amplification for
+# pathological portfolios (e.g. 100 % nuclear + trace VRE).
+_MIN_BACKUP_FLEXIBILITY: float = 0.5
+
+# Fraction of curtailed GWh that short-duration batteries can absorb.
+# Used only when the profile does NOT specify `{gen}_absorption_fraction`.
+# Profiles should always define this field; 0.4 is a conservative mid-point.
+_DEFAULT_ABSORPTION_FRACTION: float = 0.4
+
+# ESS parameter fallbacks — used when the profile key is missing.
+# Profile JSON files should always define these; the fallbacks keep the engine
+# from crashing on incomplete or legacy profiles.
+_DEFAULT_SHORT_DURATION_HR: float = 4.0    # 4-hour lithium-ion day battery
+_DEFAULT_LONG_DURATION_HR: float = 168.0   # 7-day (1-week) seasonal storage
+_DEFAULT_LONG_THRESHOLD: float = 0.65      # VRE share above which seasonal storage activates
+
+# Share normalisation tolerance: shares are considered already normalised when
+# |sum − 1| ≤ this value (avoids floating-point noise triggering the flag).
+_NORMALISATION_TOLERANCE: float = 0.001
+
+# Numerical floor on effective capacity factor / efficiency to prevent ÷0.
+_CF_FLOOR: float = 1e-6
+
 
 def crf(discount_rate: float, lifetime_years: float) -> float:
     numerator = discount_rate * (1 + discount_rate) ** lifetime_years
@@ -41,7 +70,7 @@ def normalize_shares(shares: dict[str, float]) -> tuple[dict[str, float], bool]:
     if total <= 0:
         raise ValueError("At least one generator share must be greater than zero.")
     normalized = {key: max(value, 0.0) / total for key, value in shares.items()}
-    normalized_flag = abs(total - 1.0) > 0.001
+    normalized_flag = abs(total - 1.0) > _NORMALISATION_TOLERANCE
     return normalized, normalized_flag
 
 
@@ -197,7 +226,7 @@ def _curtailment_metrics(
     # Backup flexibility: how well non-VRE generators can follow / back off
     backup_flex = _backup_flexibility(profile, normalized_shares, vre_share)
     # flex_scale > 1 when backup is inflexible (nuclear) → amplifies effective curtailment pressure
-    flex_scale = 1.0 / max(backup_flex, 0.5)   # capped at 2× amplification
+    flex_scale = 1.0 / max(backup_flex, _MIN_BACKUP_FLEXIBILITY)  # capped at 1/_MIN_BACKUP_FLEXIBILITY = 2×
     effective_vre = min(1.0, vre_share * flex_scale)
 
     base_context: dict[str, float] = {
@@ -219,7 +248,7 @@ def _curtailment_metrics(
             cr = max(0.0, min(1.0, cr))
         else:
             cf_base = float(gen_cfg.get("cf_base", 1.0))
-            cf_eff = max(_evaluate_configured_function(gen_cfg["cf_eff_func"], vre_share, base_context), 1e-6)
+            cf_eff = max(_evaluate_configured_function(gen_cfg["cf_eff_func"], vre_share, base_context), _CF_FLOOR)
             cr = max(0.0, 1.0 - cf_eff / cf_base)
         w_curtail += share * cr
         curtailed_twh += annual_twh * share * cr
@@ -264,9 +293,9 @@ def _ess_metrics(
             cr = max(0.0, min(1.0, cr))
         else:
             cf_base = float(gen_cfg.get("cf_base", 1.0))
-            cf_eff = max(_evaluate_configured_function(gen_cfg["cf_eff_func"], vre_share, ess_ctx), 1e-6)
+            cf_eff = max(_evaluate_configured_function(gen_cfg["cf_eff_func"], vre_share, ess_ctx), _CF_FLOOR)
             cr = max(0.0, 1.0 - cf_eff / cf_base)
-        absorption = float(short.get(f"{gen}_absorption_fraction", 0.4))
+        absorption = float(short.get(f"{gen}_absorption_fraction", _DEFAULT_ABSORPTION_FRACTION))
         curtailed_gwh = share * annual_twh * 1000 * cr
         throughput_gwh += curtailed_gwh * absorption
 
@@ -275,7 +304,7 @@ def _ess_metrics(
     short_cycles = short["cycles_per_year"]
     short_dod = short["dod"]
     short_gwh = net_throughput / (short_cycles * short_dod) if (short_cycles * short_dod) > 0 else 0.0
-    short_gw = short_gwh / float(short.get("duration_hr", 4.0))
+    short_gw = short_gwh / float(short.get("duration_hr", _DEFAULT_SHORT_DURATION_HR))
     short_lcoe = (
         short["capex_usd_kwh"]
         * crf(profile["discount_rate"], short["lifetime_yr"])
@@ -284,10 +313,10 @@ def _ess_metrics(
     )
 
     # Long-duration: last-gap seasonal storage, VRE-share power law above threshold
-    shifted = max(0.0, vre_share - float(long.get("threshold", 0.65)))
+    shifted = max(0.0, vre_share - float(long.get("threshold", _DEFAULT_LONG_THRESHOLD)))
     long_ratio = _evaluate_configured_function(long["requirement_func"], shifted)
     long_gwh = (long_ratio * annual_twh * 1000) / (long["cycles_per_year"] * long["dod"])
-    long_gw = long_gwh / float(long.get("duration_hr", 168.0))
+    long_gw = long_gwh / float(long.get("duration_hr", _DEFAULT_LONG_DURATION_HR))
     long_lcoe = (
         long["capex_usd_kwh"]
         * crf(profile["discount_rate"], long["lifetime_yr"])

@@ -19,6 +19,11 @@ import {
   type GeneratorConfig,
   type FuncConfig,
 } from "@/lib/api";
+import {
+  GENERATOR_COLORS,
+  GENERATOR_LABELS,
+  VRE_GENERATOR_KEYS,
+} from "@/lib/constants";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -30,23 +35,7 @@ type FuncKey = "cf_eff_func" | "eta_func" | "integration_cost_func" | "curtailme
 // Constants
 // ---------------------------------------------------------------------------
 
-const GENERATOR_LABELS: Record<string, string> = {
-  solar: "Solar",
-  wind_onshore: "Wind (Onshore)",
-  gas_ccgt: "Gas CCGT",
-  coal: "Coal",
-  nuclear: "Nuclear",
-  other: "Other",
-};
-
-const GENERATOR_COLORS: Record<string, string> = {
-  solar: "#f59e0b",
-  wind_onshore: "#3b82f6",
-  gas_ccgt: "#8b5cf6",
-  coal: "#6b7280",
-  nuclear: "#10b981",
-  other: "#f97316",
-};
+// GENERATOR_LABELS and GENERATOR_COLORS imported from @/lib/constants
 
 const BASIC_FIELDS: Array<{ key: keyof GeneratorConfig; label: string; unit: string }> = [
   { key: "capex_usd_kw", label: "CAPEX", unit: "USD/kW" },
@@ -94,7 +83,8 @@ const FUNC_FIELDS: Array<{
   },
 ];
 
-const VRE_GENERATORS = new Set(["solar", "wind_onshore"]);
+// VRE_GENERATOR_KEYS imported from @/lib/constants
+const VRE_GENERATORS = VRE_GENERATOR_KEYS; // local alias used throughout this file
 
 const FUNC_TYPES = [
   "constant",
@@ -206,15 +196,28 @@ const PARAM_DEFS: Record<
   multilinear: [], // handled by MultilinearEditor
 };
 
-/** Default param values to seed the editor when switching types */
+/**
+ * Neutral seed values used when the user switches a function's type.
+ * Each entry produces a "flat / identity" shape — no domain-specific numbers
+ * from any country profile.  The user can then tune from this baseline.
+ *
+ *  constant:    f = 1            (flat output)
+ *  linear:      f = 1 + 0·x     (flat — slope zero)
+ *  logarithmic: f = 1 − 0.1·ln(1 + 2x)  (gentle decay starting at 1)
+ *  quadratic:   f = 1 + 0·x + 0·x²      (flat — coefficients zero)
+ *  power:       f = 1·x^1       (linear through origin)
+ *  exponential: f = 1·e^(0·x)  (flat at 1)
+ *  piecewise:   flat at 1 with break at x = 0.5, slopes both zero
+ *  multilinear: intercept only, no predictors yet
+ */
 const TYPE_DEFAULTS: Record<string, Record<string, number>> = {
-  constant: { a: 1 },
-  linear: { a: 1, b: 0 },
-  logarithmic: { a: 0.22, b: 0.07, c: 2.8 },
-  quadratic: { a: 1, b: 0, c: 0 },
-  power: { a: 0.12, b: 1.5 },
+  constant:    { a: 1 },
+  linear:      { a: 1, b: 0 },
+  logarithmic: { a: 1, b: 0.1, c: 2 },
+  quadratic:   { a: 1, b: 0, c: 0 },
+  power:       { a: 1, b: 1 },
   exponential: { a: 1, b: 0 },
-  piecewise: { intercept: 1, threshold: 0.5, slope_before: 0, slope_after: 0 },
+  piecewise:   { intercept: 1, threshold: 0.5, slope_before: 0, slope_after: 0 },
   multilinear: { intercept: 0 },
 };
 

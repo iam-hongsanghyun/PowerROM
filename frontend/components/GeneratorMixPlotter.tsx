@@ -4,28 +4,15 @@ import { useCallback, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { RefreshCw, ZoomIn } from "lucide-react";
 import { type GeneratorKey, type Shares } from "@/lib/api";
+import { ALL_GENERATOR_KEYS, GENERATOR_LABELS as SHARED_GENERATOR_LABELS } from "@/lib/constants";
 import { generateGrid, refineBounds, type GridConfig, type ScatterPoint } from "@/lib/gridGeneration";
 import { GeneratorDetailView } from "@/components/GeneratorDetailView";
 
 const Plot = dynamic(() => import("react-plotly.js"), { ssr: false });
 
-const ALL_GENERATORS: GeneratorKey[] = [
-  "solar",
-  "wind_onshore",
-  "gas_ccgt",
-  "coal",
-  "nuclear",
-  "other",
-];
-
-const GENERATOR_LABELS: Record<GeneratorKey, string> = {
-  solar: "Solar",
-  wind_onshore: "Wind",
-  gas_ccgt: "Gas CCGT",
-  coal: "Coal",
-  nuclear: "Nuclear",
-  other: "Other",
-};
+// Imported from @/lib/constants — single source of truth for generator list and labels.
+const ALL_GENERATORS: GeneratorKey[] = [...ALL_GENERATOR_KEYS];
+const GENERATOR_LABELS = SHARED_GENERATOR_LABELS;
 
 const COLOR_METRIC_OPTIONS = [
   { value: "lcoe", label: "LCOE ($/MWh)" },

@@ -22,8 +22,17 @@ import {
   type Shares,
   validateGeneratorConfig,
 } from "@/lib/api";
+import {
+  COUNTRY_ESS_CAPEX,
+  DEFAULT_CARBON_PRICE_USD_TCO2,
+  DEFAULT_EV_PENETRATION,
+  DEFAULT_SHARES,
+  FALLBACK_ESS_CAPEX_USD_KWH,
+} from "@/lib/constants";
 
-const DEFAULT_COUNTRIES: CountrySummary[] = [
+// Fallback country list shown while the API is loading or unavailable.
+// Values must stay in sync with the JSON profiles in backend/data/country_profiles/.
+const FALLBACK_COUNTRIES: CountrySummary[] = [
   {
     code: "KR",
     name: "South Korea",
@@ -50,23 +59,20 @@ const DEFAULT_COUNTRIES: CountrySummary[] = [
   },
 ];
 
-const DEFAULT_SHARES: Shares = {
-  solar: 0.15,
-  wind_onshore: 0.1,
-  gas_ccgt: 0.3,
-  coal: 0.25,
-  nuclear: 0.18,
-  other: 0.02,
-};
+const INITIAL_COUNTRY = "KR";
 
 export function Dashboard() {
-  const [countries, setCountries] = useState<CountrySummary[]>(DEFAULT_COUNTRIES);
-  const [country, setCountry] = useState("KR");
-  const [shares, setShares] = useState<Shares>(DEFAULT_SHARES);
-  const [carbonPrice, setCarbonPrice] = useState(40);
-  const [evPenetration, setEvPenetration] = useState(0);
-  const [annualDemandTwh, setAnnualDemandTwh] = useState(595);
-  const [essCostUsdKwh, setEssCostUsdKwh] = useState(280);
+  const [countries, setCountries] = useState<CountrySummary[]>(FALLBACK_COUNTRIES);
+  const [country, setCountry] = useState(INITIAL_COUNTRY);
+  const [shares, setShares] = useState<Shares>({ ...DEFAULT_SHARES });
+  const [carbonPrice, setCarbonPrice] = useState(DEFAULT_CARBON_PRICE_USD_TCO2);
+  const [evPenetration, setEvPenetration] = useState(DEFAULT_EV_PENETRATION);
+  const [annualDemandTwh, setAnnualDemandTwh] = useState(
+    FALLBACK_COUNTRIES.find((c) => c.code === INITIAL_COUNTRY)?.annual_generation_twh ?? 595,
+  );
+  const [essCostUsdKwh, setEssCostUsdKwh] = useState(
+    COUNTRY_ESS_CAPEX[INITIAL_COUNTRY] ?? FALLBACK_ESS_CAPEX_USD_KWH,
+  );
   const [useCustomParameters, setUseCustomParameters] = useState(false);
   // Holds the user's in-progress parameter edits from the Parameters tab.
   // Persists across tab switches; reset only on country change or explicit reset.
@@ -80,6 +86,8 @@ export function Dashboard() {
   function handleCountryChange(nextCountry: string) {
     setCountry(nextCountry);
     setCustomProfile(null); // clear edits when switching country
+    // Sync ESS capex slider default to the selected country's profile value.
+    setEssCostUsdKwh(COUNTRY_ESS_CAPEX[nextCountry] ?? FALLBACK_ESS_CAPEX_USD_KWH);
     const current = countries.find((item) => item.code === nextCountry);
     if (current) {
       setAnnualDemandTwh(current.annual_generation_twh);
@@ -96,7 +104,7 @@ export function Dashboard() {
         }
       })
       .catch(() => {
-        setCountries(DEFAULT_COUNTRIES);
+        setCountries(FALLBACK_COUNTRIES);
       });
   }, [country]);
 

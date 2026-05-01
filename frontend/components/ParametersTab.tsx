@@ -3,6 +3,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Download, Upload, RotateCcw, Save, ChevronDown, ChevronUp } from "lucide-react";
 import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+} from "recharts";
+import {
   fetchProfile,
   saveProfile,
   profileExcelDownloadUrl,
@@ -24,6 +32,15 @@ const GENERATOR_LABELS: Record<string, string> = {
   other: "Other",
 };
 
+const GENERATOR_COLORS: Record<string, string> = {
+  solar: "#f59e0b",
+  wind_onshore: "#3b82f6",
+  gas_ccgt: "#8b5cf6",
+  coal: "#6b7280",
+  nuclear: "#10b981",
+  other: "#f97316",
+};
+
 const BASIC_FIELDS: Array<{ key: keyof GeneratorConfig; label: string; unit: string; thermal?: boolean }> = [
   { key: "capex_usd_kw", label: "CAPEX", unit: "USD/kW" },
   { key: "opex_fixed_usd_kw_yr", label: "Fixed O&M", unit: "USD/kW/yr" },
@@ -36,11 +53,20 @@ const BASIC_FIELDS: Array<{ key: keyof GeneratorConfig; label: string; unit: str
   { key: "variability_factor", label: "Variability Factor", unit: "(0–1)" },
 ];
 
-const FUNC_FIELDS: Array<{ key: "cf_eff_func" | "eta_func" | "integration_cost_func"; label: string }> = [
-  { key: "cf_eff_func", label: "CF Efficiency Function" },
-  { key: "eta_func", label: "Thermal Efficiency Function" },
-  { key: "integration_cost_func", label: "Integration Cost Function" },
+const FUNC_FIELDS: Array<{
+  key: "cf_eff_func" | "eta_func" | "integration_cost_func" | "curtailment_func";
+  label: string;
+  xLabel: string;
+  yLabel: string;
+  vreOnly?: boolean;
+}> = [
+  { key: "cf_eff_func", label: "CF Efficiency Function", xLabel: "VRE Share", yLabel: "Effective CF" },
+  { key: "eta_func", label: "Thermal Efficiency Function", xLabel: "CF_eff", yLabel: "Thermal Efficiency" },
+  { key: "integration_cost_func", label: "Integration Cost Function", xLabel: "Portfolio Share", yLabel: "Integration Cost ($/MWh)" },
+  { key: "curtailment_func", label: "Curtailment Function (VRE only)", xLabel: "VRE Share", yLabel: "Curtailment Rate", vreOnly: true },
 ];
+
+const VRE_GENERATORS = ["solar", "wind_onshore"];
 
 const FUNC_TYPES = ["constant", "linear", "logarithmic", "quadratic", "power", "piecewise"];
 
@@ -51,6 +77,48 @@ const FUNC_PARAMS_BY_TYPE: Record<string, string[]> = {
   quadratic: ["a", "b", "c"],
   power: ["a", "b"],
   piecewise: ["intercept", "threshold", "slope_before", "slope_after"],
+};
+
+// ---------------------------------------------------------------------------
+// Function evaluator & chart helpers
+// ---------------------------------------------------------------------------
+
+function evalFunc(func: FuncConfig | undefined, x: number): number {
+  if (!func) return 0;
+  const p = func.params ?? {};
+  const clamp = (v: number) => {
+    let result = v;
+    if (func.x_min !== undefined && result < func.x_min) result = func.x_min;
+    if (func.x_max !== undefined && result > func.x_max) result = func.x_max;
+    return result;
+  };
+  switch (func.type) {
+    case "constant": return clamp(p.a ?? 0);
+    case "linear": return clamp((p.a ?? 0) + (p.b ?? 0) * x);
+    case "logarithmic": return clamp((p.a ?? 0) - (p.b ?? 0) * Math.log1p((p.c ?? 0) * x));
+    case "quadratic": return clamp((p.a ?? 0) + (p.b ?? 0) * x + (p.c ?? 0) * x * x);
+    case "exponential": return clamp((p.a ?? 0) * Math.exp((p.b ?? 0) * x));
+    case "power": return clamp((p.a ?? 0) * Math.pow(Math.max(x, 0), p.b ?? 1));
+    case "piecewise": {
+      const ic = p.intercept ?? 0, thr = p.threshold ?? 0.5;
+      const sb = p.slope_before ?? 0, sa = p.slope_after ?? 0;
+      const raw = x <= thr
+        ? ic + sb * x
+        : ic + sb * thr + sa * (x - thr);
+      return clamp(raw);
+    }
+    default: return 0;
+  }
+}
+
+const FUNC_FORMULA: Record<string, string> = {
+  constant: "f(x) = a",
+  linear: "f(x) = a + b·x",
+  logarithmic: "f(x) = a − b·ln(1 + c·x)",
+  quadratic: "f(x) = a + b·x + c·x²",
+  exponential: "f(x) = a·e^(b·x)",
+  power: "f(x) = a·x^b",
+  piecewise: "f(x) = intercept + slope·x (piecewise at threshold)",
 };
 
 // ---------------------------------------------------------------------------
@@ -69,6 +137,108 @@ function parseNum(s: string): number | undefined {
 
 function cloneProfile(p: CountryProfile): CountryProfile {
   return JSON.parse(JSON.stringify(p)) as CountryProfile;
+}
+
+// ---------------------------------------------------------------------------
+// FunctionChart component
+// ---------------------------------------------------------------------------
+
+function FunctionChart({
+  generators,
+  genConfigs,
+  funcKey,
+  xLabel,
+  yLabel,
+}: {
+  generators: string[];
+  genConfigs: Record<string, GeneratorConfig>;
+  funcKey: "cf_eff_func" | "eta_func" | "integration_cost_func" | "curtailment_func";
+  xLabel: string;
+  yLabel: string;
+}) {
+  const xs = Array.from({ length: 51 }, (_, i) => i / 50);
+
+  const data = xs.map((x) => {
+    const point: Record<string, number> = { x };
+    for (const gen of generators) {
+      const func = genConfigs[gen]?.[funcKey] as FuncConfig | undefined;
+      if (func) point[gen] = evalFunc(func, x);
+    }
+    return point;
+  });
+
+  const formulas = [...new Set(
+    generators
+      .map((g) => {
+        const func = genConfigs[g]?.[funcKey] as FuncConfig | undefined;
+        return func ? FUNC_FORMULA[func.type] : null;
+      })
+      .filter(Boolean)
+  )];
+
+  return (
+    <div className="rounded-xl border border-slate-100 bg-slate-50 p-4">
+      <div className="mb-2 flex items-center justify-between">
+        <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+          {yLabel} vs {xLabel}
+        </span>
+        <div className="flex flex-wrap gap-2">
+          {generators.filter((g) => genConfigs[g]?.[funcKey]).map((g) => (
+            <span key={g} className="flex items-center gap-1 text-xs text-slate-600">
+              <span
+                className="inline-block h-2 w-4 rounded-full"
+                style={{ background: GENERATOR_COLORS[g] ?? "#94a3b8" }}
+              />
+              {GENERATOR_LABELS[g] ?? g}
+            </span>
+          ))}
+        </div>
+      </div>
+      {formulas.length > 0 && (
+        <div className="mb-2 font-mono text-[11px] text-slate-400">{formulas.join("  ·  ")}</div>
+      )}
+      <ResponsiveContainer width="100%" height={180}>
+        <LineChart data={data} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
+          <XAxis
+            dataKey="x"
+            type="number"
+            domain={[0, 1]}
+            tickFormatter={(v: number) => `${(v * 100).toFixed(0)}%`}
+            tick={{ fontSize: 10, fill: "#94a3b8" }}
+            tickCount={6}
+          />
+          <YAxis
+            tick={{ fontSize: 10, fill: "#94a3b8" }}
+            width={36}
+            tickFormatter={(v: number) => v.toFixed(2)}
+          />
+          <Tooltip
+            formatter={(v, name) => [
+              typeof v === "number" ? v.toFixed(3) : String(v),
+              GENERATOR_LABELS[String(name)] ?? String(name),
+            ]}
+            labelFormatter={(l) => `x = ${(Number(l) * 100).toFixed(0)}%`}
+            contentStyle={{ fontSize: 11, borderRadius: 8, border: "1px solid #e2e8f0" }}
+          />
+          {generators.map((gen) => {
+            const func = genConfigs[gen]?.[funcKey] as FuncConfig | undefined;
+            if (!func) return null;
+            return (
+              <Line
+                key={gen}
+                type="monotone"
+                dataKey={gen}
+                stroke={GENERATOR_COLORS[gen] ?? "#94a3b8"}
+                strokeWidth={2}
+                dot={false}
+                isAnimationActive={false}
+              />
+            );
+          })}
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -112,7 +282,7 @@ function SectionHeader({
   return (
     <button
       onClick={onToggle}
-      className="flex w-full items-center justify-between rounded-xl bg-slate-100 px-4 py-2.5 text-left text-sm font-semibold text-slate-700 transition hover:bg-slate-200"
+      className="flex w-full items-center justify-between rounded-xl bg-gradient-to-r from-slate-800 to-slate-700 px-4 py-2.5 text-left text-sm font-semibold text-white transition hover:from-slate-700 hover:to-slate-600"
     >
       {title}
       {open ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
@@ -141,6 +311,7 @@ export function ParametersTab({ country }: Props) {
     cf_eff_func: false,
     eta_func: false,
     integration_cost_func: false,
+    curtailment_func: false,
     ess: false,
   });
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -183,13 +354,13 @@ export function ParametersTab({ country }: Props) {
   // Function field edits
   function setFuncField(
     gen: string,
-    funcKey: "cf_eff_func" | "eta_func" | "integration_cost_func",
+    funcKey: "cf_eff_func" | "eta_func" | "integration_cost_func" | "curtailment_func",
     field: "type" | "x_min" | "x_max" | "source" | string,
     val: string,
   ) {
     if (!draft) return;
     const genCfg = draft.generators[gen] ?? {};
-    const func: FuncConfig = genCfg[funcKey] ?? { type: "constant", params: {} };
+    const func: FuncConfig = (genCfg[funcKey] as FuncConfig | undefined) ?? { type: "constant", params: {} };
 
     let updated: FuncConfig;
     if (field === "type") {
@@ -201,7 +372,6 @@ export function ParametersTab({ country }: Props) {
     } else if (field === "source") {
       updated = { ...func, source: val };
     } else {
-      // It's a param key
       const n = parseNum(val);
       updated = { ...func, params: { ...func.params, [field]: n ?? 0 } };
     }
@@ -243,7 +413,6 @@ export function ParametersTab({ country }: Props) {
       const long = draft.ess?.long_dur ?? {};
       setDraft({ ...draft, ess: { ...draft.ess, long_dur: { ...long, [k]: n } } });
     } else if (field.startsWith("req_param_")) {
-      // legacy flat
       const pk = field.replace("req_param_", "");
       const reqFunc = draft.ess?.requirement_func ?? { type: "power", params: {} };
       setDraft({
@@ -441,10 +610,21 @@ export function ParametersTab({ country }: Props) {
               <tbody className="divide-y divide-slate-50">
                 {generators.map((gen) => {
                   const cfg = draft.generators[gen] ?? {};
+                  const accentColor = GENERATOR_COLORS[gen] ?? "#94a3b8";
                   return (
-                    <tr key={gen} className="hover:bg-slate-50/60">
+                    <tr
+                      key={gen}
+                      className="hover:bg-slate-50/60"
+                      style={{ borderLeft: `3px solid ${accentColor}` }}
+                    >
                       <td className="px-3 py-1.5 font-medium text-slate-700 sticky left-0 bg-white">
-                        {GENERATOR_LABELS[gen] ?? gen}
+                        <span className="flex items-center gap-2">
+                          <span
+                            className="inline-block h-2.5 w-2.5 rounded-full flex-shrink-0"
+                            style={{ background: accentColor }}
+                          />
+                          {GENERATOR_LABELS[gen] ?? gen}
+                        </span>
                       </td>
                       {BASIC_FIELDS.map((f) => (
                         <td key={f.key} className="px-1 py-0.5">
@@ -467,101 +647,139 @@ export function ParametersTab({ country }: Props) {
       </div>
 
       {/* Function Sheets */}
-      {FUNC_FIELDS.map(({ key: funcKey, label }) => (
-        <div key={funcKey} className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-x-auto">
-          <div className="p-4">
-            <SectionHeader
-              title={label}
-              open={openSections[funcKey] ?? false}
-              onToggle={() => toggleSection(funcKey)}
-            />
-          </div>
-          {openSections[funcKey] && (
-            <div className="px-4 pb-4">
-              <table className="w-full min-w-[800px] text-sm border-collapse">
-                <thead>
-                  <tr className="border-b border-slate-200 bg-slate-50">
-                    <th className="px-3 py-2 text-left font-semibold text-slate-600">Generator</th>
-                    <th className="px-3 py-2 text-left font-semibold text-slate-600">Type</th>
-                    <th className="px-2 py-2 text-right font-semibold text-slate-600" colSpan={7}>
-                      Parameters (a, b, c / intercept, threshold, slope_before, slope_after)
-                    </th>
-                    <th className="px-2 py-2 text-right font-semibold text-slate-600">x_min</th>
-                    <th className="px-2 py-2 text-right font-semibold text-slate-600">x_max</th>
-                    <th className="px-3 py-2 text-left font-semibold text-slate-600">Source</th>
-                  </tr>
-                  <tr className="border-b border-slate-100 bg-slate-50/50 text-xs text-slate-400">
-                    <th /><th />
-                    {["a", "b", "c", "intercept", "threshold", "slope_before", "slope_after"].map((p) => (
-                      <th key={p} className="px-2 py-1 text-right font-normal">{p}</th>
-                    ))}
-                    <th /><th /><th />
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-50">
-                  {generators.map((gen) => {
-                    const func: FuncConfig = (draft.generators[gen]?.[funcKey] as FuncConfig | undefined) ??
-                      { type: "constant", params: {} };
-                    const activeParams = FUNC_PARAMS_BY_TYPE[func.type] ?? [];
-                    const ALL_PARAMS = ["a", "b", "c", "intercept", "threshold", "slope_before", "slope_after"];
-                    return (
-                      <tr key={gen} className="hover:bg-slate-50/60">
-                        <td className="px-3 py-1 font-medium text-slate-700">
-                          {GENERATOR_LABELS[gen] ?? gen}
-                        </td>
-                        <td className="px-2 py-0.5">
-                          <select
-                            value={func.type}
-                            onChange={(e) => setFuncField(gen, funcKey, "type", e.target.value)}
-                            className="rounded border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 focus:outline-none focus:ring-1 focus:ring-sky-300"
-                          >
-                            {FUNC_TYPES.map((t) => (
-                              <option key={t} value={t}>{t}</option>
-                            ))}
-                          </select>
-                        </td>
-                        {ALL_PARAMS.map((pk) => (
-                          <td key={pk} className="px-1 py-0.5">
-                            {activeParams.includes(pk) ? (
-                              <Cell
-                                value={num(func.params?.[pk])}
-                                onChange={(v) => setFuncField(gen, funcKey, pk, v)}
-                              />
-                            ) : (
-                              <span className="block w-full px-2 py-1 text-right text-xs text-slate-200">—</span>
-                            )}
-                          </td>
-                        ))}
-                        <td className="px-1 py-0.5">
-                          <Cell
-                            value={num(func.x_min)}
-                            onChange={(v) => setFuncField(gen, funcKey, "x_min", v)}
-                          />
-                        </td>
-                        <td className="px-1 py-0.5">
-                          <Cell
-                            value={num(func.x_max)}
-                            onChange={(v) => setFuncField(gen, funcKey, "x_max", v)}
-                          />
-                        </td>
-                        <td className="px-2 py-0.5">
-                          <input
-                            type="text"
-                            value={func.source ?? ""}
-                            onChange={(e) => setFuncField(gen, funcKey, "source", e.target.value)}
-                            className="w-full min-w-[120px] rounded border border-transparent bg-transparent px-2 py-1 text-xs text-slate-500 focus:border-sky-400 focus:bg-white focus:outline-none"
-                            placeholder="source…"
-                          />
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+      {FUNC_FIELDS.map(({ key: funcKey, label, xLabel, yLabel, vreOnly }) => {
+        const activeGenerators = vreOnly
+          ? generators.filter((g) => VRE_GENERATORS.includes(g))
+          : generators;
+
+        return (
+          <div key={funcKey} className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div className="p-4">
+              <SectionHeader
+                title={label}
+                open={openSections[funcKey] ?? false}
+                onToggle={() => toggleSection(funcKey)}
+              />
             </div>
-          )}
-        </div>
-      ))}
+            {openSections[funcKey] && (
+              <div className="px-4 pb-4">
+                <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                  {/* Parameter table */}
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[700px] text-sm border-collapse">
+                      <thead>
+                        <tr className="border-b border-slate-200 bg-slate-50">
+                          <th className="px-3 py-2 text-left font-semibold text-slate-600">Generator</th>
+                          <th className="px-3 py-2 text-left font-semibold text-slate-600">Type</th>
+                          <th className="px-2 py-2 text-right font-semibold text-slate-600" colSpan={7}>
+                            Parameters (a, b, c / intercept, threshold, slope_before, slope_after)
+                          </th>
+                          <th className="px-2 py-2 text-right font-semibold text-slate-600">x_min</th>
+                          <th className="px-2 py-2 text-right font-semibold text-slate-600">x_max</th>
+                          <th className="px-3 py-2 text-left font-semibold text-slate-600">Source</th>
+                        </tr>
+                        <tr className="border-b border-slate-100 bg-slate-50/50 text-xs text-slate-400">
+                          <th /><th />
+                          {["a", "b", "c", "intercept", "threshold", "slope_before", "slope_after"].map((p) => (
+                            <th key={p} className="px-2 py-1 text-right font-normal">{p}</th>
+                          ))}
+                          <th /><th /><th />
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-50">
+                        {activeGenerators.map((gen) => {
+                          const func: FuncConfig = ((draft.generators[gen]?.[funcKey]) as FuncConfig | undefined) ??
+                            { type: "constant", params: {} };
+                          const activeParams = FUNC_PARAMS_BY_TYPE[func.type] ?? [];
+                          const ALL_PARAMS = ["a", "b", "c", "intercept", "threshold", "slope_before", "slope_after"];
+                          const accentColor = GENERATOR_COLORS[gen] ?? "#94a3b8";
+                          return (
+                            <tr
+                              key={gen}
+                              className="hover:bg-slate-50/60"
+                              style={{ borderLeft: `3px solid ${accentColor}` }}
+                            >
+                              <td className="px-3 py-1 font-medium text-slate-700">
+                                <span className="flex items-center gap-2">
+                                  <span
+                                    className="inline-block h-2.5 w-2.5 rounded-full flex-shrink-0"
+                                    style={{ background: accentColor }}
+                                  />
+                                  {GENERATOR_LABELS[gen] ?? gen}
+                                </span>
+                              </td>
+                              <td className="px-2 py-0.5">
+                                <div className="flex flex-col gap-0.5">
+                                  <select
+                                    value={func.type}
+                                    onChange={(e) => setFuncField(gen, funcKey, "type", e.target.value)}
+                                    className="rounded border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 focus:outline-none focus:ring-1 focus:ring-sky-300"
+                                  >
+                                    {FUNC_TYPES.map((t) => (
+                                      <option key={t} value={t}>{t}</option>
+                                    ))}
+                                  </select>
+                                  {FUNC_FORMULA[func.type] && (
+                                    <code className="text-[10px] text-slate-400 leading-tight px-1">
+                                      {FUNC_FORMULA[func.type]}
+                                    </code>
+                                  )}
+                                </div>
+                              </td>
+                              {ALL_PARAMS.map((pk) => (
+                                <td key={pk} className="px-1 py-0.5">
+                                  {activeParams.includes(pk) ? (
+                                    <Cell
+                                      value={num(func.params?.[pk])}
+                                      onChange={(v) => setFuncField(gen, funcKey, pk, v)}
+                                    />
+                                  ) : (
+                                    <span className="block w-full px-2 py-1 text-right text-xs text-slate-200">—</span>
+                                  )}
+                                </td>
+                              ))}
+                              <td className="px-1 py-0.5">
+                                <Cell
+                                  value={num(func.x_min)}
+                                  onChange={(v) => setFuncField(gen, funcKey, "x_min", v)}
+                                />
+                              </td>
+                              <td className="px-1 py-0.5">
+                                <Cell
+                                  value={num(func.x_max)}
+                                  onChange={(v) => setFuncField(gen, funcKey, "x_max", v)}
+                                />
+                              </td>
+                              <td className="px-2 py-0.5">
+                                <input
+                                  type="text"
+                                  value={func.source ?? ""}
+                                  onChange={(e) => setFuncField(gen, funcKey, "source", e.target.value)}
+                                  className="w-full min-w-[120px] rounded border border-transparent bg-transparent px-2 py-1 text-xs text-slate-500 focus:border-sky-400 focus:bg-white focus:outline-none"
+                                  placeholder="source…"
+                                />
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Live chart */}
+                  <FunctionChart
+                    generators={activeGenerators}
+                    genConfigs={draft.generators}
+                    funcKey={funcKey}
+                    xLabel={xLabel}
+                    yLabel={yLabel}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
 
       {/* ESS */}
       <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">

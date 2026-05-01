@@ -397,12 +397,27 @@ def load_excel_as_profile(code: str) -> dict:
     return workbook_to_profile(wb)
 
 
+def parse_excel_bytes(file_bytes: bytes) -> dict:
+    """Parse Excel bytes and return the profile dict WITHOUT saving to disk.
+    Safe to call on read-only / ephemeral filesystems (e.g. Vercel).
+    """
+    import io
+    wb = openpyxl.load_workbook(io.BytesIO(file_bytes))
+    return workbook_to_profile(wb)
+
+
 def save_uploaded_excel(code: str, file_bytes: bytes) -> dict:
-    """Save uploaded Excel bytes, parse and return the resulting profile dict."""
+    """Parse uploaded Excel bytes, save to disk, and return the profile dict.
+    NOTE: writing to disk will silently fail on ephemeral environments (Vercel).
+    Prefer the parse-only endpoint when disk persistence is not needed.
+    """
     import io
     wb = openpyxl.load_workbook(io.BytesIO(file_bytes))
     profile = workbook_to_profile(wb)
-    # Persist both Excel and JSON
-    excel_path(code).write_bytes(file_bytes)
-    save_profile_json(code, profile)
+    # Persist both Excel and JSON (no-op on read-only filesystems)
+    try:
+        excel_path(code).write_bytes(file_bytes)
+        save_profile_json(code, profile)
+    except OSError:
+        pass
     return profile

@@ -237,11 +237,20 @@ export async function fetchProfile(country: string): Promise<CountryProfile> {
   return request<CountryProfile>(`/profile/${country}`);
 }
 
-export async function saveProfile(country: string, profile: CountryProfile): Promise<CountryProfile> {
-  return request<CountryProfile>(`/profile/${country}`, {
-    method: "PUT",
-    body: JSON.stringify({ profile }),
+/** Parse an Excel file on the backend (no disk write) and return the profile. */
+export async function parseExcelProfile(file: File): Promise<CountryProfile> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const response = await fetch(`${API_BASE_URL}/profile/excel/parse`, {
+    method: "POST",
+    body: formData,
+    cache: "no-store",
   });
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(message || `Parse failed: ${response.status}`);
+  }
+  return (await response.json()) as CountryProfile;
 }
 
 export function profileExcelDownloadUrl(country: string): string {

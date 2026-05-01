@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Download, Upload, RotateCcw, Save, ChevronDown, ChevronUp, X } from "lucide-react";
+import { Download, FolderOpen, Play, Upload, RotateCcw, ChevronDown, ChevronUp, X } from "lucide-react";
 import {
   LineChart,
   Line,
@@ -13,7 +13,7 @@ import {
 } from "recharts";
 import {
   fetchProfile,
-  saveProfile,
+  parseExcelProfile,
   profileExcelDownloadUrl,
   type CountryProfile,
   type GeneratorConfig,
@@ -914,9 +914,13 @@ export function ParametersTab({ country, onProfileEdited }: Props) {
   const [original, setOriginal] = useState<CountryProfile | null>(null);
   const [draft, setDraft] = useState<CountryProfile | null>(null);
   const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
+  // "Applied" feedback
+  const [appliedAt, setAppliedAt] = useState<number | null>(null); // timestamp of last Apply
+  const [appliedSnapshot, setAppliedSnapshot] = useState<string>(""); // JSON of last applied draft
+  // Save-as dialog
+  const [saveModalOpen, setSaveModalOpen] = useState(false);
+  const [saveName, setSaveName] = useState("");
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({
     country: true,
     generators: true,
@@ -929,12 +933,12 @@ export function ParametersTab({ country, onProfileEdited }: Props) {
   const [popupFunc, setPopupFunc] = useState<FuncConfig | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const loadJsonRef = useRef<HTMLInputElement>(null);
 
-  // Update draft AND notify parent so edits propagate to calculations immediately.
-  // Only call this from user-triggered actions, not from the initial server fetch.
+  // Update draft only — do NOT propagate to parent automatically.
+  // The user must click "Apply" explicitly to push changes to live calculations.
   function updateDraft(next: CountryProfile) {
     setDraft(next);
-    onProfileEdited?.(next);
   }
 
   useEffect(() => {
@@ -943,15 +947,19 @@ export function ParametersTab({ country, onProfileEdited }: Props) {
     fetchProfile(country)
       .then((p) => {
         setOriginal(p);
-        // Use setDraft (not updateDraft) — initial fetch should NOT override the
-        // parent's customProfile with server defaults.
         setDraft(cloneDeep(p));
+        // Country changed — clear any applied custom params in the parent.
+        onProfileEdited?.(null);
+        setAppliedSnapshot("");
+        setAppliedAt(null);
       })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [country]);
 
   const isDirty = JSON.stringify(original) !== JSON.stringify(draft);
+  const hasUnapplied = draft !== null && JSON.stringify(draft) !== appliedSnapshot;
 
   function toggleSection(key: string) {
     setOpenSections((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -1047,55 +1055,83 @@ export function ParametersTab({ country, onProfileEdited }: Props) {
     setPopupFunc(null);
   }
 
-  async function handleSave() {
+  /** Apply the current draft to live calculations (no server write). */
+  function handleApply() {
     if (!draft) return;
-    setSaving(true);
+    onProfileEdited?.(draft);
+    setAppliedSnapshot(JSON.stringify(draft));
+    setAppliedAt(Date.now());
+    setTimeout(() => setAppliedAt(null), 2000);
+  }
+
+  /** Open the "save as" filename dialog. */
+  function handleSaveClick() {
+    if (!draft) return;
+    const today = new Date().toISOString().slice(0, 10);
+    setSaveName(`${country}_custom_${today}`);
+    setSaveModalOpen(true);
+  }
+
+  /** Trigger a browser download of the draft as a JSON file. */
+  function handleDownloadJson() {
+    if (!draft) return;
+    const filename = (saveName.trim() || `${country}_custom`).replace(/\.json$/, "") + ".json";
+    const blob = new Blob([JSON.stringify(draft, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    setSaveModalOpen(false);
+  }
+
+  /** Load a previously saved JSON profile from local machine. */
+  async function handleLoadJson(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
     try {
-      const savedProfile = await saveProfile(country, draft);
-      setOriginal(savedProfile);
-      setDraft(cloneDeep(savedProfile));
-      // Server now has the saved values — clear customProfile so calculations
-      // use the server profile directly (no redundant custom_params).
-      onProfileEdited?.(null);
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Save failed");
-    } finally {
-      setSaving(false);
+      const text = await file.text();
+      const loaded = JSON.parse(text) as CountryProfile;
+      if (!loaded.generators || !loaded.annual_generation_twh) {
+        throw new Error("File does not look like a PowerROM profile.");
+      }
+      // Treat the loaded file as a new baseline so Reset goes back to it.
+      setOriginal(cloneDeep(loaded));
+      updateDraft(cloneDeep(loaded));
+      setAppliedSnapshot("");
+      setError(null);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to load JSON.");
     }
+    if (loadJsonRef.current) loadJsonRef.current.value = "";
   }
 
-  function handleReset() {
-    if (original) {
-      setDraft(cloneDeep(original));
-      // Reset: back to server defaults, clear parent's customProfile.
-      onProfileEdited?.(null);
-    }
-  }
-
+  /** Parse an Excel file on the backend (no server save) and load into draft. */
   async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    const formData = new FormData();
-    formData.append("file", file);
     try {
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_BASE_URL ?? "/api"}/profile/${country}/excel`,
-        { method: "POST", body: formData },
-      );
-      if (!res.ok) throw new Error(await res.text());
-      const newProfile = (await res.json()) as CountryProfile;
-      setOriginal(newProfile);
-      setDraft(cloneDeep(newProfile));
-      // Uploaded profile is now on the server — clear customProfile.
-      onProfileEdited?.(null);
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
+      const parsed = await parseExcelProfile(file);
+      // Treat the parsed values as a new baseline.
+      setOriginal(cloneDeep(parsed));
+      updateDraft(cloneDeep(parsed));
+      setAppliedSnapshot("");
+      setError(null);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Upload failed");
+      setError(err instanceof Error ? err.message : "Failed to parse Excel.");
     }
     if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  function handleReset() {
+    if (!original) return;
+    setDraft(cloneDeep(original));
+    onProfileEdited?.(null);
+    setAppliedSnapshot("");
+    setAppliedAt(null);
   }
 
   if (loading) {
@@ -1119,23 +1155,49 @@ export function ParametersTab({ country, onProfileEdited }: Props) {
   return (
     <div className="space-y-4">
       {/* ── Toolbar ─────────────────────────────────────────────────────── */}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div>
-          <h3 className="text-base font-semibold text-slate-900">{draft.name} — Parameters</h3>
-          <p className="mt-0.5 text-xs text-slate-500">
-            Edit inline and save, or download/upload the Excel workbook
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <a
-            href={profileExcelDownloadUrl(country)}
-            download
-            className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 transition hover:bg-slate-50"
+      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="text-base font-semibold text-slate-900">{draft.name} — Parameters</h3>
+            <p className="mt-0.5 text-xs text-slate-500">
+              Edit below, then <strong>Apply</strong> to update calculations.{" "}
+              <strong>Save JSON</strong> keeps a local copy on your machine.
+            </p>
+          </div>
+          {/* Apply button — primary action */}
+          <button
+            onClick={handleApply}
+            className={[
+              "flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold transition shadow-sm",
+              appliedAt
+                ? "bg-emerald-500 text-white"
+                : hasUnapplied
+                  ? "bg-sky-600 text-white hover:bg-sky-500 ring-2 ring-sky-300"
+                  : "bg-slate-100 text-slate-400 cursor-default",
+            ].join(" ")}
           >
-            <Download size={14} /> Download Excel
-          </a>
+            <Play size={14} />
+            {appliedAt ? "Applied!" : hasUnapplied ? "Apply to Calculations" : "Up to date"}
+          </button>
+        </div>
+
+        {/* Secondary actions */}
+        <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
+          {/* Load JSON */}
           <label className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 transition hover:bg-slate-50">
-            <Upload size={14} /> Upload Excel
+            <FolderOpen size={14} /> Load JSON
+            <input
+              ref={loadJsonRef}
+              type="file"
+              accept=".json"
+              className="hidden"
+              onChange={handleLoadJson}
+            />
+          </label>
+
+          {/* Upload Excel (parse-only, no server save) */}
+          <label className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 transition hover:bg-slate-50">
+            <Upload size={14} /> Import Excel
             <input
               ref={fileInputRef}
               type="file"
@@ -1144,31 +1206,80 @@ export function ParametersTab({ country, onProfileEdited }: Props) {
               onChange={handleUpload}
             />
           </label>
+
+          {/* Download predefined Excel template */}
+          <a
+            href={profileExcelDownloadUrl(country)}
+            download
+            className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 transition hover:bg-slate-50"
+          >
+            <Download size={14} /> Download Excel template
+          </a>
+
+          {/* Save JSON to local machine */}
+          <button
+            onClick={handleSaveClick}
+            disabled={!draft}
+            className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <Download size={14} /> Save JSON
+          </button>
+
+          {/* Reset to server-fetched defaults */}
           {isDirty && (
             <button
               onClick={handleReset}
-              className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 transition hover:bg-slate-50"
+              className="flex items-center gap-1.5 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700 transition hover:bg-rose-100"
             >
-              <RotateCcw size={14} /> Reset
+              <RotateCcw size={14} /> Reset to defaults
             </button>
           )}
-          <button
-            onClick={handleSave}
-            disabled={!isDirty || saving}
-            className={[
-              "flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium transition",
-              saved
-                ? "bg-emerald-500 text-white"
-                : isDirty
-                  ? "bg-slate-900 text-white hover:bg-slate-700"
-                  : "cursor-not-allowed bg-slate-100 text-slate-400",
-            ].join(" ")}
-          >
-            <Save size={14} />
-            {saved ? "Saved!" : saving ? "Saving…" : "Save Changes"}
-          </button>
         </div>
       </div>
+
+      {/* ── Save-as dialog ────────────────────────────────────────────────── */}
+      {saveModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: "rgba(15,23,42,0.5)" }}
+          onClick={() => setSaveModalOpen(false)}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="mb-1 font-semibold text-slate-900">Save profile to your machine</h3>
+            <p className="mb-4 text-xs text-slate-500">
+              The JSON file will download to your Downloads folder.
+              Predefined country profiles on the server are never modified.
+            </p>
+            <input
+              type="text"
+              value={saveName}
+              onChange={(e) => setSaveName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") handleDownloadJson(); }}
+              className="mb-4 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400"
+              placeholder="my_custom_profile"
+            />
+            <p className="mb-4 text-xs text-slate-400">.json will be appended automatically</p>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setSaveModalOpen(false)}
+                className="rounded-lg px-4 py-2 text-sm text-slate-600 transition hover:bg-slate-100"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDownloadJson}
+                className="rounded-lg bg-slate-900 px-5 py-2 text-sm font-medium text-white transition hover:bg-slate-700"
+              >
+                <Download size={13} className="mr-1.5 inline" />
+                Download
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Country Settings ─────────────────────────────────────────────── */}
       <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">

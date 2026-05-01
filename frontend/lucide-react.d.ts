@@ -13,4 +13,6 @@ declare module "lucide-react" {
   export const Upload: Icon;
   export const RotateCcw: Icon;
   export const Save: Icon;
+  export const Play: Icon;
+  export const FolderOpen: Icon;
 }

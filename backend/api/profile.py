@@ -10,6 +10,7 @@ from backend.utils.excel_io import (
     generate_excel_from_json,
     excel_path,
     load_profile_json,
+    parse_excel_bytes,
     profile_to_workbook,
     save_uploaded_excel,
     workbook_to_profile,
@@ -64,6 +65,24 @@ def download_excel(code: str) -> StreamingResponse:
 # ---------------------------------------------------------------------------
 # POST /api/profile/{code}/excel  (upload)
 # ---------------------------------------------------------------------------
+
+@router.post("/profile/excel/parse")
+async def parse_excel_profile(file: UploadFile) -> dict:
+    """Parse an uploaded .xlsx and return the profile JSON — no disk writes.
+    Vercel-safe: works on ephemeral / read-only filesystems.
+    """
+    if file.content_type not in (
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "application/octet-stream",
+    ):
+        raise HTTPException(status_code=400, detail="Please upload a .xlsx file.")
+    raw = await file.read()
+    try:
+        profile = parse_excel_bytes(raw)
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"Failed to parse Excel: {exc}") from exc
+    return profile
+
 
 @router.post("/profile/{code}/excel")
 async def upload_excel(code: str, file: UploadFile) -> dict:

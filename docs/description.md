@@ -6,13 +6,15 @@
 
 ## Overview
 
-ROM-Power computes the **system-level Levelised Cost of Electricity (LCOE)** for a user-defined mix of generation technologies.  Every cost driver — capacity factor degradation, part-load thermal efficiency, grid integration cost, curtailment, and energy storage — is expressed as a **configurable mathematical function** whose parameters the user can freely edit.  Changing a parameter updates the model in real time.
+ROM-Power computes the **system-level Levelised Cost of Electricity (LCOE)** for a user-defined mix of generation technologies. Every cost driver — capacity factor degradation, part-load thermal efficiency, grid integration cost, curtailment, and energy storage — is expressed as a **configurable mathematical function** whose type, parameters, and input variable the user can freely edit in real time.
+
+The model is intentionally simplified. It trades detail for speed and transparency: a single Python function call recomputes the full system LCOE and sweeps the curve from 0% to 100% VRE in under a second. All assumptions are visible and editable.
 
 ---
 
 ## 1. Generator LCOE
 
-For each generator *g* with portfolio share *s_g* the per-unit LCOE ($/MWh delivered) is:
+For each generator *g* with normalised portfolio share *s_g* the per-unit LCOE ($/MWh delivered) is:
 
 ```
 LCOE_g = CAPEX_g + FixedOPEX_g + VariableOPEX_g + Fuel_g + Carbon_g + Integration_g
@@ -26,15 +28,15 @@ Annualised capital cost spread over delivered energy:
 CAPEX_g = capex_usd_kw × CRF(r, T_g) / (CF_eff_g × 8760) × 1000
 ```
 
-where `CRF(r, T)` is the **Capital Recovery Factor**:
+where the **Capital Recovery Factor** is:
 
 ```
 CRF(r, T) = r(1+r)^T / ((1+r)^T − 1)
 ```
 
 - `r` — country discount rate (e.g. 0.05)
-- `T_g` — generator lifetime in years
-- `CF_eff_g` — effective (system-adjusted) capacity factor  ← from `cf_eff_func`
+- `T_g` — generator economic lifetime (years)
+- `CF_eff_g` — effective capacity factor ← output of `cf_eff_func`
 
 ### 1.2 Fixed O&M component
 
@@ -44,15 +46,15 @@ FixedOPEX_g = opex_fixed_usd_kw_yr / (CF_eff_g × 8760) × 1000
 
 ### 1.3 Fuel component (thermal generators only)
 
-Fuel cost is penalised for part-load efficiency loss:
+Fuel cost is penalised when part-load operation degrades thermal efficiency:
 
 ```
 Fuel_g = fuel_usd_mmbtu × heat_rate_mmbtu_mwh × η_penalty_g
 η_penalty_g = η_reference_g / η_g
 ```
 
-- `η_g` — actual thermal efficiency at current CF  ← from `eta_func`
-- `η_reference_g` — rated full-load efficiency (= `a` parameter of `eta_func` for constant functions)
+- `η_g` — actual efficiency at current operating CF ← output of `eta_func`
+- `η_reference_g` — rated full-load efficiency (the `a` parameter for constant `eta_func`)
 
 ### 1.4 Carbon component
 
@@ -63,10 +65,10 @@ Carbon_g = carbon_price × emission_factor_tco2_mwh × η_penalty_g
 ### 1.5 Integration cost component
 
 ```
-Integration_g = integration_cost_func_g(s_g)
+Integration_g = integration_cost_func_g(x)
 ```
 
-This represents grid balancing costs ($/MWh) as a function of the generator's own portfolio share *s_g*.
+where *x* defaults to the generator's own portfolio share *s_g* but can be reassigned to any runtime variable via the **Input Variable** selector (see Section 3).
 
 ### 1.6 System LCOE
 
@@ -78,7 +80,11 @@ SystemLCOE = Σ_g (s_g × LCOE_g) + ESS_LCOE
 
 ## 2. Function Catalog
 
-All behavioural relationships in the model are expressed through a library of seven parametric functions.  Every function is evaluated against an input variable `x` and clipped to the range `[x_min, x_max]` when those bounds are specified.
+All behavioural relationships in the model are expressed through a library of **eight** parametric functions. Each function maps one input variable *x* to one output value. The output is optionally clipped to the range `[x_min, x_max]` when those bounds are specified.
+
+Every function's **type**, **parameters**, and **input variable** are user-editable in the Parameters tab via the popup editor. Parameter changes update the live preview chart instantly.
+
+---
 
 ### 2.1 Constant
 
@@ -86,13 +92,11 @@ All behavioural relationships in the model are expressed through a library of se
 f(x) = a
 ```
 
-Parameters: **a**
-
-Returns the same value for any input.  Used when a generator's property is assumed independent of operating conditions (e.g. nuclear CF, renewable thermal efficiency).
-
 | Parameter | Meaning |
 |-----------|---------|
-| `a` | Constant output value |
+| `a` | Constant output for any input |
+
+Returns the same value regardless of *x*. Used when a property is assumed independent of operating conditions (e.g. nuclear CF, renewable η).
 
 ---
 
@@ -102,14 +106,12 @@ Returns the same value for any input.  Used when a generator's property is assum
 f(x) = a + b·x
 ```
 
-Parameters: **a**, **b**
-
-Straight-line relationship.  Used for gas CCGT capacity factor declining with VRE penetration (as gas is dispatched less).
-
 | Parameter | Meaning |
 |-----------|---------|
-| `a` | Intercept — value when x = 0 |
-| `b` | Slope — rate of change per unit x |
+| `a` | Intercept — value at x = 0 |
+| `b` | Slope — rate of change per unit x (negative for declining relationships) |
+
+Straight-line relationship. Used for gas CCGT capacity factor declining with VRE penetration.
 
 ---
 
@@ -119,15 +121,13 @@ Straight-line relationship.  Used for gas CCGT capacity factor declining with VR
 f(x) = a − b·ln(1 + c·x)
 ```
 
-Parameters: **a**, **b**, **c**
-
-Captures diminishing returns: rapid decline at low x, flattening at high x.  Used for VRE effective CF — curtailment and integration losses accelerate at first, then saturate.
-
 | Parameter | Meaning |
 |-----------|---------|
-| `a` | Value at x = 0 (baseline) |
-| `b` | Amplitude of decline |
-| `c` | Curvature — how quickly the decline accelerates |
+| `a` | Ceiling — value at x = 0 |
+| `b` | Amplitude of decline (larger = steeper total drop) |
+| `c` | Curvature — how sharply the initial drop occurs |
+
+Captures diminishing losses: rapid decline at low *x*, flattening at high *x*. Used for VRE effective CF degradation and thermal efficiency part-load curves.
 
 ---
 
@@ -137,15 +137,13 @@ Captures diminishing returns: rapid decline at low x, flattening at high x.  Use
 f(x) = a + b·x + c·x²
 ```
 
-Parameters: **a**, **b**, **c**
-
-Parabolic.  Used for integration costs that grow non-linearly with a generator's share (e.g. balancing overhead rises faster than share).
-
 | Parameter | Meaning |
 |-----------|---------|
 | `a` | Intercept |
-| `b` | Linear coefficient |
-| `c` | Quadratic coefficient (positive → U-shape; negative → inverted-U) |
+| `b` | Linear coefficient (slope at x = 0) |
+| `c` | Curvature: positive → U-shape, negative → inverted-U |
+
+Used for integration costs that grow non-linearly with a generator's share.
 
 ---
 
@@ -155,14 +153,12 @@ Parabolic.  Used for integration costs that grow non-linearly with a generator's
 f(x) = a · e^(b·x)
 ```
 
-Parameters: **a**, **b**
-
-Exponential growth or decay.  Available for strongly non-linear cost curves (rarely used in default profiles but supported for custom scenarios).
-
 | Parameter | Meaning |
 |-----------|---------|
-| `a` | Scale factor (value at x = 0) |
-| `b` | Growth rate (positive → growth; negative → decay) |
+| `a` | Scale factor — value at x = 0 |
+| `b` | Growth rate: positive → growth, negative → decay |
+
+Available for strongly non-linear cost curves.
 
 ---
 
@@ -172,27 +168,21 @@ Exponential growth or decay.  Available for strongly non-linear cost curves (rar
 f(x) = a · x^b        (x ≥ 0)
 ```
 
-Parameters: **a**, **b**
-
-Power law.  Used for curtailment functions (curtailment grows super-linearly with VRE share) and for the long-duration ESS requirement (grows very steeply above the VRE threshold).
-
 | Parameter | Meaning |
 |-----------|---------|
 | `a` | Scale — value when x = 1 |
-| `b` | Exponent — 1 = linear, >1 = accelerating, <1 = decelerating |
+| `b` | Exponent: b < 1 = sub-linear, b = 1 = linear, b > 1 = super-linear (accelerating) |
+
+Used for curtailment functions (super-linear growth with VRE share) and for the long-duration ESS requirement (very steep onset above the VRE threshold).
 
 ---
 
 ### 2.7 Piecewise Linear
 
 ```
-f(x) = intercept + slope_before · x                                           if x ≤ threshold
-f(x) = intercept + slope_before · threshold + slope_after · (x − threshold)   if x > threshold
+f(x) = intercept + slope_before · x                                              if x ≤ threshold
+f(x) = intercept + slope_before · threshold + slope_after · (x − threshold)      if x > threshold
 ```
-
-Parameters: **intercept**, **threshold**, **slope_before**, **slope_after**
-
-Two-segment linear function.  Used for coal capacity factor: utilisation declines gently at low VRE penetration (merit-order displacement), then sharply once VRE dominates.
 
 | Parameter | Meaning |
 |-----------|---------|
@@ -201,107 +191,168 @@ Two-segment linear function.  Used for coal capacity factor: utilisation decline
 | `slope_before` | Rate of change for x ≤ threshold |
 | `slope_after` | Rate of change for x > threshold |
 
+Used for coal capacity factor: gentle merit-order displacement at low VRE, then steeper displacement once cheaper generators are already pushed out.
+
 ---
 
-## 3. Per-Generator Configurable Functions
+### 2.8 Multilinear
 
-Each generator carries four functions.  All are user-editable in the Parameters tab.
+```
+f = intercept + β₁·x₁ + β₂·x₂ + β₃·x₃ + …
+```
 
-### 3.1 `cf_eff_func` — Effective Capacity Factor
+| Parameter | Meaning |
+|-----------|---------|
+| `intercept` | Base value when all predictors = 0 |
+| `<variable_name>` | Slope (β) for that predictor variable |
 
-- **Input x**: system VRE share (0–1)
-- **Output**: effective capacity factor of this generator (0–1)
-- **Used for**: CAPEX normalisation, Fixed O&M normalisation, downstream η calculation
+**Multiple input variables simultaneously.** Unlike all other function types which take a single *x*, multilinear takes a named set of predictors from the runtime context. The parameter dict encodes both which variables to use and their slopes:
 
-As VRE share rises, dispatchable generators run less (load-following) and VRE generators face curtailment losses — both reduce their effective CF.
+```json
+{
+  "type": "multilinear",
+  "params": {
+    "intercept": 2.0,
+    "vre_share": 0.5,
+    "own_share": 0.3
+  }
+}
+```
+
+This evaluates as `2.0 + 0.5 × vre_share + 0.3 × own_share` at runtime.
+
+**Available predictor variables:**
+
+| Variable name | Runtime value |
+|---------------|---------------|
+| `vre_share` | System-wide VRE fraction (0–1) |
+| `own_share` | This generator's portfolio share (0–1) |
+| `cf_eff` | This generator's effective CF (computed earlier in the same call) |
+| `non_vre_share` | 1 − VRE share |
+
+**In the UI:** Select `multilinear` as Function Type, set the intercept slider, then click *"+ Add predictor variable…"* to add each predictor and set its slope. Predictors can be removed with ✕.
+
+**Use case example — integration cost rising with both VRE share and own share:**
+```
+Integration = 1.5 + 4.0 × vre_share + 2.0 × own_share
+```
+At 60% VRE and 20% own share: `1.5 + 4.0×0.6 + 2.0×0.2 = 4.3 $/MWh`
+
+---
+
+## 3. Input Variable (x) Selection
+
+For all function types **except multilinear**, a single scalar *x* is passed to the function. Which runtime value that is defaults to the physically natural choice for each function, but can be overridden via the **Input Variable** dropdown in the popup editor:
+
+| Variable name | Description | Natural default for |
+|---------------|-------------|---------------------|
+| `vre_share` | System VRE fraction (0–1) | `cf_eff_func`, `curtailment_func` |
+| `own_share` | This generator's portfolio share (0–1) | `integration_cost_func` |
+| `cf_eff` | This generator's effective CF (result of `cf_eff_func`) | `eta_func` |
+| `non_vre_share` | 1 − VRE share | — (override option) |
+
+**Example:** Setting `cf_eff_func.x_variable = "own_share"` makes a generator's CF degradation depend on its own portfolio share rather than on total VRE. A baseload plant that runs less when it is a larger fraction of the mix would use this.
+
+The backend resolves the correct variable at evaluation time; if the variable is absent from the context (e.g. `cf_eff` is requested but the generator has no thermal function), the default *x* is used as a fallback.
+
+---
+
+## 4. Per-Generator Configurable Functions
+
+Each generator carries four functions. All are editable in the Parameters → Generator Functions section by clicking the generator in the sidebar list.
+
+### 4.1 `cf_eff_func` — Effective Capacity Factor
+
+- **Default input x**: system VRE share
+- **Output**: effective capacity factor (0–1)
+- **Used for**: CAPEX normalisation, Fixed O&M normalisation, input to `eta_func`
+
+As VRE share rises, dispatchable generators are dispatched less (lower CF) and VRE generators face curtailment (also lower effective CF).
 
 **Typical shapes by technology:**
 
-| Generator | Function | Intuition |
-|-----------|----------|-----------|
-| Solar, Wind | Logarithmic: starts at `cf_base`, falls with VRE | Curtailment and profile mismatch |
-| Gas CCGT | Linear: high CF at low VRE, declining | Backs up VRE variability |
-| Coal | Piecewise linear: gentle then steep decline | Merit-order displacement |
-| Nuclear | Constant (policy-managed utilisation) | Baseload, rarely curtailed |
-| Other | Constant | Default dispatchable bucket |
+| Generator | Shape | Intuition |
+|-----------|-------|-----------|
+| Solar, Wind | Logarithmic | Curtailment and profile mismatch; diminishing losses |
+| Gas CCGT | Linear (declining) | Dispatched proportionally to fill residual demand |
+| Coal | Piecewise linear | Gentle displacement first, steep once gas is already crowded out |
+| Nuclear | Constant | Must-run baseload; policy-driven utilisation |
+| Other | Constant | Mixed dispatchable bucket |
 
 ---
 
-### 3.2 `eta_func` — Thermal Efficiency
+### 4.2 `eta_func` — Thermal Efficiency
 
-- **Input x**: effective capacity factor `CF_eff`
-- **Output**: actual thermal efficiency η (dimensionless)
-- **Used for**: fuel cost penalty, carbon intensity penalty
+- **Default input x**: this generator's effective CF (`cf_eff`)
+- **Output**: thermal conversion efficiency η
+- **Used for**: `η_penalty = η_reference / η_actual` applied to Fuel and Carbon cost
 
-Part-load operation degrades heat-to-electricity conversion.  For renewables η = 1.0 (constant; no fuel combustion).
+Lower CF means more start-up cycles and more part-load operation, both of which degrade combustion efficiency. For renewables η is set to 1.0 (no penalty).
 
 **Typical shapes:**
 
-| Generator | Function | Note |
-|-----------|----------|------|
-| Gas CCGT | Logarithmic of CF | Efficiency peaks near rated CF, falls at part-load |
-| Coal | Logarithmic of CF | Similar but shallower |
-| Nuclear, Renewables | Constant = 1.0 (or fixed η) | Not thermodynamic in this model context |
+| Generator | Shape | Note |
+|-----------|-------|------|
+| Gas CCGT | Logarithmic of CF | Peaks near rated CF; degrades 2–4% at part-load |
+| Coal | Logarithmic of CF | Shallower degradation than gas |
+| Nuclear, Renewables | Constant | No thermodynamic part-load effect in this model |
 
 ---
 
-### 3.3 `integration_cost_func` — Grid Integration Cost
+### 4.3 `integration_cost_func` — Grid Integration Cost
 
-- **Input x**: generator's own portfolio share `s_g` (0–1)
-- **Output**: incremental integration cost ($/MWh)
-- **Used for**: added directly to generator LCOE
+- **Default input x**: generator's own portfolio share
+- **Output**: integration cost ($/MWh generated)
+- **Used for**: added directly to the generator's LCOE component
 
-Captures grid-level costs not reflected in generator-level cost curves: balancing, ancillary services, transmission, and reserves.
+Captures grid-level costs not in the generator's own cost curve: balancing, ancillary services, reserves, transmission.
 
 **Typical shapes:**
 
-| Generator | Function | Intuition |
-|-----------|----------|-----------|
-| Solar | Quadratic — steep at high shares | Profile mismatch forces expensive balancing |
-| Wind | Quadratic — moderate | Less peaky than solar |
-| Gas CCGT | Constant ~1.0 | Already the balancing provider |
-| Coal, Nuclear | Constant, low | Inflexible but predictable |
+| Generator | Shape | Intuition |
+|-----------|-------|-----------|
+| Solar, Wind | Quadratic (rising) | Non-linear balancing burden at high penetration |
+| Gas CCGT | Constant (low) | Already provides balancing; minimal external cost |
+| Coal, Nuclear | Constant (very low) | Inflexible but predictable; low ancillary burden |
 
 ---
 
-### 3.4 `curtailment_func` — VRE Curtailment Rate *(VRE generators only)*
+### 4.4 `curtailment_func` — VRE Curtailment Rate *(VRE generators only)*
 
-- **Input x**: system VRE share (0–1)
-- **Output**: fraction of potential output curtailed (0–1)
-- **Used for**: curtailment metrics; short-duration ESS throughput sizing
+- **Default input x**: effective VRE (= VRE share adjusted for backup flexibility, see Section 6)
+- **Output**: fraction of potential VRE output curtailed (0–1)
+- **Used for**: curtailment metrics and short-duration ESS throughput sizing
 
-Curtailment occurs when instantaneous VRE generation exceeds demand and the grid cannot absorb it.  It grows super-linearly: at low VRE penetration little is wasted, but as VRE dominates the grid, curtailment rises rapidly.
+Only solar and wind carry this function. Dispatchable generators do not curtail.
 
 **Default calibration (power law `a·x^b`):**
 
-| Country | Generator | a | b | Interpretation |
-|---------|-----------|---|---|----------------|
-| KR | Solar | 0.60 | 1.8 | 60% curtailment rate at 100% VRE |
-| KR | Wind | 0.35 | 1.8 | 35% curtailment at 100% VRE |
-| AU | Solar | 0.55 | 1.8 | Better resource → slightly lower |
-| JP | Solar | 0.65 | 1.8 | Island grid → higher curtailment |
+| Country | Generator | a | b |
+|---------|-----------|---|---|
+| KR | Solar | 0.60 | 1.8 |
+| KR | Wind | 0.35 | 1.8 |
+| AU | Solar | 0.55 | 1.8 |
+| JP | Solar | 0.65 | 1.8 |
 
 ---
 
-## 4. Generator Scalar Parameters
-
-Beyond functions, each generator has fixed scalar parameters:
+## 5. Generator Scalar Parameters
 
 | Parameter | Unit | Description |
 |-----------|------|-------------|
 | `capex_usd_kw` | USD/kW | Overnight construction cost |
 | `opex_fixed_usd_kw_yr` | USD/kW/yr | Annual fixed operations & maintenance |
 | `opex_var_usd_mwh` | USD/MWh | Variable O&M (wear, consumables) |
-| `lifetime_yr` | years | Project economic lifetime |
+| `lifetime_yr` | years | Economic project lifetime |
 | `emission_factor_tco2_mwh` | tCO₂/MWh | Direct combustion emission intensity |
 | `fuel_usd_mmbtu` | USD/MMBtu | Fuel commodity price |
 | `heat_rate_mmbtu_mwh` | MMBtu/MWh | Rated heat-to-electricity conversion |
 | `cf_base` | 0–1 | Rated capacity factor (no system effects) |
-| `variability_factor` | 0–1 | Contribution to system ESS need (0 = fully dispatchable; 1 = fully intermittent) |
+| `variability_factor` | 0–1 | Contribution to system variability (0 = fully dispatchable, 1 = fully intermittent) |
 
 ### `variability_factor` detail
 
-This dimensionless index captures how much a generator *adds* to system variability per unit of portfolio share.  It is separate from the curtailment-driven ESS model and is available as a user-editable override.
+This index captures how much a generator *adds* to system variability per unit of portfolio share. It is currently used in the **backup flexibility calculation** for curtailment (see Section 6).
 
 | Generator | Default | Rationale |
 |-----------|---------|-----------|
@@ -309,90 +360,102 @@ This dimensionless index captures how much a generator *adds* to system variabil
 | Wind (onshore) | 0.85 | Smoother than solar; non-dispatchable |
 | Nuclear | 0.20 | Inflexible baseload creates residual load variability |
 | Coal | 0.10 | Slow-ramping; partially dispatchable |
-| Gas CCGT | 0.00 | Fully dispatchable — IS the buffer; adds no ESS need |
+| Gas CCGT | 0.00 | Fully dispatchable — IS the buffer |
 | Other | 0.30 | Mixed bucket |
 
 ---
 
-## 5. Energy Storage System (ESS)
+## 6. Curtailment Model
 
-ESS is split into two physically distinct components:
+### 6.1 Backup Flexibility Adjustment
 
-### 5.1 Short-Duration Storage (4-hour batteries)
-
-Sized by how much curtailed VRE can be absorbed by storage:
+Curtailment depends not only on how much VRE is in the system, but on how much the backup can flex *down*. A grid backed by gas (which can back off instantly) absorbs the same VRE with far less curtailment than one backed by must-run nuclear.
 
 ```
-throughput_GWh = Σ_{g ∈ VRE} share_g × annual_TWh × 1000 × curtailment_rate_g × absorption_fraction_g
+backup_flexibility = Σ_{g ∉ VRE} (share_g / non_VRE_share) × (1 − variability_factor_g)
+
+flex_scale = 1 / max(backup_flexibility, 0.5)       [cap at 2× amplification]
+effective_vre = min(1.0, VRE_share × flex_scale)
+```
+
+- **Gas-only backup** (flexibility = 1.0): effective_vre = VRE_share → baseline curtailment
+- **Nuclear-only backup** (flexibility = 0.80): effective_vre = VRE_share × 1.25 → ~25% more curtailment
+
+### 6.2 Per-Generator Curtailment
+
+Each VRE generator's curtailment is evaluated at `effective_vre`:
+
+```
+cr_g = curtailment_func_g(effective_vre)
+```
+
+### 6.3 System Curtailment Metrics
+
+```
+curtailment_rate = Σ_{g ∈ VRE} (share_g × cr_g) / VRE_share     [share-weighted average]
+curtailed_TWh   = annual_TWh × Σ_{g ∈ VRE} share_g × cr_g
+```
+
+---
+
+## 7. Energy Storage System (ESS)
+
+ESS is split into two physically distinct components that size independently.
+
+### 7.1 Short-Duration Storage (4-hour batteries)
+
+Sized by how much curtailed VRE can be absorbed:
+
+```
+throughput_GWh = Σ_{g ∈ VRE} share_g × annual_TWh × 1000 × cr_g × absorption_fraction_g
 net_throughput  = max(throughput − EV_offset, 0)
-battery_GWh    = net_throughput / (cycles_per_year × depth_of_discharge)
+battery_GWh    = net_throughput / (cycles_per_year × dod)
 ```
 
-**Key parameters (editable):**
+**Editable parameters:**
 
 | Parameter | Description |
 |-----------|-------------|
 | `solar_absorption_fraction` | Fraction of curtailed solar that ESS can absorb (default 0.55) |
 | `wind_onshore_absorption_fraction` | Fraction of curtailed wind absorbed (default 0.30) |
-| `cycles_per_year` | Annual full charge-discharge cycles (default 300) |
-| `dod` | Usable depth of discharge (default 0.85) |
-| `duration_hr` | Discharge duration in hours (4 hr = daily cycling) |
-| `ev_offset_gwh_per_unit` | EV fleet charging flexibility that displaces dedicated ESS |
+| `cycles_per_year` | Annual full cycles (default 300 — daily cycling) |
+| `dod` | Depth of discharge (default 0.85) |
+| `duration_hr` | Discharge duration in hours (default 4) |
+| `ev_offset_gwh_per_unit` | EV fleet flexibility that displaces dedicated ESS |
 
-**Short-duration LCOE contribution:**
+**LCOE contribution:**
 
 ```
 short_lcoe [$/MWh] = capex_usd_kwh × CRF(r, T) × battery_GWh / annual_TWh
 ```
 
----
+### 7.2 Long-Duration Storage (seasonal, 168-hour)
 
-### 5.2 Long-Duration Storage (seasonal, 168-hour)
-
-The "last gap" — seasonal/multi-day storage that becomes critical only at very high VRE penetration.  Sized by a power law in the shifted VRE share:
+The "last gap" — activated only above a VRE share threshold where multi-day surpluses exceed short-duration storage capacity:
 
 ```
-shifted      = max(0, VRE_share − threshold)          (threshold = 0.65 by default)
-long_ratio   = a × shifted^b                          (default a=3.07, b=3.60)
-battery_GWh  = long_ratio × annual_TWh × 1000 / (cycles × dod)
+shifted     = max(0, VRE_share − threshold)     [threshold = 0.65 by default]
+long_ratio  = a × shifted^b                     [default: a = 3.07, b = 3.60]
+battery_GWh = long_ratio × annual_TWh × 1000 / (cycles × dod)
 ```
 
-The exponent b=3.60 means storage need grows *very steeply* above the 65% threshold — at 70% VRE storage is negligible (~1 GWh for KR), but at 90% it reaches ~460 GWh and at 100% ~1,545 GWh.
+The exponent b = 3.60 produces steep onset: negligible at 70% VRE, large at 90%+.
 
-**`requirement_func` parameters (editable):**
-
-| Parameter | Meaning |
-|-----------|---------|
-| `a` | Scale of long-duration need at shifted x = 1 |
-| `b` | Super-linearity of last-gap; higher = steeper onset |
-| `threshold` | VRE share below which long-duration storage is negligible |
+**`requirement_func` is editable** — type (power/linear/etc.), `a`, `b`, and `threshold` can all be changed via the ESS section of the Parameters tab.
 
 ---
 
-## 6. Curtailment Metrics
+## 8. Curve Data
 
-System-level curtailment is aggregated across VRE generators:
+The model sweeps VRE share from 0% to 100% in 1-percentage-point steps, holding the user's solar:wind ratio and non-VRE generator weights constant. This produces all the LCOE, emissions, and storage curves visible in the Profile Analysis tab.
 
-```
-curtailment_rate = Σ_{g ∈ VRE} (share_g × curtailment_rate_g) / VRE_share
-curtailed_TWh   = annual_TWh × Σ_{g ∈ VRE} share_g × curtailment_rate_g
-```
-
-where each `curtailment_rate_g = curtailment_func_g(VRE_share)`.
+At each curve point, the **actual x-axis VRE share** (not the normalised portfolio share) is passed to all functions as `vre_share_override`, ensuring the curves represent physically meaningful scenarios even for pure-VRE portfolios.
 
 ---
 
-## 7. Curve Data
+## 9. User Editability Summary
 
-The model sweeps VRE share from 0% to 100% in 1-percentage-point steps, maintaining the user's specified solar:wind ratio and non-VRE generator weights constant.  This produces the LCOE and storage curves visible in the Profile Analysis tab.
-
-At each point x the **actual x-axis VRE share** (not the normalized portfolio share) is passed to all functions, ensuring that the curve represents physically meaningful scenarios.
-
----
-
-## 8. User Editability Summary
-
-Every number in the table below is a parameter the user can change in the **Parameters tab**, and every function listed can have its type changed (constant, linear, logarithmic, quadratic, exponential, power, or piecewise) and its parameters edited in real time:
+Everything in the table below can be changed in the **Parameters tab**. Function types, parameters, and input variables can be changed via the popup modal (click any generator in the Generator Functions sidebar).
 
 | Component | Editable scalars | Editable functions |
 |-----------|------------------|--------------------|
@@ -401,11 +464,19 @@ Every number in the table below is a parameter the user can change in the **Para
 | Short-dur ESS | `capex_usd_kwh`, `lifetime_yr`, `cycles_per_year`, `dod`, `duration_hr`, `ev_offset_gwh_per_unit`, `solar_absorption_fraction`, `wind_onshore_absorption_fraction` | — |
 | Long-dur ESS | `capex_usd_kwh`, `lifetime_yr`, `cycles_per_year`, `dod`, `duration_hr`, `threshold` | `requirement_func` |
 
+**For each function** the user can change:
+- **Type** — constant, linear, logarithmic, quadratic, exponential, power, piecewise, or **multilinear**
+- **Parameters** — via labelled sliders with hints; the live preview chart updates in real time
+- **Input variable (x)** — which runtime quantity feeds into the function (VRE Share, Own Share, CF_eff, 1−VRE Share); not applicable for multilinear (which specifies predictors by name in its params)
+- **x_min / x_max** — output clipping bounds
+- **Source** — citation or note for the calibration
+
 ---
 
-## 9. Data Sources (default profiles)
+## 10. Data Sources (default profiles)
 
 - IEA World Energy Outlook 2024
 - IRENA Renewable Power Generation Costs 2024
 - OECD/NEA Nuclear Energy Cost Data (stylized integration defaults)
 - Country-specific fuel price data (KR: KOGAS LNG contracts; AU: domestic spot; JP: JKM LNG)
+- Curtailment calibration: Jeju Island empirical data; Hawaii HECO curtailment reports; IEA VRE Integration Cost studies 2023

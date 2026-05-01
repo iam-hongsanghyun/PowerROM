@@ -36,6 +36,10 @@
     "lightningcss-linux-x64-gnu": "*",
     "lightningcss-linux-arm64-gnu": "*",
     "lightningcss-darwin-arm64": "*",
-    "lightningcss-darwin-x64": "*"
+    "lightningcss-darwin-x64": "*",
+    "@tailwindcss/oxide-linux-x64-gnu": "*",
+    "@tailwindcss/oxide-linux-arm64-gnu": "*",
+    "@tailwindcss/oxide-darwin-arm64": "*",
+    "@tailwindcss/oxide-darwin-x64": "*"
   }
 }

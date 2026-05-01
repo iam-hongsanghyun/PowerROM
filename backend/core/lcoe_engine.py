@@ -57,6 +57,28 @@ def _evaluate_configured_function(config: dict[str, Any], x_value: float) -> flo
     )
 
 
+def _resolve_x_value(
+    config: dict[str, Any],
+    default_x: float,
+    context: dict[str, float],
+) -> float:
+    """Return the runtime x-value for a function config based on its ``x_variable`` field.
+
+    If ``x_variable`` is absent or not in the context, falls back to ``default_x`` for
+    backward compatibility.
+
+    Available context keys:
+      ``vre_share``        – system-wide VRE fraction
+      ``own_share``        – this generator's portfolio share
+      ``cf_eff``           – this generator's effective CF (computed before eta/integration)
+      ``non_vre_share``    – 1 − vre_share
+    """
+    x_var = config.get("x_variable")
+    if x_var and x_var in context:
+        return context[x_var]
+    return default_x
+
+
 def _generator_breakdown(
     generator_name: str,
     generator_config: dict[str, Any],
@@ -65,8 +87,18 @@ def _generator_breakdown(
     carbon_price: float,
     discount_rate: float,
 ) -> dict[str, float]:
-    cf_eff = _evaluate_configured_function(generator_config["cf_eff_func"], vre_share)
-    eta = _evaluate_configured_function(generator_config["eta_func"], cf_eff)
+    # Build context for x_variable resolution; cf_eff added below after computation
+    context: dict[str, float] = {
+        "vre_share": vre_share,
+        "own_share": share,
+        "non_vre_share": max(0.0, 1.0 - vre_share),
+    }
+    cf_eff_x = _resolve_x_value(generator_config["cf_eff_func"], vre_share, context)
+    cf_eff = _evaluate_configured_function(generator_config["cf_eff_func"], cf_eff_x)
+    context["cf_eff"] = cf_eff
+
+    eta_x = _resolve_x_value(generator_config["eta_func"], cf_eff, context)
+    eta = _evaluate_configured_function(generator_config["eta_func"], eta_x)
     eta_reference = float(generator_config.get("eta_reference", generator_config["eta_func"]["params"].get("a", eta)))
     efficiency_penalty = eta_reference / max(eta, 1e-6)
     capex = (
@@ -88,7 +120,8 @@ def _generator_breakdown(
 
     emission_factor = float(generator_config.get("emission_factor_tco2_mwh", 0.0))
     carbon = carbon_price * emission_factor * efficiency_penalty
-    integration = _evaluate_configured_function(generator_config["integration_cost_func"], share)
+    int_x = _resolve_x_value(generator_config["integration_cost_func"], share, context)
+    integration = _evaluate_configured_function(generator_config["integration_cost_func"], int_x)
 
     return {
         "generator": generator_name,
@@ -162,6 +195,11 @@ def _curtailment_metrics(
     flex_scale = 1.0 / max(backup_flex, 0.5)   # capped at 2× amplification
     effective_vre = min(1.0, vre_share * flex_scale)
 
+    base_context: dict[str, float] = {
+        "vre_share": vre_share,
+        "effective_vre": effective_vre,
+        "non_vre_share": max(0.0, 1.0 - vre_share),
+    }
     w_curtail = 0.0
     curtailed_twh = 0.0
     for gen in VRE_GENERATORS:
@@ -170,7 +208,9 @@ def _curtailment_metrics(
             continue
         gen_cfg = profile["generators"][gen]
         if "curtailment_func" in gen_cfg:
-            cr = _evaluate_configured_function(gen_cfg["curtailment_func"], effective_vre)
+            ctx = {**base_context, "own_share": share}
+            cr_x = _resolve_x_value(gen_cfg["curtailment_func"], effective_vre, ctx)
+            cr = _evaluate_configured_function(gen_cfg["curtailment_func"], cr_x)
             cr = max(0.0, min(1.0, cr))
         else:
             cf_base = float(gen_cfg.get("cf_base", 1.0))
@@ -202,6 +242,10 @@ def _ess_metrics(
     long = ess["long_dur"]
 
     # Short-duration: curtailment absorption per VRE generator
+    ess_ctx: dict[str, float] = {
+        "vre_share": vre_share,
+        "non_vre_share": max(0.0, 1.0 - vre_share),
+    }
     throughput_gwh = 0.0
     for gen in VRE_GENERATORS:
         share = normalized_shares.get(gen, 0.0)
@@ -209,7 +253,9 @@ def _ess_metrics(
             continue
         gen_cfg = profile["generators"][gen]
         if "curtailment_func" in gen_cfg:
-            cr = _evaluate_configured_function(gen_cfg["curtailment_func"], vre_share)
+            ctx = {**ess_ctx, "own_share": share}
+            cr_x = _resolve_x_value(gen_cfg["curtailment_func"], vre_share, ctx)
+            cr = _evaluate_configured_function(gen_cfg["curtailment_func"], cr_x)
             cr = max(0.0, min(1.0, cr))
         else:
             cf_base = float(gen_cfg.get("cf_base", 1.0))

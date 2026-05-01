@@ -25,6 +25,7 @@ class FunctionConfig(BaseModel):
     x_max: float | None = None
     source: str | None = None
     r_squared: float | None = None
+    x_variable: str | None = None
 
 
 class GeneratorOverride(BaseModel):

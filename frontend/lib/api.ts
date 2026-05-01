@@ -172,6 +172,7 @@ export interface FuncConfig {
   x_min?: number;
   x_max?: number;
   source?: string;
+  x_variable?: string;
 }
 
 export interface GeneratorConfig {

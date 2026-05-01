@@ -79,6 +79,21 @@ const FUNC_PARAMS_BY_TYPE: Record<string, string[]> = {
   piecewise: ["intercept", "threshold", "slope_before", "slope_after"],
 };
 
+const X_VARIABLE_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: "vre_share", label: "VRE Share" },
+  { value: "own_share", label: "Own Share" },
+  { value: "cf_eff", label: "CF_eff (own)" },
+  { value: "non_vre_share", label: "1−VRE Share" },
+];
+
+/** Default x-input variable for each function type (matches engine defaults). */
+const FUNC_DEFAULT_X: Record<string, string> = {
+  cf_eff_func: "vre_share",
+  eta_func: "cf_eff",
+  integration_cost_func: "own_share",
+  curtailment_func: "vre_share",
+};
+
 // ---------------------------------------------------------------------------
 // Function evaluator & chart helpers
 // ---------------------------------------------------------------------------
@@ -266,6 +281,7 @@ function Cell({
         "w-full rounded border border-transparent bg-transparent px-2 py-1 text-right text-sm font-mono text-slate-800",
         "focus:border-sky-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-sky-300",
         "hover:bg-slate-50",
+        "[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none",
         className,
       ].join(" ")}
     />
@@ -379,6 +395,8 @@ export function ParametersTab({ country }: Props) {
       updated = { ...func, x_max: parseNum(val) };
     } else if (field === "source") {
       updated = { ...func, source: val };
+    } else if (field === "x_variable") {
+      updated = { ...func, x_variable: val || undefined };
     } else {
       const n = parseNum(val);
       updated = { ...func, params: { ...func.params, [field]: n ?? 0 } };
@@ -701,14 +719,13 @@ export function ParametersTab({ country }: Props) {
                     fullHeight
                   />
                 ) : (
-                <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-                  {/* Parameter table */}
-                  <div className="overflow-x-auto">
-                    <table className="w-full min-w-[700px] text-sm border-collapse">
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[700px] text-sm border-collapse">
                       <thead>
                         <tr className="border-b border-slate-200 bg-slate-50">
                           <th className="px-3 py-2 text-left font-semibold text-slate-600">Generator</th>
                           <th className="px-3 py-2 text-left font-semibold text-slate-600">Type</th>
+                          <th className="px-2 py-2 text-left font-semibold text-slate-600 whitespace-nowrap">Input (x)</th>
                           <th className="px-2 py-2 text-right font-semibold text-slate-600" colSpan={7}>
                             Parameters (a, b, c / intercept, threshold, slope_before, slope_after)
                           </th>
@@ -717,7 +734,7 @@ export function ParametersTab({ country }: Props) {
                           <th className="px-3 py-2 text-left font-semibold text-slate-600">Source</th>
                         </tr>
                         <tr className="border-b border-slate-100 bg-slate-50/50 text-xs text-slate-400">
-                          <th /><th />
+                          <th /><th /><th />
                           {["a", "b", "c", "intercept", "threshold", "slope_before", "slope_after"].map((p) => (
                             <th key={p} className="px-2 py-1 text-right font-normal">{p}</th>
                           ))}
@@ -764,6 +781,17 @@ export function ParametersTab({ country }: Props) {
                                   )}
                                 </div>
                               </td>
+                              <td className="px-2 py-0.5">
+                                <select
+                                  value={func.x_variable ?? FUNC_DEFAULT_X[funcKey] ?? "vre_share"}
+                                  onChange={(e) => setFuncField(gen, funcKey, "x_variable", e.target.value)}
+                                  className="rounded border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 focus:outline-none focus:ring-1 focus:ring-sky-300 whitespace-nowrap"
+                                >
+                                  {X_VARIABLE_OPTIONS.map((opt) => (
+                                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                  ))}
+                                </select>
+                              </td>
                               {ALL_PARAMS.map((pk) => (
                                 <td key={pk} className="px-1 py-0.5">
                                   {activeParams.includes(pk) ? (
@@ -802,16 +830,6 @@ export function ParametersTab({ country }: Props) {
                         })}
                       </tbody>
                     </table>
-                  </div>
-
-                  {/* Live chart (side panel) */}
-                  <FunctionChart
-                    generators={activeGenerators}
-                    genConfigs={draft.generators}
-                    funcKey={funcKey}
-                    xLabel={xLabel}
-                    yLabel={yLabel}
-                  />
                 </div>
                 )}
               </div>

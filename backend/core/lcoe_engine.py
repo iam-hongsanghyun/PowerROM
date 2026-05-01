@@ -110,21 +110,46 @@ def _ess_metrics(
     vre_share: float,
     ev_penetration: float = 0.0,
 ) -> dict[str, float]:
+    """Compute ESS capacity and LCOE contribution.
+
+    ``requirement_ratio`` represents the fraction of annual electricity generation
+    that must pass through storage.  Physical battery capacity is therefore:
+
+        battery_gwh = annual_throughput_gwh / (cycles_per_year * dod)
+
+    The LCOE contribution ($/MWh of generation) is:
+
+        ess_lcoe = capex [$/kWh] * battery_capacity [kWh] * CRF / annual_gen [MWh]
+                 = capex * CRF * requirement_ratio * 1000 / (cycles * dod)
+
+    The factor of 1000 converts from $/kWh_battery → $/MWh_generated.
+    """
     annual_generation_twh = profile["annual_generation_twh"]
     requirement_ratio = _evaluate_configured_function(profile["ess"]["requirement_func"], vre_share)
-    raw_gwh = requirement_ratio * annual_generation_twh * 1000
+    annual_throughput_gwh = requirement_ratio * annual_generation_twh * 1000  # GWh cycled per year
     ev_offset = ev_penetration * profile["ess"].get("ev_offset_gwh_per_unit", 0.0)
-    ess_gwh = max(raw_gwh - ev_offset, 0.0)
-    ess_gw = ess_gwh / 4.0
-    ess_cost = (
+    net_throughput_gwh = max(annual_throughput_gwh - ev_offset, 0.0)
+
+    cycles = profile["ess"]["cycles_per_year"]
+    dod = profile["ess"]["dod"]
+    # Physical battery capacity (GWh) — same battery reused cycles×dod times per year
+    ess_gwh = net_throughput_gwh / (cycles * dod)
+    ess_gw = ess_gwh / 4.0  # assume 4-hour discharge duration
+
+    # LCOE contribution: $/MWh of generation
+    # = capex [$/kWh] * ess_gwh [GWh] * 10^6 [kWh/GWh] * CRF / (annual_gen_twh [TWh] * 10^6 [MWh/TWh])
+    # = capex * ess_gwh * CRF / annual_gen_twh  [$/MWh]
+    ess_lcoe = (
         profile["ess"]["capex_usd_kwh"]
         * crf(profile["discount_rate"], profile["ess"]["lifetime_yr"])
-        / (profile["ess"]["cycles_per_year"] * profile["ess"]["dod"])
+        * ess_gwh
+        / annual_generation_twh
     )
+
     return {
         "ess_requirement_gwh": ess_gwh,
         "ess_requirement_gw": ess_gw,
-        "ess_lcoe": ess_cost * requirement_ratio,
+        "ess_lcoe": ess_lcoe,
     }
 
 

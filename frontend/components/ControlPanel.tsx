@@ -6,11 +6,13 @@ export function ControlPanel({
   countries,
   country,
   carbonPrice,
+  essCostUsdKwh,
   evPenetration,
   annualDemandTwh,
   useCustomParameters,
   onCountryChange,
   onCarbonPriceChange,
+  onEssCostChange,
   onEvPenetrationChange,
   onAnnualDemandChange,
   onUseCustomParametersChange,
@@ -18,11 +20,13 @@ export function ControlPanel({
   countries: CountrySummary[];
   country: string;
   carbonPrice: number;
+  essCostUsdKwh: number;
   evPenetration: number;
   annualDemandTwh: number;
   useCustomParameters: boolean;
   onCountryChange: (country: string) => void;
   onCarbonPriceChange: (value: number) => void;
+  onEssCostChange: (value: number) => void;
   onEvPenetrationChange: (value: number) => void;
   onAnnualDemandChange: (value: number) => void;
   onUseCustomParametersChange: (value: boolean) => void;
@@ -58,6 +62,25 @@ export function ControlPanel({
           onChange={(event) => onCarbonPriceChange(Number(event.target.value))}
           className="h-2 w-full cursor-pointer appearance-none rounded-full bg-slate-200"
         />
+      </div>
+
+      <div className="space-y-2">
+        <div className="flex items-center justify-between text-sm font-medium text-slate-800">
+          <label>Battery Cost (ESS)</label>
+          <span>${essCostUsdKwh}/kWh</span>
+        </div>
+        <input
+          type="range"
+          min={50}
+          max={600}
+          step={10}
+          value={essCostUsdKwh}
+          onChange={(event) => onEssCostChange(Number(event.target.value))}
+          className="h-2 w-full cursor-pointer appearance-none rounded-full bg-slate-200"
+        />
+        <p className="text-[10px] text-slate-400">
+          Today ~$280 · 2030 target ~$120 · Higher → more expensive VRE
+        </p>
       </div>
 
       <div className="space-y-2">

@@ -2,11 +2,15 @@
 
 import { useEffect, useState, useTransition } from "react";
 import dynamic from "next/dynamic";
+import * as Tabs from "@radix-ui/react-tabs";
 
 import { ControlPanel } from "@/components/ControlPanel";
 import { ShareSliders } from "@/components/ShareSliders";
 import { CompletenessReport } from "@/components/parameter/CompletenessReport";
 import { ExcelUploader } from "@/components/parameter/ExcelUploader";
+import { GeneratorMixPlotter } from "@/components/GeneratorMixPlotter";
+import { ParametersTab } from "@/components/ParametersTab";
+import { ProfileAnalysis } from "@/components/ProfileAnalysis";
 import {
   calculateSystem,
   fetchCountries,
@@ -44,26 +48,6 @@ const DEFAULT_COUNTRIES: CountrySummary[] = [
   },
 ];
 
-const SystemLcoeChart = dynamic(
-  () => import("@/components/charts/SystemLcoeChart").then((mod) => mod.SystemLcoeChart),
-  { ssr: false },
-);
-const EmissionIntensityChart = dynamic(
-  () =>
-    import("@/components/charts/EmissionIntensityChart").then(
-      (mod) => mod.EmissionIntensityChart,
-    ),
-  { ssr: false },
-);
-const CostBreakdownChart = dynamic(
-  () => import("@/components/charts/CostBreakdownChart").then((mod) => mod.CostBreakdownChart),
-  { ssr: false },
-);
-const TradeoffChart = dynamic(
-  () => import("@/components/charts/TradeoffChart").then((mod) => mod.TradeoffChart),
-  { ssr: false },
-);
-
 const DEFAULT_SHARES: Shares = {
   solar: 0.15,
   wind_onshore: 0.1,
@@ -80,6 +64,7 @@ export function Dashboard() {
   const [carbonPrice, setCarbonPrice] = useState(40);
   const [evPenetration, setEvPenetration] = useState(0);
   const [annualDemandTwh, setAnnualDemandTwh] = useState(595);
+  const [essCostUsdKwh, setEssCostUsdKwh] = useState(280);
   const [useCustomParameters, setUseCustomParameters] = useState(false);
   const [result, setResult] = useState<CalculateResponse | null>(null);
   const [validation, setValidation] = useState<Record<string, Record<string, string | number | null>> | null>(null);
@@ -116,6 +101,7 @@ export function Dashboard() {
         carbon_price: carbonPrice,
         ev_penetration: evPenetration,
         annual_demand_twh: annualDemandTwh,
+        custom_params: { ess: { capex_usd_kwh: essCostUsdKwh } },
       })
         .then((response) => {
           setResult(response);
@@ -123,7 +109,7 @@ export function Dashboard() {
         })
         .catch((requestError: Error) => setError(requestError.message));
     });
-  }, [annualDemandTwh, carbonPrice, country, evPenetration, shares]);
+  }, [annualDemandTwh, carbonPrice, country, essCostUsdKwh, evPenetration, shares]);
 
   async function handleExcelPoints(points: Array<[number, number]>) {
     const fit = await fitCurve({ data_points: points, func_type: "linear" });
@@ -141,8 +127,6 @@ export function Dashboard() {
     });
     setValidation(validationResult.components);
   }
-
-  const currentVreShare = shares.solar + shares.wind_onshore;
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(14,165,233,0.16),_transparent_28%),linear-gradient(135deg,_#f7fbff_0%,_#eef5ff_45%,_#fefcf6_100%)] text-slate-900">
@@ -165,21 +149,18 @@ export function Dashboard() {
               countries={countries}
               country={country}
               carbonPrice={carbonPrice}
+              essCostUsdKwh={essCostUsdKwh}
               evPenetration={evPenetration}
               annualDemandTwh={annualDemandTwh}
               useCustomParameters={useCustomParameters}
               onCountryChange={handleCountryChange}
               onCarbonPriceChange={setCarbonPrice}
+              onEssCostChange={setEssCostUsdKwh}
               onEvPenetrationChange={setEvPenetration}
               onAnnualDemandChange={setAnnualDemandTwh}
               onUseCustomParametersChange={setUseCustomParameters}
             />
             <ShareSliders shares={shares} onChange={setShares} />
-            {result?.data_quality.share_normalized ? (
-              <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                Shares were normalized to sum to 100%.
-              </div>
-            ) : null}
             {error ? (
               <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
                 {error}
@@ -187,78 +168,114 @@ export function Dashboard() {
             ) : null}
           </aside>
 
-          <main className="space-y-6">
-            <div className="grid gap-6 xl:grid-cols-2">
-              <SystemLcoeChart data={result?.curve_data ?? []} selectedVreShare={currentVreShare} />
-              <EmissionIntensityChart data={result?.curve_data ?? []} selectedVreShare={currentVreShare} />
-              <CostBreakdownChart lcoeByGenerator={result?.lcoe_by_generator ?? {}} />
-              <TradeoffChart
-                data={result?.curve_data ?? []}
-                currentPoint={{
-                  lcoe: result?.system_lcoe ?? 0,
-                  emission: result?.emission_intensity ?? 0,
-                }}
-              />
-            </div>
+          <main>
+            <Tabs.Root defaultValue="profile" className="space-y-4">
+              {/* Tab bar */}
+              <Tabs.List className="flex gap-1 rounded-2xl border border-slate-200 bg-white p-1.5 shadow-sm">
+                {[
+                  { value: "profile", label: "Profile" },
+                  { value: "mix", label: "Mix" },
+                  { value: "parameters", label: "Parameters" },
+                ].map((tab) => (
+                  <Tabs.Trigger
+                    key={tab.value}
+                    value={tab.value}
+                    className={[
+                      "flex-1 rounded-xl px-4 py-2 text-sm font-medium transition",
+                      "data-[state=active]:bg-slate-900 data-[state=active]:text-white",
+                      "data-[state=inactive]:text-slate-500 data-[state=inactive]:hover:bg-slate-50",
+                    ].join(" ")}
+                  >
+                    {tab.label}
+                  </Tabs.Trigger>
+                ))}
+              </Tabs.List>
 
-            <div className="grid gap-6 xl:grid-cols-[minmax(320px,0.45fr)_1fr]">
-              <div className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-[0_20px_80px_-48px_rgba(15,23,42,0.45)]">
-                <h3 className="text-base font-semibold text-slate-900">Scenario Summary</h3>
-                <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                  <div className="rounded-2xl bg-slate-50 p-4">
-                    <div className="text-xs uppercase tracking-[0.2em] text-slate-500">System LCOE</div>
-                    <div className="mt-2 text-2xl font-semibold">${result?.system_lcoe.toFixed(1) ?? "--"}</div>
-                  </div>
-                  <div className="rounded-2xl bg-slate-50 p-4">
-                    <div className="text-xs uppercase tracking-[0.2em] text-slate-500">Emissions</div>
-                    <div className="mt-2 text-2xl font-semibold">
-                      {result ? (result.emission_intensity * 1000).toFixed(0) : "--"} g/kWh
-                    </div>
-                  </div>
-                  <div className="rounded-2xl bg-slate-50 p-4">
-                    <div className="text-xs uppercase tracking-[0.2em] text-slate-500">ESS Requirement</div>
-                    <div className="mt-2 text-2xl font-semibold">
-                      {result?.ess_requirement_gwh.toFixed(0) ?? "--"} GWh
-                    </div>
-                  </div>
-                  <div className="rounded-2xl bg-slate-50 p-4">
-                    <div className="text-xs uppercase tracking-[0.2em] text-slate-500">Annual Cost</div>
-                    <div className="mt-2 text-2xl font-semibold">
-                      ${result?.annual_system_cost_usd_billion.toFixed(1) ?? "--"}B
-                    </div>
-                  </div>
-                  <div className="rounded-2xl bg-slate-50 p-4">
-                    <div className="text-xs uppercase tracking-[0.2em] text-slate-500">Annual Emissions</div>
-                    <div className="mt-2 text-2xl font-semibold">
-                      {result?.annual_emissions_mtco2.toFixed(1) ?? "--"} MtCO2
-                    </div>
-                  </div>
-                  <div className="rounded-2xl bg-slate-50 p-4">
-                    <div className="text-xs uppercase tracking-[0.2em] text-slate-500">Status</div>
-                    <div className="mt-2 text-2xl font-semibold">
-                      {error ? "Backend issue" : isPending ? "Updating" : result ? "Ready" : "Waiting"}
-                    </div>
+              {/* Persistent status bar — visible on all tabs */}
+              <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                    Current Scenario
+                  </h3>
+                  <div className="flex flex-wrap gap-4 text-sm">
+                    <span className="text-slate-500">
+                      LCOE:{" "}
+                      <strong className="text-slate-900">
+                        ${result?.system_lcoe.toFixed(1) ?? "--"}/MWh
+                      </strong>
+                    </span>
+                    <span className="text-slate-500">
+                      Emissions:{" "}
+                      <strong className="text-slate-900">
+                        {result ? (result.emission_intensity * 1000).toFixed(0) : "--"} gCO₂/kWh
+                      </strong>
+                    </span>
+                    <span className="text-slate-500">
+                      ESS:{" "}
+                      <strong className="text-slate-900">
+                        {result?.ess_requirement_gwh.toFixed(0) ?? "--"} GWh
+                      </strong>
+                    </span>
+                    <span className="text-slate-500">
+                      Annual Cost:{" "}
+                      <strong className="text-slate-900">
+                        ${result?.annual_system_cost_usd_billion.toFixed(1) ?? "--"}B
+                      </strong>
+                    </span>
+                    <span
+                      className={
+                        error
+                          ? "font-medium text-rose-600"
+                          : isPending
+                            ? "font-medium text-amber-600"
+                            : result
+                              ? "font-medium text-emerald-600"
+                              : "font-medium text-slate-400"
+                      }
+                    >
+                      {error ? `Error: ${error}` : isPending ? "Updating…" : result ? "Ready" : "Waiting"}
+                    </span>
                   </div>
                 </div>
               </div>
 
-              {useCustomParameters ? (
-                <div className="grid gap-6 md:grid-cols-2">
-                  <ExcelUploader onParsed={handleExcelPoints} />
-                  <CompletenessReport components={validation} />
-                </div>
-              ) : (
-                <div className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-[0_20px_80px_-48px_rgba(15,23,42,0.45)]">
-                  <h3 className="text-base font-semibold text-slate-900">Default Data Quality</h3>
-                  <div className="mt-4 space-y-3 text-sm text-slate-600">
-                    {(result?.data_quality.notes ?? []).map((note) => (
-                      <p key={note}>{note}</p>
-                    ))}
-                    <p>Sources: {(result?.data_quality.sources ?? []).join(" · ")}</p>
+              {/* Profile Analysis tab */}
+              <Tabs.Content value="profile">
+                <ProfileAnalysis
+                  result={result}
+                  country={country}
+                  carbonPrice={carbonPrice}
+                  essCostUsdKwh={essCostUsdKwh}
+                  shares={shares}
+                  annualDemandTwh={annualDemandTwh}
+                  evPenetration={evPenetration}
+                />
+              </Tabs.Content>
+
+              {/* Mix Explorer tab */}
+              <Tabs.Content value="mix" className="space-y-4">
+                <GeneratorMixPlotter
+                  country={country}
+                  carbonPrice={carbonPrice}
+                  essCostUsdKwh={essCostUsdKwh}
+                  evPenetration={evPenetration}
+                  annualDemandTwh={annualDemandTwh}
+                  shares={shares}
+                />
+
+                {useCustomParameters && (
+                  <div className="grid gap-6 md:grid-cols-2">
+                    <ExcelUploader onParsed={handleExcelPoints} />
+                    <CompletenessReport components={validation} />
                   </div>
-                </div>
-              )}
-            </div>
+                )}
+              </Tabs.Content>
+
+              {/* Parameters tab */}
+              <Tabs.Content value="parameters">
+                <ParametersTab country={country} />
+              </Tabs.Content>
+            </Tabs.Root>
           </main>
         </div>
       </div>

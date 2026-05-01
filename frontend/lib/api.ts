@@ -113,6 +113,21 @@ export async function calculateSystem(payload: {
   });
 }
 
+export async function calculateBatch(
+  payloads: Array<{
+    country: string;
+    shares: Shares;
+    carbon_price: number;
+    ev_penetration?: number;
+    annual_demand_twh?: number;
+  }>,
+): Promise<CalculateResponse[]> {
+  return request<CalculateResponse[]>("/calculate-batch", {
+    method: "POST",
+    body: JSON.stringify(payloads),
+  });
+}
+
 export async function fitCurve(payload: {
   data_points: Array<[number, number]>;
   func_type: string;
@@ -131,4 +146,63 @@ export async function validateGeneratorConfig(payload: {
     method: "POST",
     body: JSON.stringify(payload),
   });
+}
+
+// ---------------------------------------------------------------------------
+// Profile (country parameter) API
+// ---------------------------------------------------------------------------
+
+export interface FuncConfig {
+  type: string;
+  params: Record<string, number>;
+  x_min?: number;
+  x_max?: number;
+  source?: string;
+}
+
+export interface GeneratorConfig {
+  capex_usd_kw?: number;
+  opex_fixed_usd_kw_yr?: number;
+  opex_var_usd_mwh?: number;
+  lifetime_yr?: number;
+  emission_factor_tco2_mwh?: number;
+  fuel_usd_mmbtu?: number;
+  heat_rate_mmbtu_mwh?: number;
+  cf_base?: number;
+  cf_eff_func?: FuncConfig;
+  eta_func?: FuncConfig;
+  integration_cost_func?: FuncConfig;
+}
+
+export interface EssConfig {
+  capex_usd_kwh?: number;
+  lifetime_yr?: number;
+  cycles_per_year?: number;
+  dod?: number;
+  ev_offset_gwh_per_unit?: number;
+  requirement_func?: FuncConfig;
+}
+
+export interface CountryProfile {
+  name: string;
+  annual_generation_twh: number;
+  discount_rate: number;
+  generators: Record<string, GeneratorConfig>;
+  ess: EssConfig;
+  sources?: string[];
+}
+
+export async function fetchProfile(country: string): Promise<CountryProfile> {
+  return request<CountryProfile>(`/profile/${country}`);
+}
+
+export async function saveProfile(country: string, profile: CountryProfile): Promise<CountryProfile> {
+  return request<CountryProfile>(`/profile/${country}`, {
+    method: "PUT",
+    body: JSON.stringify({ profile }),
+  });
+}
+
+export function profileExcelDownloadUrl(country: string): string {
+  return `${API_BASE_URL}/profile/${country}/excel`;
 }

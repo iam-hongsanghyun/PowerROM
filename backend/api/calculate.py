@@ -19,3 +19,19 @@ def calculate(payload: CalculateRequest) -> CalculateResponse:
         custom_params=payload.custom_params,
     )
     return CalculateResponse(**result)
+
+
+@router.post("/calculate-batch", response_model=list[CalculateResponse])
+def calculate_batch(payloads: list[CalculateRequest]) -> list[CalculateResponse]:
+    results = []
+    for payload in payloads:
+        result = calculate_system_lcoe(
+            country=payload.country,
+            shares=payload.shares,
+            carbon_price=payload.carbon_price,
+            ev_penetration=payload.ev_penetration,
+            annual_demand_twh=payload.annual_demand_twh,
+            custom_params=payload.custom_params,
+        )
+        results.append(CalculateResponse(**result))
+    return results

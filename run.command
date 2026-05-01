@@ -6,7 +6,7 @@ ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
 BACKEND_PORT="${BACKEND_PORT:-8000}"
 FRONTEND_PORT="${FRONTEND_PORT:-3000}"
 CONDA_ENV_NAME="${CONDA_ENV_NAME:-powerrom}"
-CONDA_BIN="${CONDA_BIN:-$(command -v conda || true)}"
+CONDA_BIN="${CONDA_BIN:-$(command -v conda 2>/dev/null || true)}"
 
 echo "PowerROM local launcher"
 echo "Repo: $ROOT_DIR"
@@ -17,7 +17,22 @@ if ! command -v npm >/dev/null 2>&1; then
 fi
 
 if [ -z "$CONDA_BIN" ]; then
-  echo "Missing conda"
+  # Try common conda install locations on macOS
+  for candidate in \
+    /opt/miniconda3/bin/conda \
+    /opt/anaconda3/bin/conda \
+    "$HOME/miniconda3/bin/conda" \
+    "$HOME/anaconda3/bin/conda" \
+    "$HOME/mambaforge/bin/conda"; do
+    if [ -x "$candidate" ]; then
+      CONDA_BIN="$candidate"
+      break
+    fi
+  done
+fi
+
+if [ -z "$CONDA_BIN" ]; then
+  echo "Could not find conda. Install Miniconda or Anaconda and try again."
   exit 1
 fi
 

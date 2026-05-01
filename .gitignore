@@ -78,6 +78,13 @@ tempCodeRunnerFile.py
 # Vercel
 .vercel/
 
+# Claude Code editor files
+.claude/
+
+# Root-level node artifacts (npm run from wrong dir)
+node_modules/
+package-lock.json
+
 # Next.js frontend
 frontend/node_modules/
 frontend/.next/

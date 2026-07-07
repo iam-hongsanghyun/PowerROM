@@ -91,6 +91,13 @@ export interface CalculateResponse {
     added_capacities_gw: Record<string, number>;
     note: string;
   } | null;
+  rps?: {
+    target_share: number;
+    achieved_share: number;
+    met: boolean;
+    shortfall_share: number;
+    penalty_lcoe: number;
+  } | null;
   data_quality: DataQuality;
 }
 
@@ -219,6 +226,8 @@ export async function calculateSystem(payload: {
   demand_daily?: number[] | null;
   expandable?: string[];
   meet_full_load?: boolean;
+  rps_target_share?: number | null;
+  rps_penalty_usd_mwh?: number | null;
 }): Promise<CalculateResponse> {
   return request<CalculateResponse>("/calculate", {
     method: "POST",
@@ -248,6 +257,8 @@ export async function dispatchSystem(payload: {
   demand_daily?: number[] | null;
   expandable?: string[];
   meet_full_load?: boolean;
+  rps_target_share?: number | null;
+  rps_penalty_usd_mwh?: number | null;
 }): Promise<DispatchResponse> {
   return request<DispatchResponse>("/dispatch", {
     method: "POST",

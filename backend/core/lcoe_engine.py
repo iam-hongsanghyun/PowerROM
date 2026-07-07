@@ -573,6 +573,8 @@ def _calculate_system_lcoe_dispatch(
     demand_daily: list[float] | None = None,
     expandable: list[str] | None = None,
     meet_full_load: bool = False,
+    rps_target_share: float | None = None,
+    rps_penalty_usd_mwh: float | None = None,
 ) -> dict[str, Any]:
     base_profile = load_country_profile(country)
     profile = deep_merge(base_profile, custom_params or {})
@@ -685,6 +687,30 @@ def _calculate_system_lcoe_dispatch(
         current["emission_intensity_p10"] = emis_p10
         current["emission_intensity_p90"] = emis_p90
 
+    # Renewable-target (RPS) policy lever: compare achieved VRE generation share to the
+    # target; optionally charge a shortfall (REC / alternative-compliance) penalty.
+    rps: dict[str, Any] | None = None
+    if rps_target_share is not None:
+        achieved = sum(_median_metric(dispatch_summary, "realized_share", gen) for gen in VRE_GENERATORS)
+        shortfall = max(0.0, float(rps_target_share) - achieved)
+        penalty = float(rps_penalty_usd_mwh or 0.0) * shortfall
+        if penalty > 0.0:
+            current["system_lcoe"] += penalty
+            current["annual_system_cost_usd_billion"] = (
+                current["system_lcoe"] * profile["annual_generation_twh"] / 1000
+            )
+            current["stack_components"]["rps_penalty"] = penalty
+            for key in ("system_lcoe_p10", "system_lcoe_p90"):
+                if key in current:
+                    current[key] += penalty
+        rps = {
+            "target_share": float(rps_target_share),
+            "achieved_share": achieved,
+            "met": achieved >= float(rps_target_share) - 1e-4,
+            "shortfall_share": shortfall,
+            "penalty_lcoe": penalty,
+        }
+
     # The 0→100% VRE-share sweep (curve_data) was an arbitrary interpolated path used
     # only by sensitivity sub-charts that have been removed. Dropped to avoid re-running
     # the full dispatch ensemble 101× per request. Results describe the chosen mix only.
@@ -726,6 +752,8 @@ def _calculate_system_lcoe_dispatch(
         result["chronological"] = dispatch_summary["chronological"]
     if expansion is not None:
         result["expansion"] = expansion
+    if rps is not None:
+        result["rps"] = rps
     return result
 
 
@@ -752,6 +780,8 @@ def calculate_system_lcoe(
     demand_daily: list[float] | None = None,
     expandable: list[str] | None = None,
     meet_full_load: bool = False,
+    rps_target_share: float | None = None,
+    rps_penalty_usd_mwh: float | None = None,
 ) -> dict[str, Any]:
     return _calculate_system_lcoe_dispatch(
         country=country,
@@ -776,4 +806,6 @@ def calculate_system_lcoe(
         demand_daily=demand_daily,
         expandable=expandable,
         meet_full_load=meet_full_load,
+        rps_target_share=rps_target_share,
+        rps_penalty_usd_mwh=rps_penalty_usd_mwh,
     )

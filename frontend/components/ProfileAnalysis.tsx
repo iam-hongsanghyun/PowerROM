@@ -62,6 +62,25 @@ export function ProfileAnalysis({
 
   return (
     <div className="space-y-6">
+      {result.rps ? (
+        <div
+          className={`flex items-center gap-2 rounded-2xl border px-4 py-2.5 text-sm ${
+            result.rps.met
+              ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+              : "border-rose-200 bg-rose-50 text-rose-800"
+          }`}
+        >
+          <span className={`h-2.5 w-2.5 rounded-full ${result.rps.met ? "bg-emerald-500" : "bg-rose-500"}`} />
+          <span className="font-semibold">Renewable target {(result.rps.target_share * 100).toFixed(0)}%</span>
+          <span>
+            {result.rps.met ? "met" : "not met"} — achieved {(result.rps.achieved_share * 100).toFixed(0)}%
+            {!result.rps.met && result.rps.penalty_lcoe > 0
+              ? ` · +$${result.rps.penalty_lcoe.toFixed(1)}/MWh REC penalty`
+              : ""}
+          </span>
+        </div>
+      ) : null}
+
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
         <SummaryCard
           label="VRE Capacity Share"

@@ -62,6 +62,9 @@ class CalculateRequest(BaseModel):
     # Capacity expansion: grow these generators to meet 100% load, cheapest-first.
     expandable: list[str] | None = None
     meet_full_load: bool = False
+    # Renewable-target (RPS) policy lever.
+    rps_target_share: float | None = Field(default=None, ge=0, le=1)
+    rps_penalty_usd_mwh: float | None = Field(default=None, ge=0)
 
     @model_validator(mode="after")
     def validate_shares(self) -> "CalculateRequest":
@@ -191,6 +194,7 @@ class CalculateResponse(BaseModel):
     ldc: LdcPayload | None = None
     chronological: ChronologicalPayload | None = None
     expansion: dict[str, Any] | None = None
+    rps: dict[str, Any] | None = None
     data_quality: DataQuality
 
 

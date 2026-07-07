@@ -12,12 +12,16 @@ const WEATHER_YEAR_OPTIONS = [2020, 2021, 2022, 2023, 2024];
  */
 export function ScenarioSettings({
   carbonPrice,
+  rpsTarget,
+  rpsPenalty,
   evPenetration,
   dispatchMode,
   weatherYears,
   ensemble,
   useCustomParameters,
   onCarbonPriceChange,
+  onRpsTargetChange,
+  onRpsPenaltyChange,
   onEvPenetrationChange,
   onDispatchModeChange,
   onWeatherYearsChange,
@@ -25,12 +29,18 @@ export function ScenarioSettings({
   onUseCustomParametersChange,
 }: {
   carbonPrice: number;
+  /** Renewable-share target, 0–1 (0 = off). */
+  rpsTarget: number;
+  /** Shortfall (REC) penalty, $/MWh. */
+  rpsPenalty: number;
   evPenetration: number;
   dispatchMode: DispatchMode;
   weatherYears: number[];
   ensemble: EnsembleConfig;
   useCustomParameters: boolean;
   onCarbonPriceChange: (value: number) => void;
+  onRpsTargetChange: (value: number) => void;
+  onRpsPenaltyChange: (value: number) => void;
   onEvPenetrationChange: (value: number) => void;
   onDispatchModeChange: (value: DispatchMode) => void;
   onWeatherYearsChange: (value: number[]) => void;
@@ -70,6 +80,37 @@ export function ScenarioSettings({
           onChange={(event) => onCarbonPriceChange(Number(event.target.value))}
           className="h-2 w-full cursor-pointer appearance-none rounded-full bg-slate-200"
         />
+      </div>
+
+      <div className="space-y-2">
+        <div className="flex items-center justify-between text-sm font-medium text-slate-800">
+          <span className="flex items-center gap-1.5">
+            Renewable Target
+            <InfoTip text="Renewable Portfolio Standard: minimum share of generation from solar + wind. A shortfall (REC / alternative-compliance) penalty is added to system cost per point short." />
+          </span>
+          <span>{rpsTarget > 0 ? `${Math.round(rpsTarget * 100)}%` : "off"}</span>
+        </div>
+        <input
+          type="range"
+          min={0}
+          max={100}
+          step={5}
+          value={Math.round(rpsTarget * 100)}
+          onChange={(event) => onRpsTargetChange(Number(event.target.value) / 100)}
+          className="h-2 w-full cursor-pointer appearance-none rounded-full bg-slate-200"
+        />
+        {rpsTarget > 0 ? (
+          <label className="flex items-center justify-between gap-2 text-[11px] text-slate-500">
+            Shortfall penalty ($/MWh)
+            <input
+              type="number"
+              min={0}
+              value={rpsPenalty}
+              onChange={(event) => onRpsPenaltyChange(Math.max(0, Number(event.target.value)))}
+              className="w-20 rounded-lg border border-slate-200 bg-white px-2 py-1 text-right text-sm tabular-nums text-slate-900 outline-none transition focus:border-slate-400"
+            />
+          </label>
+        ) : null}
       </div>
 
       <div className="space-y-2">

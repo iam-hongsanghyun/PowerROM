@@ -32,6 +32,8 @@ def calculate(payload: CalculateRequest) -> CalculateResponse:
         demand_daily=payload.demand_daily,
         expandable=payload.expandable,
         meet_full_load=payload.meet_full_load,
+        rps_target_share=payload.rps_target_share,
+        rps_penalty_usd_mwh=payload.rps_penalty_usd_mwh,
     )
     return CalculateResponse(**result)
 

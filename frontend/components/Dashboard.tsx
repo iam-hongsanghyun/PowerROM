@@ -127,6 +127,9 @@ export function Dashboard() {
   const [expandable, setExpandable] = useState<Set<string>>(new Set());
   const [meetFullLoad, setMeetFullLoad] = useState(false);
   const [carbonPrice, setCarbonPrice] = useState(DEFAULT_CARBON_PRICE_USD_TCO2);
+  // Renewable-target (RPS) policy lever: share target (0 = off) + shortfall penalty.
+  const [rpsTarget, setRpsTarget] = useState(0);
+  const [rpsPenalty, setRpsPenalty] = useState(50);
   const [evPenetration, setEvPenetration] = useState(DEFAULT_EV_PENETRATION);
   const [annualDemandTwh, setAnnualDemandTwh] = useState(
     FALLBACK_COUNTRIES.find((c) => c.code === INITIAL_COUNTRY)?.annual_generation_twh ?? 595,
@@ -219,6 +222,8 @@ export function Dashboard() {
       demand_daily: demandProfile.daily,
       expandable: [...expandable],
       meet_full_load: meetFullLoad,
+      rps_target_share: rpsTarget > 0 ? rpsTarget : null,
+      rps_penalty_usd_mwh: rpsTarget > 0 ? rpsPenalty : null,
     };
 
     try {
@@ -451,12 +456,16 @@ export function Dashboard() {
                 <div className="space-y-4">
                   <ScenarioSettings
                     carbonPrice={carbonPrice}
+                    rpsTarget={rpsTarget}
+                    rpsPenalty={rpsPenalty}
                     evPenetration={evPenetration}
                     dispatchMode={dispatchMode}
                     weatherYears={weatherYears}
                     ensemble={ensemble}
                     useCustomParameters={useCustomParameters}
                     onCarbonPriceChange={setCarbonPrice}
+                    onRpsTargetChange={setRpsTarget}
+                    onRpsPenaltyChange={setRpsPenalty}
                     onEvPenetrationChange={setEvPenetration}
                     onDispatchModeChange={setDispatchMode}
                     onWeatherYearsChange={setWeatherYears}

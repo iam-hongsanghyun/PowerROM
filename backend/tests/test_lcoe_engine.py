@@ -18,6 +18,22 @@ def test_expansion_meets_full_load_and_prices_it() -> None:
     assert set(added).issubset({"gas_ccgt", "nuclear"})  # only the checked generators grew
 
 
+def test_rps_target_badge_and_penalty() -> None:
+    caps = {"solar": 120, "wind_onshore": 60, "gas_ccgt": 30, "coal": 15, "nuclear": 18, "other": 6}
+    base = dict(country="KR", shares=caps, carbon_price=50.0, capacities_gw=caps, ensemble=_SINGLE)
+
+    easy = calculate_system_lcoe(**base, rps_target_share=0.20)
+    hard = calculate_system_lcoe(**base, rps_target_share=0.90, rps_penalty_usd_mwh=40.0)
+    baseline = calculate_system_lcoe(**base)["system_lcoe"]
+
+    assert easy["rps"]["met"] is True
+    assert hard["rps"]["met"] is False
+    assert hard["rps"]["shortfall_share"] > 0.0
+    # Shortfall penalty raises system LCOE by penalty × shortfall.
+    assert hard["rps"]["penalty_lcoe"] > 0.0
+    assert hard["system_lcoe"] > baseline
+
+
 def test_expansion_holds_across_weather_ensemble() -> None:
     # Sized against the worst weather sample, so 100% load holds across the whole ensemble.
     caps = {"solar": 120, "wind_onshore": 60, "gas_ccgt": 15, "coal": 8, "nuclear": 15, "other": 4}

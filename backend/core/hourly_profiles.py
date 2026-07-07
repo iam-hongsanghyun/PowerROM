@@ -52,11 +52,40 @@ def normalize_hourly_profile(
     return demand, solar, wind
 
 
+# Demand archetypes scale the seasonal/diurnal components of the synthesized load.
+# "flat" damps them (high load factor); winter/summer emphasise one season.
+DEMAND_ARCHETYPES: dict[str, dict[str, float]] = {
+    "default": {"winter": 1.0, "summer": 1.0, "evening": 1.0, "business": 1.0},
+    "winter_peak": {"winter": 1.8, "summer": 0.4, "evening": 1.2, "business": 0.9},
+    "summer_peak": {"winter": 0.4, "summer": 1.8, "evening": 1.0, "business": 1.3},
+    "flat": {"winter": 0.3, "summer": 0.3, "evening": 0.4, "business": 0.4},
+}
+
+
+def _apply_peak_ratio(shape: np.ndarray, peak_ratio: float) -> np.ndarray:
+    """Rescale a load shape so its peak÷mean equals ``peak_ratio``, mean unchanged.
+
+    Applies a gain to the deviations from the mean (mean-preserving), so annual energy
+    is conserved after normalisation and the trough follows from the shape. A higher
+    ratio = peakier demand (lower load factor).
+    """
+    mean = float(np.mean(shape))
+    if mean <= 0:
+        return shape
+    current_peak_ratio = float(np.max(shape)) / mean
+    if current_peak_ratio <= 1.0:
+        return shape
+    gain = (peak_ratio - 1.0) / (current_peak_ratio - 1.0)
+    return mean + (shape - mean) * max(0.0, gain)
+
+
 def synthesize_parametric(
     country: str,
     profile: dict[str, Any],
     seed: int = 42,
     year: int = 2024,
+    demand_pattern: str = "default",
+    demand_peak_ratio: float | None = None,
 ) -> YearProfile:
     rng = np.random.default_rng(seed)
     hour = np.arange(HOURS_PER_YEAR)
@@ -85,10 +114,11 @@ def synthesize_parametric(
     wind_shape = np.clip(wind_seasonal * wind_diurnal * (1.0 + wind_noise), 0.0, None)
     wind_cf = _scale_to_mean(wind_shape, wind_base, upper=0.90)
 
-    winter_component = 0.10 * np.cos(2 * np.pi * (day_of_year - winter_peak_phase) / 365)
-    summer_component = 0.08 * np.cos(4 * np.pi * (day_of_year - summer_peak_phase) / 365)
-    evening_peak = 0.08 * np.exp(-((hour_of_day - 19) / 4.2) ** 2)
-    business_hours = 0.05 * np.exp(-((hour_of_day - 13) / 5.0) ** 2)
+    w = DEMAND_ARCHETYPES.get(demand_pattern, DEMAND_ARCHETYPES["default"])
+    winter_component = w["winter"] * 0.10 * np.cos(2 * np.pi * (day_of_year - winter_peak_phase) / 365)
+    summer_component = w["summer"] * 0.08 * np.cos(4 * np.pi * (day_of_year - summer_peak_phase) / 365)
+    evening_peak = w["evening"] * 0.08 * np.exp(-((hour_of_day - 19) / 4.2) ** 2)
+    business_hours = w["business"] * 0.05 * np.exp(-((hour_of_day - 13) / 5.0) ** 2)
     weekend = ((day_of_year + 1) % 7 >= 5).astype(float)
     demand_noise = _ar1_noise(rng, HOURS_PER_YEAR, sigma=0.025, rho=0.78)
     demand_shape = (
@@ -100,7 +130,9 @@ def synthesize_parametric(
         - 0.055 * weekend
         + demand_noise
     )
-    demand_norm = np.clip(demand_shape, 0.62, None)
+    if demand_peak_ratio is not None and demand_peak_ratio > 1.0:
+        demand_shape = _apply_peak_ratio(demand_shape, float(demand_peak_ratio))
+    demand_norm = np.clip(demand_shape, 0.1, None)
 
     demand_norm, solar_cf, wind_cf = normalize_hourly_profile(demand_norm, solar_cf, wind_cf)
     return YearProfile(
@@ -119,6 +151,8 @@ def load_hourly_profiles(
     mode: ProfileMode = "parametric",
     years: list[int] | None = None,
     seed: int = 42,
+    demand_pattern: str = "default",
+    demand_peak_ratio: float | None = None,
 ) -> list[YearProfile]:
     country_code = country.upper()
     if mode == "data":
@@ -128,7 +162,10 @@ def load_hourly_profiles(
 
     selected_years = years or [2020, 2021, 2022, 2023, 2024]
     return [
-        synthesize_parametric(country_code, profile, seed=seed + index * 101, year=year)
+        synthesize_parametric(
+            country_code, profile, seed=seed + index * 101, year=year,
+            demand_pattern=demand_pattern, demand_peak_ratio=demand_peak_ratio,
+        )
         for index, year in enumerate(selected_years)
     ]
 

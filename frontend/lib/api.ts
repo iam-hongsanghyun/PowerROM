@@ -200,6 +200,8 @@ export async function calculateSystem(payload: {
   ess_short_duration_hr?: number | null;
   ess_long_power_gw?: number | null;
   ess_long_duration_hr?: number | null;
+  demand_pattern?: "default" | "winter_peak" | "summer_peak" | "flat";
+  demand_peak_ratio?: number | null;
 }): Promise<CalculateResponse> {
   return request<CalculateResponse>("/calculate", {
     method: "POST",
@@ -223,6 +225,8 @@ export async function dispatchSystem(payload: {
   ess_short_duration_hr?: number | null;
   ess_long_power_gw?: number | null;
   ess_long_duration_hr?: number | null;
+  demand_pattern?: "default" | "winter_peak" | "summer_peak" | "flat";
+  demand_peak_ratio?: number | null;
 }): Promise<DispatchResponse> {
   return request<DispatchResponse>("/dispatch", {
     method: "POST",

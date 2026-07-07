@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight, Play } from "lucide-react";
 import * as Tabs from "@radix-ui/react-tabs";
 
-import { ControlPanel, type StorageInput } from "@/components/ControlPanel";
+import { ControlPanel, type DemandInput, type StorageInput } from "@/components/ControlPanel";
 import { ShareSliders } from "@/components/ShareSliders";
 import { ParametersTab } from "@/components/ParametersTab";
 import { ProfileAnalysis } from "@/components/ProfileAnalysis";
@@ -138,6 +138,7 @@ export function Dashboard() {
     longPowerGw: 5,
     longDurationHr: 100,
   });
+  const [demand, setDemand] = useState<DemandInput>({ pattern: "default", peakRatio: 1.4 });
   const [dispatchMode, setDispatchMode] = useState<DispatchMode>("parametric");
   const [weatherYears, setWeatherYears] = useState<number[]>([]);
   const [ensemble, setEnsemble] = useState<EnsembleConfig>({
@@ -229,6 +230,8 @@ export function Dashboard() {
       ess_short_duration_hr: storage.shortDurationHr,
       ess_long_power_gw: storage.longPowerGw,
       ess_long_duration_hr: storage.longDurationHr,
+      demand_pattern: demand.pattern,
+      demand_peak_ratio: demand.peakRatio,
     };
 
     try {
@@ -302,6 +305,7 @@ export function Dashboard() {
                 carbonPrice={carbonPrice}
                 essCostUsdKwh={essCostUsdKwh}
                 storage={storage}
+                demand={demand}
                 evPenetration={evPenetration}
                 annualDemandTwh={annualDemandTwh}
                 dispatchMode={dispatchMode}
@@ -312,6 +316,7 @@ export function Dashboard() {
                 onCarbonPriceChange={setCarbonPrice}
                 onEssCostChange={setEssCostUsdKwh}
                 onStorageChange={setStorage}
+                onDemandChange={setDemand}
                 onEvPenetrationChange={setEvPenetration}
                 onAnnualDemandChange={setAnnualDemandTwh}
                 onDispatchModeChange={setDispatchMode}

@@ -53,6 +53,9 @@ class CalculateRequest(BaseModel):
     ess_short_duration_hr: float | None = Field(default=None, ge=0)
     ess_long_power_gw: float | None = Field(default=None, ge=0)
     ess_long_duration_hr: float | None = Field(default=None, ge=0)
+    # Demand-shape controls for the synthesized load profile.
+    demand_pattern: Literal["default", "winter_peak", "summer_peak", "flat"] = "default"
+    demand_peak_ratio: float | None = Field(default=None, gt=1.0, le=4.0)
 
     @model_validator(mode="after")
     def validate_shares(self) -> "CalculateRequest":

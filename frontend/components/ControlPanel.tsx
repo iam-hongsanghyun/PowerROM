@@ -13,12 +13,27 @@ export interface StorageInput {
   longDurationHr: number;
 }
 
+export type DemandPattern = "default" | "winter_peak" | "summer_peak" | "flat";
+/** Demand-shape controls for the synthesized load profile. */
+export interface DemandInput {
+  pattern: DemandPattern;
+  peakRatio: number;
+}
+
+const DEMAND_PATTERN_LABELS: Record<DemandPattern, string> = {
+  default: "Default",
+  winter_peak: "Winter-peaking",
+  summer_peak: "Summer-peaking",
+  flat: "Flat",
+};
+
 export function ControlPanel({
   countries,
   country,
   carbonPrice,
   essCostUsdKwh,
   storage,
+  demand,
   evPenetration,
   annualDemandTwh,
   dispatchMode,
@@ -29,6 +44,7 @@ export function ControlPanel({
   onCarbonPriceChange,
   onEssCostChange,
   onStorageChange,
+  onDemandChange,
   onEvPenetrationChange,
   onAnnualDemandChange,
   onDispatchModeChange,
@@ -41,6 +57,7 @@ export function ControlPanel({
   carbonPrice: number;
   essCostUsdKwh: number;
   storage: StorageInput;
+  demand: DemandInput;
   evPenetration: number;
   annualDemandTwh: number;
   dispatchMode: DispatchMode;
@@ -51,6 +68,7 @@ export function ControlPanel({
   onCarbonPriceChange: (value: number) => void;
   onEssCostChange: (value: number) => void;
   onStorageChange: (value: StorageInput) => void;
+  onDemandChange: (value: DemandInput) => void;
   onEvPenetrationChange: (value: number) => void;
   onAnnualDemandChange: (value: number) => void;
   onDispatchModeChange: (value: DispatchMode) => void;
@@ -151,6 +169,34 @@ export function ControlPanel({
         <p className="text-[10px] text-slate-400">
           Endogenous: charges from surplus, discharges to shortfall. Energy = power × duration.
         </p>
+      </div>
+
+      <div className="space-y-2">
+        <label className="text-sm font-medium text-slate-800">Demand Pattern</label>
+        <select
+          value={demand.pattern}
+          onChange={(event) => onDemandChange({ ...demand, pattern: event.target.value as DemandPattern })}
+          className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900 outline-none transition focus:border-slate-400"
+        >
+          {(Object.keys(DEMAND_PATTERN_LABELS) as DemandPattern[]).map((key) => (
+            <option key={key} value={key}>
+              {DEMAND_PATTERN_LABELS[key]}
+            </option>
+          ))}
+        </select>
+        <div className="flex items-center justify-between text-[10px] text-slate-400">
+          <label>Peak / average</label>
+          <span>{demand.peakRatio.toFixed(2)}× · trough follows</span>
+        </div>
+        <input
+          type="range"
+          min={1.05}
+          max={2.5}
+          step={0.05}
+          value={demand.peakRatio}
+          onChange={(event) => onDemandChange({ ...demand, peakRatio: Number(event.target.value) })}
+          className="h-2 w-full cursor-pointer appearance-none rounded-full bg-slate-200"
+        />
       </div>
 
       <div className="space-y-2">

@@ -31,6 +31,12 @@ function numericBreakdownValue(result: CalculateResponse, generator: string, key
   return typeof value === "number" ? value : 0;
 }
 
+/** "[p10–p90]" range string when the ensemble produced a band, else empty. */
+function bandRange(p10: number | null | undefined, p90: number | null | undefined, digits: number, scale = 1): string {
+  if (p10 == null || p90 == null) return "";
+  return `[${(p10 * scale).toFixed(digits)}–${(p90 * scale).toFixed(digits)}]`;
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export function ProfileAnalysis({
@@ -71,12 +77,20 @@ export function ProfileAnalysis({
         <SummaryCard
           label="System LCOE"
           value={`$${result.system_lcoe.toFixed(1)}/MWh`}
-          sub={`Annual cost $${result.annual_system_cost_usd_billion.toFixed(1)}B/yr`}
+          sub={
+            bandRange(result.system_lcoe_p10, result.system_lcoe_p90, 1)
+              ? `${bandRange(result.system_lcoe_p10, result.system_lcoe_p90, 1)} p10–p90 · $${result.annual_system_cost_usd_billion.toFixed(1)}B/yr`
+              : `Annual cost $${result.annual_system_cost_usd_billion.toFixed(1)}B/yr`
+          }
         />
         <SummaryCard
           label="Emission Intensity"
           value={`${(result.emission_intensity * 1000).toFixed(0)} gCO₂/kWh`}
-          sub={`${result.annual_emissions_mtco2.toFixed(1)} MtCO₂/yr`}
+          sub={
+            bandRange(result.emission_intensity_p10, result.emission_intensity_p90, 0, 1000)
+              ? `${bandRange(result.emission_intensity_p10, result.emission_intensity_p90, 0, 1000)} p10–p90 · ${result.annual_emissions_mtco2.toFixed(1)} MtCO₂/yr`
+              : `${result.annual_emissions_mtco2.toFixed(1)} MtCO₂/yr`
+          }
         />
         <SummaryCard
           label="Storage"

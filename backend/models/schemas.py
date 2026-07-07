@@ -148,9 +148,13 @@ class CalculateResponse(BaseModel):
     capacities_gw: dict[str, float] = Field(default_factory=dict)
     annual_demand_twh: float
     system_lcoe: float
+    system_lcoe_p10: float | None = None
+    system_lcoe_p90: float | None = None
     annual_system_cost_usd_billion: float
     lcoe_by_generator: dict[str, dict[str, float | str]]
     emission_intensity: float
+    emission_intensity_p10: float | None = None
+    emission_intensity_p90: float | None = None
     annual_emissions_mtco2: float
     ess_requirement_gw: float
     ess_requirement_gwh: float

@@ -61,9 +61,13 @@ export interface CalculateResponse {
   capacities_gw: Record<string, number>;
   annual_demand_twh: number;
   system_lcoe: number;
+  system_lcoe_p10?: number | null;
+  system_lcoe_p90?: number | null;
   annual_system_cost_usd_billion: number;
   lcoe_by_generator: Record<string, Record<string, number | string>>;
   emission_intensity: number;
+  emission_intensity_p10?: number | null;
+  emission_intensity_p90?: number | null;
   annual_emissions_mtco2: number;
   ess_requirement_gw: number;
   ess_requirement_gwh: number;

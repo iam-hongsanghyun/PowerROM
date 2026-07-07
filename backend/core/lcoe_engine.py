@@ -5,6 +5,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+
 from backend.core.dispatch_engine import run_dispatch_ensemble
 from backend.core.function_catalog import evaluate_function
 from backend.core.hourly_profiles import EnsembleSettings, load_hourly_profiles
@@ -469,6 +471,7 @@ def _calculate_system_lcoe_dispatch(
         generator_order=generator_order,
         carbon_price=carbon_price,
         storage_tiers=storage_tiers,
+        return_members=True,
     )
 
     current = _calculate_from_dispatch_summary(
@@ -478,6 +481,28 @@ def _calculate_system_lcoe_dispatch(
         storage_tiers=storage_tiers,
         dispatch_summary=dispatch_summary,
     )
+
+    # Probabilistic band: recompute cost/emissions for each ensemble member so the
+    # headline numbers carry the weather-uncertainty spread, not just a point estimate.
+    member_lcoe: list[float] = []
+    member_emis: list[float] = []
+    for member in dispatch_summary.get("members", []):
+        point = _calculate_from_dispatch_summary(
+            profile=profile,
+            shares=normalized_shares,
+            carbon_price=carbon_price,
+            storage_tiers=storage_tiers,
+            dispatch_summary=member,
+        )
+        member_lcoe.append(point["system_lcoe"])
+        member_emis.append(point["emission_intensity"])
+    if member_lcoe:
+        lcoe_p10, lcoe_p90 = (float(v) for v in np.quantile(member_lcoe, [0.1, 0.9]))
+        emis_p10, emis_p90 = (float(v) for v in np.quantile(member_emis, [0.1, 0.9]))
+        current["system_lcoe_p10"] = lcoe_p10
+        current["system_lcoe_p90"] = lcoe_p90
+        current["emission_intensity_p10"] = emis_p10
+        current["emission_intensity_p90"] = emis_p90
 
     # The 0→100% VRE-share sweep (curve_data) was an arbitrary interpolated path used
     # only by sensitivity sub-charts that have been removed. Dropped to avoid re-running

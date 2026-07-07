@@ -254,6 +254,7 @@ def run_dispatch_ensemble(
     generator_order: list[str] | None = None,
     carbon_price: float = 0.0,
     storage_tiers: list[dict[str, float]] | None = None,
+    return_members: bool = False,
 ) -> dict[str, Any]:
     from backend.core.hourly_profiles import sample_ensemble
 
@@ -271,7 +272,15 @@ def run_dispatch_ensemble(
         )
         for year_profile in sampled_profiles
     ]
-    return aggregate_dispatch_results(results, settings=settings, include_ldc=include_ldc)
+    summary = aggregate_dispatch_results(results, settings=settings, include_ldc=include_ldc)
+    if return_members:
+        # Per-member summaries (median = that member's value) so the caller can build a
+        # cost/emissions distribution across the ensemble, not just a point estimate.
+        summary["members"] = [
+            aggregate_dispatch_results([result], settings=settings, include_ldc=False)
+            for result in results
+        ]
+    return summary
 
 
 def aggregate_dispatch_results(

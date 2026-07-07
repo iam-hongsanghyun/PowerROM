@@ -62,23 +62,37 @@ def test_expansion_holds_across_weather_ensemble() -> None:
     assert band["p90"] < 0.1  # ~zero unserved even in the worst sampled weather year
 
 
-def test_expansion_can_grow_storage() -> None:
-    # VRE-heavy fleet with a recoverable evening deficit; storage + gas should firm it.
+def test_expansion_blends_baseload_and_peaker_by_screening() -> None:
+    # A wide unserved block (energy shortfall). Folding running cost into the metric pulls
+    # cheap-to-run baseload into the base and leaves a cheap-to-build peaker for the top,
+    # so a gas+nuclear blend beats gas-only on total system cost.
+    caps = {"solar": 160, "wind_onshore": 70, "gas_ccgt": 18, "coal": 4, "nuclear": 10, "other": 3}
+    base = dict(country="KR", shares=caps, carbon_price=50.0, capacities_gw=caps, ensemble=_SINGLE)
+
+    gas_only = calculate_system_lcoe(**base, expandable=["gas_ccgt"], meet_full_load=True)
+    blend = calculate_system_lcoe(**base, expandable=["gas_ccgt", "nuclear"], meet_full_load=True)
+
+    assert gas_only["unserved_twh"] < 0.1 and blend["unserved_twh"] < 0.1  # both firm the load
+    added = blend["expansion"]["added_capacities_gw"]
+    assert added.get("gas_ccgt", 0.0) > 0.0 and added.get("nuclear", 0.0) > 0.0  # a real blend
+    assert blend["system_lcoe"] < gas_only["system_lcoe"]  # cheaper than peaker-only
+
+
+def test_expansion_storage_only_built_when_it_firms_the_peak() -> None:
+    # The binding peak is a low-renewable lull a 4h battery cannot cover, so short storage
+    # must NOT be force-grown: the least-firm-cost expansion firms it with gas, not storage.
     caps = {"solar": 160, "wind_onshore": 70, "gas_ccgt": 18, "coal": 4, "nuclear": 10, "other": 3}
     base = dict(
         country="KR", shares=caps, carbon_price=50.0, capacities_gw=caps, ensemble=_SINGLE,
         ess_short_power_gw=5.0, ess_long_power_gw=2.0,
     )
-    before = calculate_system_lcoe(**base)
-    with_storage = calculate_system_lcoe(**base, expandable=["storage"], meet_full_load=True)
     with_both = calculate_system_lcoe(**base, expandable=["storage", "gas_ccgt"], meet_full_load=True)
+    added = with_both["expansion"]["added_capacities_gw"]
 
-    # Storage alone narrows the gap and grows the short-duration battery.
-    assert with_storage["unserved_twh"] < before["unserved_twh"]
-    assert with_storage["expansion"]["added_capacities_gw"].get("storage", 0.0) > 0.0
-    # Storage + a dispatchable closes it to ~100% served.
-    assert with_both["unserved_twh"] < 0.1
-    assert "storage" in with_both["expansion"]["added_capacities_gw"]
+    assert with_both["unserved_twh"] < 0.1                 # firmed to ~100% served
+    assert added.get("gas_ccgt", 0.0) > 0.0                # gas firms the drought peak
+    assert "storage" not in added                          # storage cannot firm it -> not built
+    assert with_both["expansion"]["note"]                  # and the UI is told why
 
 
 def test_expansion_requires_a_dispatchable() -> None:

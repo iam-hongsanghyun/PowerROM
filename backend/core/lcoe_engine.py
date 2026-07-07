@@ -9,7 +9,7 @@ import numpy as np
 
 from backend.core.dispatch_engine import (
     VRE_GENERATORS as _DISPATCH_VRE,
-    _base_capacity_factor,
+    _marginal_cost_usd_mwh,
     dispatch_hourly,
     run_dispatch_ensemble,
 )
@@ -279,29 +279,33 @@ def _ess_metrics(profile: dict[str, Any], storage_tiers: list[dict[str, float]])
     return result
 
 
-# ── Capacity expansion (screening-curve, to meet 100% load) ─────────────────────
-_EXPANSION_MAX_ITERS: int = 8
+# ── Capacity expansion (least firm-cost, to meet 100% load) ─────────────────────
 _EXPANSION_UNSERVED_TOL_TWH: float = 0.02  # treat as "no unserved hour"
-_EXPANSION_LEVELS: int = 120               # duration-curve slices for the screening sweep
-_EXPANSION_STORAGE_STEPS: int = 14         # max increments when growing storage power
+_EXPANSION_MAX_STEPS: int = 60             # greedy increments before giving up
+_EXPANSION_STEP_DIVISOR: float = 12.0      # increment size = initial unserved peak ÷ this
+_DEFAULT_STORAGE_LIFETIME_YR: float = 15.0
 _HOURS_PER_YEAR: int = 8760
 
 
-def _lcoe_at_cf(generator_config: dict[str, Any], cf: float, carbon_price: float, discount_rate: float) -> float:
-    """Full LCOE ($/MWh) of a generator run at capacity factor ``cf``.
+def _annual_fixed_cost_gen(generator_config: dict[str, Any], discount_rate: float, gw: float) -> float:
+    """Annualised fixed cost ($/yr) of ``gw`` GW of a generator: CAPEX·CRF + fixed O&M.
 
-    Fixed costs (CAPEX·CRF, fixed O&M) spread over ``cf × 8760`` MWh — so LCOE rises as
-    CF falls — plus the flat marginal terms. This is the screening-curve value used to
-    pick the cheapest expandable technology for each slice of the unserved-duration curve.
+    This is the *firm-capacity* cost — what it costs to have the plant standing, independent
+    of how much energy it runs. Running (fuel + carbon) cost is a dispatch outcome and is not
+    part of the build decision; it enters the reported LCOE via the merit-order dispatch.
     """
-    cf = max(cf, 1e-3)
-    energy_mwh = cf * _HOURS_PER_YEAR
-    capex = generator_config["capex_usd_kw"] * crf(discount_rate, generator_config["lifetime_yr"]) / energy_mwh * 1000
-    fixed = generator_config["opex_fixed_usd_kw_yr"] / energy_mwh * 1000
-    variable = float(generator_config.get("opex_var_usd_mwh", 0.0))
-    fuel = float(generator_config.get("fuel_usd_mmbtu", 0.0)) * float(generator_config.get("heat_rate_mmbtu_mwh", 0.0))
-    carbon = carbon_price * float(generator_config.get("emission_factor_tco2_mwh", 0.0))
-    return capex + fixed + variable + fuel + carbon
+    crf_value = crf(discount_rate, generator_config["lifetime_yr"])
+    return 1e6 * gw * (
+        generator_config["capex_usd_kw"] * crf_value + float(generator_config.get("opex_fixed_usd_kw_yr", 0.0))
+    )
+
+
+def _annual_fixed_cost_storage(tier: dict[str, float], discount_rate: float, power_gw: float) -> float:
+    """Annualised capital cost ($/yr) of ``power_gw`` GW of a storage tier (energy = power × duration)."""
+    energy_gwh = power_gw * float(tier.get("duration_hr", _DEFAULT_SHORT_DURATION_HR))
+    return 1e6 * energy_gwh * float(tier.get("capex_usd_kwh", 0.0)) * crf(
+        discount_rate, float(tier.get("lifetime_yr", _DEFAULT_STORAGE_LIFETIME_YR))
+    )
 
 
 def _worst_case_profile(profile: dict[str, Any], sampled_profiles: list[Any], capacities: dict[str, float]) -> Any:
@@ -330,21 +334,31 @@ def _expand_to_meet_load(
     storage_tiers: list[dict[str, float]],
     annual_demand_twh: float,
 ) -> tuple[dict[str, float], list[dict[str, float]], str]:
-    """Grow the checked generators (and, optionally, storage) to eliminate unserved energy.
+    """Grow the checked generators and/or storage to meet 100% of load at least system cost.
 
-    Two-stage, cheapest-first:
+    The binding constraint for "no unserved hour" is **reliability**: firm capacity must cover
+    the residual net-load *peak* — the largest unserved hour, a low-renewable lull (a VRE
+    drought). So every candidate is priced **per GW of that peak it actually shaves**, measured
+    by re-dispatching. But the numerator is the increment's *full* cost — annualised fixed cost
+    **plus** the fuel + carbon it burns over the energy it serves — so the ranking is a
+    screening curve:
 
-    1. **Storage** (if ``"storage"`` is checked) — grow the short-duration battery power to
-       its useful plateau. Storage firms *recoverable* diurnal deficits (charge the midday
-       surplus, discharge the evening peak); it stops helping once there is no more surplus
-       to store or the deficit outlasts its duration.
-    2. **Dispatchables** — screening-curve expansion on the residual unserved-duration curve:
-       each firm slice goes to the generator with the lowest ``_lcoe_at_cf`` at that slice's
-       capacity factor (peak → cheap-to-build peaker, sustained → cheap-to-run baseload).
+    * a **wide** unserved block (an energy shortfall) makes the running term dominate, so
+      cheap-to-run baseload (nuclear) wins even though it needs more GW;
+    * a **narrow** peak (few hours) makes the fixed term dominate, so a cheap-to-build peaker
+      (gas) wins.
 
-    Re-dispatches after each move so VRE/storage feedback is captured. VRE cannot firm the
-    peak, so it is never grown. Returns ``(added_by_key, grown_storage_tiers, note)`` where
-    ``added_by_key`` may include a ``"storage"`` entry (added short-duration power, GW).
+    Dividing by GW-of-peak (not MWh-of-energy) is what keeps **storage** honest: it is built
+    only to the extent it lowers the firm-capacity requirement. Short storage usually shaves
+    *no* drought peak — it cannot have charged for a multi-hour lull — so it scores ∞ and a
+    generator firms the lull instead; where it *can* flatten a sharp, recoverable ramp more
+    cheaply, it wins and displaces that firm capacity. Storage has no arbitrage role in this
+    dispatch model (it sits below thermals in the merit stack, serving only what they leave
+    unserved), so it carries no running term — it firms, or it is not built.
+
+    VRE cannot firm the peak and is never grown. Returns ``(added_by_key, grown_storage_tiers,
+    note)`` where ``added_by_key`` may include a ``"storage"`` entry (added short-duration
+    power, GW).
     """
     gens = profile["generators"]
     discount = profile["discount_rate"]
@@ -356,59 +370,80 @@ def _expand_to_meet_load(
     capacities = {key: max(0.0, float(value)) for key, value in base_capacities.items()}
 
     if not expandable_disp and not can_storage:
-        return added, tiers, (
+        return {}, tiers, (
             "Select a dispatchable generator or storage to expand — variable renewables "
             "alone cannot guarantee zero unserved hours."
         )
 
-    def _dispatch_unserved(caps: dict[str, float], trs: list[dict[str, float]]) -> tuple[float, Any]:
+    def _unserved(caps: dict[str, float], trs: list[dict[str, float]]) -> tuple[float, float]:
+        """Return (unserved energy TWh, residual peak GW) for a candidate build."""
         result = dispatch_hourly(
             profile=profile, year_profile=year_profile, shares=caps,
             annual_demand_twh=annual_demand_twh, carbon_price=carbon_price,
             capacities_gw=caps, storage_tiers=trs,
         )
-        return float(np.sum(result.unserved_gw)) / 1000, result.unserved_gw
+        return float(np.sum(result.unserved_gw)) / 1000, float(np.max(result.unserved_gw))
 
-    unserved_twh, unserved = _dispatch_unserved(capacities, tiers)
+    unserved_twh, peak_gw = _unserved(capacities, tiers)
+    if unserved_twh <= _EXPANSION_UNSERVED_TOL_TWH:
+        return {}, tiers, ""
 
-    # 1. Storage first — grow short-duration power until it stops closing the gap.
-    if can_storage and unserved_twh > _EXPANSION_UNSERVED_TOL_TWH:
-        step = max(1.0, float(np.max(unserved)) / 8.0)
-        for _ in range(_EXPANSION_STORAGE_STEPS):
-            baseline = unserved_twh
-            short_tier["power_gw"] = float(short_tier.get("power_gw", 0.0)) + step
-            new_twh, new_unserved = _dispatch_unserved(capacities, tiers)
-            if baseline - new_twh < 0.02 * baseline + 1e-6:  # saturated: revert the last step
-                short_tier["power_gw"] = float(short_tier["power_gw"]) - step
-                break
+    step = max(1.0, peak_gw / _EXPANSION_STEP_DIVISOR)
+
+    for _ in range(_EXPANSION_MAX_STEPS):
+        if unserved_twh <= _EXPANSION_UNSERVED_TOL_TWH:
+            break
+        best_key: str | None = None
+        best_metric = float("inf")
+
+        # Dispatchable candidates: (fixed + fuel/carbon on the energy served) per GW of peak shaved.
+        for g in expandable_disp:
+            trial = dict(capacities)
+            trial[g] = trial.get(g, 0.0) + step
+            trial_twh, trial_peak = _unserved(trial, tiers)
+            shaved = peak_gw - trial_peak
+            if shaved <= 1e-6:  # does not relax the firm-capacity constraint
+                continue
+            served_mwh = max(unserved_twh - trial_twh, 0.0) * 1e6
+            running = _marginal_cost_usd_mwh(gens[g], carbon_price) * served_mwh
+            metric = (_annual_fixed_cost_gen(gens[g], discount, step) + running) / shaved
+            if metric < best_metric:
+                best_key, best_metric = g, metric
+
+        # Storage candidate: one +step GW of short-duration power — only wins if it shaves peak.
+        if can_storage:
+            trial_tiers = [dict(t) for t in tiers]
+            trial_short = next(t for t in trial_tiers if t.get("name") == "short")
+            trial_short["power_gw"] = float(trial_short.get("power_gw", 0.0)) + step
+            _, trial_peak = _unserved(capacities, trial_tiers)
+            shaved = peak_gw - trial_peak
+            if shaved > 1e-6:
+                metric = _annual_fixed_cost_storage(short_tier, discount, step) / shaved
+                if metric < best_metric:
+                    best_key, best_metric = "storage", metric
+
+        if best_key is None:  # nothing left can shave the peak
+            break
+        if best_key == "storage":
+            short_tier["power_gw"] = float(short_tier.get("power_gw", 0.0)) + step  # type: ignore[union-attr]
             added["storage"] = added.get("storage", 0.0) + step
-            unserved_twh, unserved = new_twh, new_unserved
-            if unserved_twh <= _EXPANSION_UNSERVED_TOL_TWH:
-                break
+        else:
+            capacities[best_key] = capacities.get(best_key, 0.0) + step
+            added[best_key] += step
+        unserved_twh, peak_gw = _unserved(capacities, tiers)
 
-    # 2. Dispatchable screening for the residual firm peak.
-    for _ in range(_EXPANSION_MAX_ITERS):
-        if unserved_twh <= _EXPANSION_UNSERVED_TOL_TWH or not expandable_disp:
-            break
-        unserved_sorted = np.sort(unserved)[::-1]
-        peak = float(unserved_sorted[0])
-        if peak <= 1e-6:
-            break
-        hours = len(unserved_sorted)
-        slice_gw = peak / _EXPANSION_LEVELS
-        for level in range(_EXPANSION_LEVELS):
-            height = (level + 0.5) * slice_gw
-            cf = max(float(np.count_nonzero(unserved_sorted > height)) / hours, 1e-3)
-            best = min(expandable_disp, key=lambda g: _lcoe_at_cf(gens[g], cf, carbon_price, discount))
-            # Nuclear runs as must-run baseload, so it delivers only cf_base of firm power.
-            availability = _base_capacity_factor(gens[best], fallback=0.85) if best == "nuclear" else 1.0
-            capacities[best] = capacities.get(best, 0.0) + slice_gw / max(availability, 0.1)
-            added[best] += slice_gw / max(availability, 0.1)
-        unserved_twh, unserved = _dispatch_unserved(capacities, tiers)
-
+    added = {key: value for key, value in added.items() if value > 0.0}
     note = ""
-    if unserved_twh > _EXPANSION_UNSERVED_TOL_TWH and not expandable_disp:
-        note = "Storage narrowed but could not fully close the gap — also expand a dispatchable generator to reach 100%."
+    if unserved_twh > _EXPANSION_UNSERVED_TOL_TWH:
+        note = (
+            "Could not fully close the gap with the selected options — add another "
+            "dispatchable generator or more storage."
+        )
+    elif can_storage and "storage" not in added and expandable_disp:
+        note = (
+            "Storage was not built: short-duration storage cannot cover the binding peak "
+            "(a low-renewable lull), so firm generation is the cheaper way to reach 100%."
+        )
     return added, tiers, note
 
 

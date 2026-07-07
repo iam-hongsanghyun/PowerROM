@@ -57,12 +57,6 @@ export function ProfileAnalysis({
 
   return (
     <div className="space-y-6">
-      <LoadDurationCurveChart
-        ldc={dispatchResult?.ldc ?? result.ldc ?? null}
-        dispatch={dispatchResult?.dispatch ?? result.dispatch ?? null}
-        loading={isDispatchLoading}
-      />
-
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
         <SummaryCard
           label="VRE Capacity Share"
@@ -90,6 +84,12 @@ export function ProfileAnalysis({
           sub={`${result.ess_requirement_gw.toFixed(1)} GW · $${essCostUsdKwh}/kWh`}
         />
       </div>
+
+      <LoadDurationCurveChart
+        ldc={dispatchResult?.ldc ?? result.ldc ?? null}
+        dispatch={dispatchResult?.dispatch ?? result.dispatch ?? null}
+        loading={isDispatchLoading}
+      />
     </div>
   );
 }

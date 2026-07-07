@@ -81,7 +81,7 @@ export function ProfileAnalysis({
         </div>
       ) : null}
 
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-6">
         <SummaryCard
           label="VRE Capacity Share"
           value={`${currentVrePct.toFixed(0)}%`}
@@ -114,6 +114,11 @@ export function ProfileAnalysis({
           label="Storage"
           value={`${result.ess_requirement_gwh.toFixed(0)} GWh`}
           sub={`${result.ess_requirement_gw.toFixed(1)} GW`}
+        />
+        <SummaryCard
+          label="Import Dependency"
+          value={`${(result.import_dependency * 100).toFixed(0)}%`}
+          sub="Generation from imported fuel"
         />
       </div>
 

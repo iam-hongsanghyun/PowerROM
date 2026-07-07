@@ -81,6 +81,7 @@ export interface CalculateResponse {
   curtailed_twh: number;
   unserved_twh: number;
   backup_flexibility: number;
+  import_dependency: number;
   curve_data: CurvePoint[];
   stack_components: Record<string, number>;
   dispatch?: DispatchSummary | null;
@@ -230,6 +231,7 @@ export async function calculateSystem(payload: {
   rps_penalty_usd_mwh?: number | null;
   subsidy_itc_pct?: number | null;
   subsidy_ptc_usd_mwh?: number | null;
+  fuel_import_tariff_pct?: number | null;
 }): Promise<CalculateResponse> {
   return request<CalculateResponse>("/calculate", {
     method: "POST",
@@ -263,6 +265,7 @@ export async function dispatchSystem(payload: {
   rps_penalty_usd_mwh?: number | null;
   subsidy_itc_pct?: number | null;
   subsidy_ptc_usd_mwh?: number | null;
+  fuel_import_tariff_pct?: number | null;
 }): Promise<DispatchResponse> {
   return request<DispatchResponse>("/dispatch", {
     method: "POST",

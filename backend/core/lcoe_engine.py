@@ -599,6 +599,27 @@ def _median_scalar(summary: dict[str, Any], key: str) -> float:
 # Generators eligible for the clean-energy subsidy (ITC / PTC) — the low-carbon set.
 _CLEAN_GENERATORS = {"solar", "wind_onshore", "nuclear"}
 
+# Generators that burn imported fuel — bear the fuel-import tariff and count toward the
+# energy-security import-dependency metric. Nuclear fuel is excluded (small, largely stockpiled).
+_IMPORTED_FUEL_GENERATORS = {"gas_ccgt", "coal", "other"}
+
+
+def _apply_fuel_import_tariff(profile: dict[str, Any], tariff_fraction: float) -> None:
+    """Raise imported-fuel generators' fuel cost by ``tariff_fraction`` in place.
+
+    A fuel-import tariff (energy-security lever) surcharges the delivered price of imported fuel.
+    Scaling ``fuel_usd_mmbtu`` on the imported-fuel set flows straight through both the dispatch
+    merit order (via short-run marginal cost, so a high tariff can reorder the stack) and the LCOE
+    fuel component — no separate plumbing needed. Applied to a deep-merged profile copy, so the
+    on-disk profile is untouched.
+    """
+    tariff = max(0.0, float(tariff_fraction))
+    if tariff <= 0.0:
+        return
+    for name, cfg in profile["generators"].items():
+        if name in _IMPORTED_FUEL_GENERATORS and float(cfg.get("fuel_usd_mmbtu", 0.0)) > 0.0:
+            cfg["fuel_usd_mmbtu"] = float(cfg["fuel_usd_mmbtu"]) * (1.0 + tariff)
+
 
 def _calculate_from_dispatch_summary(
     profile: dict[str, Any],
@@ -751,11 +772,14 @@ def _calculate_system_lcoe_dispatch(
     rps_penalty_usd_mwh: float | None = None,
     subsidy_itc_pct: float | None = None,
     subsidy_ptc_usd_mwh: float | None = None,
+    fuel_import_tariff_pct: float | None = None,
 ) -> dict[str, Any]:
     base_profile = load_country_profile(country)
     profile = deep_merge(base_profile, custom_params or {})
     if annual_demand_twh is not None:
         profile["annual_generation_twh"] = annual_demand_twh
+    if fuel_import_tariff_pct:
+        _apply_fuel_import_tariff(profile, fuel_import_tariff_pct)
 
     storage_tiers = _build_storage_tiers(
         profile, ess_short_power_gw, ess_short_duration_hr, ess_long_power_gw, ess_long_duration_hr
@@ -891,6 +915,13 @@ def _calculate_system_lcoe_dispatch(
             "penalty_lcoe": penalty,
         }
 
+    # Energy-security metric: the share of generation met by imported fuel (gas/coal/other).
+    # A higher share means more exposure to fuel-price and supply shocks — the lever the
+    # fuel-import tariff pushes against by pricing that exposure into the merit order.
+    current["import_dependency"] = sum(
+        _median_metric(dispatch_summary, "realized_share", gen) for gen in _IMPORTED_FUEL_GENERATORS
+    )
+
     # The 0→100% VRE-share sweep (curve_data) was an arbitrary interpolated path used
     # only by sensitivity sub-charts that have been removed. Dropped to avoid re-running
     # the full dispatch ensemble 101× per request. Results describe the chosen mix only.
@@ -964,6 +995,7 @@ def calculate_system_lcoe(
     rps_penalty_usd_mwh: float | None = None,
     subsidy_itc_pct: float | None = None,
     subsidy_ptc_usd_mwh: float | None = None,
+    fuel_import_tariff_pct: float | None = None,
 ) -> dict[str, Any]:
     return _calculate_system_lcoe_dispatch(
         country=country,
@@ -992,4 +1024,5 @@ def calculate_system_lcoe(
         rps_penalty_usd_mwh=rps_penalty_usd_mwh,
         subsidy_itc_pct=subsidy_itc_pct,
         subsidy_ptc_usd_mwh=subsidy_ptc_usd_mwh,
+        fuel_import_tariff_pct=fuel_import_tariff_pct,
     )

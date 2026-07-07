@@ -68,6 +68,8 @@ class CalculateRequest(BaseModel):
     # Clean-energy subsidy (applies to solar + wind + nuclear).
     subsidy_itc_pct: float | None = Field(default=None, ge=0, le=1)
     subsidy_ptc_usd_mwh: float | None = Field(default=None, ge=0)
+    # Energy-security lever: fractional surcharge on imported fuel cost (gas/coal/other).
+    fuel_import_tariff_pct: float | None = Field(default=None, ge=0, le=3)
 
     @model_validator(mode="after")
     def validate_shares(self) -> "CalculateRequest":
@@ -191,6 +193,7 @@ class CalculateResponse(BaseModel):
     curtailed_twh: float = 0.0
     unserved_twh: float = 0.0
     backup_flexibility: float = 1.0
+    import_dependency: float = 0.0
     curve_data: list[CurveDataPoint]
     stack_components: dict[str, float]
     dispatch: dict[str, Any] | None = None

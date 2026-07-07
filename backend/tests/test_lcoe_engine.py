@@ -1,3 +1,5 @@
+import pytest
+
 from backend.core.lcoe_engine import calculate_system_lcoe
 
 _SINGLE = {"method": "single", "n_samples": 1, "sigma": 0.0, "seed": 42}
@@ -47,6 +49,23 @@ def test_clean_energy_subsidy_targets_clean_only() -> None:
     assert ptc["lcoe_by_generator"]["solar"]["subsidy"] < 0.0
     assert ptc["lcoe_by_generator"]["nuclear"]["subsidy"] < 0.0
     assert ptc["lcoe_by_generator"]["gas_ccgt"]["subsidy"] == 0.0
+
+
+def test_fuel_import_tariff_raises_imported_fuel_only() -> None:
+    # Energy-security lever: a fuel-import tariff surcharges imported-fuel generators (gas/coal/
+    # other), raising their fuel cost and system LCOE, while clean generators are untouched.
+    caps = {"solar": 30, "wind_onshore": 15, "gas_ccgt": 30, "coal": 25, "nuclear": 18, "other": 2}
+    base = dict(country="KR", shares=caps, carbon_price=30.0, capacities_gw=caps, ensemble=_SINGLE)
+
+    baseline = calculate_system_lcoe(**base)
+    tariffed = calculate_system_lcoe(**base, fuel_import_tariff_pct=0.5)
+
+    assert tariffed["system_lcoe"] > baseline["system_lcoe"]  # imported fuel got dearer
+    fuel0 = baseline["lcoe_by_generator"]["gas_ccgt"]["fuel"]
+    fuel1 = tariffed["lcoe_by_generator"]["gas_ccgt"]["fuel"]
+    assert fuel1 == pytest.approx(fuel0 * 1.5, rel=1e-6)  # +50% on gas fuel
+    assert tariffed["lcoe_by_generator"]["solar"]["fuel"] == 0.0  # clean generators unaffected
+    assert 0.0 <= baseline["import_dependency"] <= 1.0  # energy-security metric reported
 
 
 def test_rps_target_badge_and_penalty() -> None:

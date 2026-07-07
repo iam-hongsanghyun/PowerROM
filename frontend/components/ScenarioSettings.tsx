@@ -16,6 +16,7 @@ export function ScenarioSettings({
   rpsPenalty,
   subsidyItc,
   subsidyPtc,
+  fuelImportTariff,
   evPenetration,
   dispatchMode,
   weatherYears,
@@ -26,6 +27,7 @@ export function ScenarioSettings({
   onRpsPenaltyChange,
   onSubsidyItcChange,
   onSubsidyPtcChange,
+  onFuelImportTariffChange,
   onEvPenetrationChange,
   onDispatchModeChange,
   onWeatherYearsChange,
@@ -41,6 +43,8 @@ export function ScenarioSettings({
   subsidyItc: number;
   /** Production tax credit, $/MWh on clean generators. */
   subsidyPtc: number;
+  /** Fuel-import tariff, fractional surcharge on imported fuel cost (0 = off). */
+  fuelImportTariff: number;
   evPenetration: number;
   dispatchMode: DispatchMode;
   weatherYears: number[];
@@ -51,6 +55,7 @@ export function ScenarioSettings({
   onRpsPenaltyChange: (value: number) => void;
   onSubsidyItcChange: (value: number) => void;
   onSubsidyPtcChange: (value: number) => void;
+  onFuelImportTariffChange: (value: number) => void;
   onEvPenetrationChange: (value: number) => void;
   onDispatchModeChange: (value: DispatchMode) => void;
   onWeatherYearsChange: (value: number[]) => void;
@@ -153,6 +158,25 @@ export function ScenarioSettings({
             className="w-20 rounded-lg border border-slate-200 bg-white px-2 py-1 text-right text-sm tabular-nums text-slate-900 outline-none transition focus:border-slate-400"
           />
         </label>
+      </div>
+
+      <div className="space-y-2">
+        <div className="flex items-center justify-between text-sm font-medium text-slate-800">
+          <span className="flex items-center gap-1.5">
+            Fuel Import Tariff
+            <InfoTip text="Energy-security lever: a surcharge on the delivered price of imported fuel (gas, coal). It raises those generators' running cost — reordering the merit stack and the LCOE — pushing the mix toward domestic/clean supply." />
+          </span>
+          <span>{fuelImportTariff > 0 ? `+${Math.round(fuelImportTariff * 100)}%` : "off"}</span>
+        </div>
+        <input
+          type="range"
+          min={0}
+          max={100}
+          step={5}
+          value={Math.round(fuelImportTariff * 100)}
+          onChange={(event) => onFuelImportTariffChange(Number(event.target.value) / 100)}
+          className="h-2 w-full cursor-pointer appearance-none rounded-full bg-slate-200"
+        />
       </div>
 
       <div className="space-y-2">

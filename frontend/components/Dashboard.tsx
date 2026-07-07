@@ -133,6 +133,7 @@ export function Dashboard() {
   // Clean-energy subsidy (solar + wind + nuclear): ITC (0–1 capex) + PTC ($/MWh).
   const [subsidyItc, setSubsidyItc] = useState(0);
   const [subsidyPtc, setSubsidyPtc] = useState(0);
+  const [fuelImportTariff, setFuelImportTariff] = useState(0);
   const [evPenetration, setEvPenetration] = useState(DEFAULT_EV_PENETRATION);
   const [annualDemandTwh, setAnnualDemandTwh] = useState(
     FALLBACK_COUNTRIES.find((c) => c.code === INITIAL_COUNTRY)?.annual_generation_twh ?? 595,
@@ -229,6 +230,7 @@ export function Dashboard() {
       rps_penalty_usd_mwh: rpsTarget > 0 ? rpsPenalty : null,
       subsidy_itc_pct: subsidyItc > 0 ? subsidyItc : null,
       subsidy_ptc_usd_mwh: subsidyPtc > 0 ? subsidyPtc : null,
+      fuel_import_tariff_pct: fuelImportTariff > 0 ? fuelImportTariff : null,
     };
 
     try {
@@ -466,6 +468,7 @@ export function Dashboard() {
                     rpsPenalty={rpsPenalty}
                     subsidyItc={subsidyItc}
                     subsidyPtc={subsidyPtc}
+                    fuelImportTariff={fuelImportTariff}
                     evPenetration={evPenetration}
                     dispatchMode={dispatchMode}
                     weatherYears={weatherYears}
@@ -476,6 +479,7 @@ export function Dashboard() {
                     onRpsPenaltyChange={setRpsPenalty}
                     onSubsidyItcChange={setSubsidyItc}
                     onSubsidyPtcChange={setSubsidyPtc}
+                    onFuelImportTariffChange={setFuelImportTariff}
                     onEvPenetrationChange={setEvPenetration}
                     onDispatchModeChange={setDispatchMode}
                     onWeatherYearsChange={setWeatherYears}

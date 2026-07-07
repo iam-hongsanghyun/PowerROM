@@ -36,6 +36,7 @@ def calculate(payload: CalculateRequest) -> CalculateResponse:
         rps_penalty_usd_mwh=payload.rps_penalty_usd_mwh,
         subsidy_itc_pct=payload.subsidy_itc_pct,
         subsidy_ptc_usd_mwh=payload.subsidy_ptc_usd_mwh,
+        fuel_import_tariff_pct=payload.fuel_import_tariff_pct,
     )
     return CalculateResponse(**result)
 

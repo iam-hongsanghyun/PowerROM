@@ -19,6 +19,8 @@ from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 
 from backend.api.countries import countries as _countries_route
+from backend.core.completeness_checker import validate_generator_config as _validate_config
+from backend.core.curve_fitter import fit_curve as _fit_curve
 from backend.core.lcoe_engine import (
     calculate_system_lcoe,
     load_country_profile,
@@ -39,7 +41,44 @@ mcp = FastMCP(
     transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
 )
 
-GENERATORS = ["solar", "wind_onshore", "gas_ccgt", "coal", "nuclear", "other"]
+GENERATORS = ["solar", "wind_onshore", "wind_offshore", "gas_ccgt", "coal", "nuclear", "other"]
+
+
+def _medians(group: dict[str, Any]) -> dict[str, float]:
+    return {k: round(v["median"], 4) for k, v in (group or {}).items() if isinstance(v, dict) and "median" in v}
+
+
+def _dispatch_metrics(result: dict[str, Any]) -> dict[str, Any]:
+    """Compact hourly-dispatch summary: per-generator medians + scalars + a Load-Duration-Curve
+    digest — never the raw 8760-hour arrays."""
+    metrics = (result.get("dispatch") or {}).get("metrics") or {}
+    scalars = {k: round(v["median"], 4) for k, v in (metrics.get("scalars") or {}).items()
+               if isinstance(v, dict) and "median" in v}
+    ldc = result.get("ldc") or {}
+    ldc_series = ldc.get("series") or {}
+    net = (ldc_series.get("net_load") or {}).get("median") or []
+    ldc_digest = {
+        "net_load_peak_gw": round(max(net), 2) if net else None,
+        "net_load_min_gw": round(min(net), 2) if net else None,
+        "hours": len(net) or None,
+    }
+    return {
+        "per_generator": {
+            "capacity_factor": _medians(metrics.get("capacity_factor")),
+            "energy_twh": _medians(metrics.get("energy_twh")),
+            "capacity_gw": _medians(metrics.get("capacity_gw")),
+            "generation_share": _medians(metrics.get("realized_share")),
+        },
+        "scalars": scalars,
+        "load_duration_curve": ldc_digest,
+    }
+
+
+def _ensemble(method: str, n_samples: int, sigma: float, seed: int) -> dict[str, Any] | None:
+    """Build the ensemble-settings dict, or None for a single deterministic run."""
+    if method == "single":
+        return None
+    return {"method": method, "n_samples": n_samples, "sigma": sigma, "seed": seed}
 
 
 def _summarize_calculation(result: dict[str, Any]) -> dict[str, Any]:
@@ -109,55 +148,233 @@ def get_country_profile(country: str) -> dict[str, Any]:
 def calculate_lcoe(
     country: str,
     capacities_gw: dict[str, float] | None = None,
+    shares: dict[str, float] | None = None,
     carbon_price: float = 40.0,
     annual_demand_twh: float | None = None,
     ev_penetration: float = 0.0,
     min_cf: dict[str, float] | None = None,
     max_cf: dict[str, float] | None = None,
+    generator_order: list[str] | None = None,
     ess_short_power_gw: float | None = None,
+    ess_short_duration_hr: float | None = None,
     ess_long_power_gw: float | None = None,
+    ess_long_duration_hr: float | None = None,
     expandable: list[str] | None = None,
     meet_full_load: bool = False,
+    rps_target_share: float | None = None,
+    rps_penalty_usd_mwh: float | None = None,
+    subsidy_itc_pct: float | None = None,
+    subsidy_ptc_usd_mwh: float | None = None,
+    fuel_import_tariff_pct: float | None = None,
+    demand_pattern: str = "default",
+    demand_peak_ratio: float | None = None,
     dispatch_mode: str = "data",
+    ensemble_method: str = "single",
+    ensemble_samples: int = 5,
+    ensemble_sigma: float = 0.04,
+    ensemble_seed: int = 42,
+    weather_years: list[int] | None = None,
+    custom_params: dict[str, Any] | None = None,
+    include_dispatch: bool = False,
 ) -> dict[str, Any]:
     """Price an electricity system: run the hourly dispatch for a country's generation fleet and
     return system LCOE ($/MWh), emission intensity, curtailment, unserved energy, import
-    dependency, per-technology LCOE, and the realised generation mix.
+    dependency, per-technology LCOE and the realised generation mix — with every policy lever the
+    app supports (carbon price, EV load, min/max CF limits, storage, capacity expansion, a
+    renewable-portfolio-standard target, clean-energy subsidies, and a fuel-import tariff).
 
-    Generators are: solar, wind_onshore, gas_ccgt, coal, nuclear, other. Omit capacities_gw to use
-    the country's real installed fleet.
+    Generators: solar, wind_onshore, wind_offshore, gas_ccgt, coal, nuclear, other. Storage key is
+    "storage". Give either capacities_gw (GW) or shares (fractions); omit both to use the country's
+    real installed fleet.
 
     Args:
         country: ISO-2 code (e.g. "KR").
-        capacities_gw: Installed capacity per generator in GW. Defaults to the country's real fleet.
-        carbon_price: Carbon price in USD/tCO2 (0-500).
+        capacities_gw: Installed capacity per generator (GW). Defaults to the real fleet.
+        shares: Generation shares per generator (used only when capacities_gw is omitted).
+        carbon_price: Carbon price, USD/tCO2 (0-500).
         annual_demand_twh: Annual demand to serve (TWh). Defaults to the country's real demand.
         ev_penetration: Fraction of the vehicle fleet electrified (0-0.5).
-        min_cf: Per-generator must-run floor capacity factor (0-1).
-        max_cf: Per-generator availability-ceiling capacity factor (0-1).
-        ess_short_power_gw: Short-duration (intraday battery) storage power, GW.
-        ess_long_power_gw: Long-duration (seasonal) storage power, GW.
+        min_cf / max_cf: Per-generator must-run floor / availability-ceiling capacity factor (0-1).
+        generator_order: Manual merit order override (list of generator keys).
+        ess_short_power_gw / ess_short_duration_hr: Intraday battery power (GW) and duration (h).
+        ess_long_power_gw / ess_long_duration_hr: Seasonal storage power (GW) and duration (h).
         expandable: Generators (and/or "storage") the solver may grow to meet 100% of load.
-        meet_full_load: If true, grow the expandable resources cheapest-first until load is met.
+        meet_full_load: Grow the expandable resources cheapest-first until load is met.
+        rps_target_share: Renewable-portfolio-standard target VRE share (0-1); requires a penalty.
+        rps_penalty_usd_mwh: Shortfall penalty for missing the RPS target (USD/MWh).
+        subsidy_itc_pct: Investment tax credit as a fraction of capex for clean tech (0-1).
+        subsidy_ptc_usd_mwh: Production tax credit for clean generation (USD/MWh).
+        fuel_import_tariff_pct: Surcharge on imported fuel cost (0-3 = up to +300%).
+        demand_pattern: "default", "winter_peak", "summer_peak" or "flat".
+        demand_peak_ratio: Peak-to-mean demand ratio (>1) to reshape the load.
         dispatch_mode: "data" (real weather-year profiles) or "parametric" (synthetic curves).
+        ensemble_method: "single", "jitter", "multiyear" or "block_bootstrap" (for p10-p90 bands).
+        ensemble_samples / ensemble_sigma / ensemble_seed: Ensemble configuration.
+        weather_years: Weather years to use in data mode (e.g. [2018, 2019]).
+        custom_params: Deep-merged overrides onto the country profile (e.g. per-generator costs).
+        include_dispatch: Also return the compact hourly-dispatch summary (CF, energy, LDC digest).
     """
-    caps = capacities_gw or load_country_profile(country.upper()).get("capacities_gw")
+    profile_caps = load_country_profile(country.upper()).get("capacities_gw")
+    caps = capacities_gw if capacities_gw is not None else (None if shares else profile_caps)
     result = calculate_system_lcoe(
         country=country.upper(),
-        shares=caps or {},
+        shares=(shares or caps or {}),
         capacities_gw=caps,
         carbon_price=carbon_price,
         ev_penetration=ev_penetration,
         annual_demand_twh=annual_demand_twh,
+        custom_params=custom_params,
         dispatch_mode=dispatch_mode,
+        weather_years=weather_years,
+        ensemble=_ensemble(ensemble_method, ensemble_samples, ensemble_sigma, ensemble_seed),
+        include_ldc=include_dispatch,
+        generator_order=generator_order,
         min_cf=min_cf,
         max_cf=max_cf,
         ess_short_power_gw=ess_short_power_gw,
+        ess_short_duration_hr=ess_short_duration_hr,
         ess_long_power_gw=ess_long_power_gw,
+        ess_long_duration_hr=ess_long_duration_hr,
+        demand_pattern=demand_pattern,
+        demand_peak_ratio=demand_peak_ratio,
         expandable=expandable,
         meet_full_load=meet_full_load,
+        rps_target_share=rps_target_share,
+        rps_penalty_usd_mwh=rps_penalty_usd_mwh,
+        subsidy_itc_pct=subsidy_itc_pct,
+        subsidy_ptc_usd_mwh=subsidy_ptc_usd_mwh,
+        fuel_import_tariff_pct=fuel_import_tariff_pct,
     )
-    return _summarize_calculation(result)
+    summary = _summarize_calculation(result)
+    if include_dispatch:
+        summary["dispatch"] = _dispatch_metrics(result)
+    return summary
+
+
+@mcp.tool()
+def run_dispatch(
+    country: str,
+    capacities_gw: dict[str, float] | None = None,
+    carbon_price: float = 40.0,
+    annual_demand_twh: float | None = None,
+    ess_short_power_gw: float | None = None,
+    ess_long_power_gw: float | None = None,
+    dispatch_mode: str = "data",
+    ensemble_method: str = "single",
+    ensemble_samples: int = 5,
+) -> dict[str, Any]:
+    """Run the 8760-hour dispatch and return a compact summary: per-generator capacity factor,
+    energy (TWh), generation share, the scalar metrics (curtailment rate, unserved energy), and a
+    Load-Duration-Curve digest (net-load peak/min). The raw hourly arrays are never returned.
+
+    Args:
+        country: ISO-2 code.
+        capacities_gw: Installed capacity per generator (GW). Defaults to the real fleet.
+        carbon_price: Carbon price, USD/tCO2.
+        annual_demand_twh: Demand to serve (TWh); defaults to the real demand.
+        ess_short_power_gw / ess_long_power_gw: Storage power (GW).
+        dispatch_mode: "data" or "parametric".
+        ensemble_method: "single", "jitter", "multiyear" or "block_bootstrap".
+        ensemble_samples: Ensemble sample count.
+    """
+    caps = capacities_gw or load_country_profile(country.upper()).get("capacities_gw")
+    result = calculate_system_lcoe(
+        country=country.upper(), shares=caps or {}, capacities_gw=caps,
+        carbon_price=carbon_price, annual_demand_twh=annual_demand_twh,
+        dispatch_mode=dispatch_mode, include_ldc=True,
+        ensemble=_ensemble(ensemble_method, ensemble_samples, 0.04, 42),
+        ess_short_power_gw=ess_short_power_gw, ess_long_power_gw=ess_long_power_gw,
+    )
+    return {
+        "country": result["country"],
+        "system_lcoe_usd_mwh": round(result["system_lcoe"], 2),
+        "emission_intensity_gco2_kwh": round(result["emission_intensity"] * 1000, 1),
+        **_dispatch_metrics(result),
+    }
+
+
+@mcp.tool()
+def lcoe_vs_vre_curve(
+    country: str,
+    carbon_price: float = 40.0,
+    steps: int = 8,
+    max_vre_share: float = 0.9,
+    dispatch_mode: str = "parametric",
+) -> dict[str, Any]:
+    """Trace the LCOE-vs-renewable-share frontier: sweep the variable-renewable (solar+wind) share
+    from 0 up to max_vre_share and, at each step, run the full model to return system LCOE,
+    emission intensity and curtailment. The non-VRE mix keeps the country's real proportions
+    (scaled down), and the VRE is split by the country's real solar/wind ratio. Useful for finding
+    the cost-optimal renewable share.
+
+    Args:
+        country: ISO-2 code.
+        carbon_price: Carbon price, USD/tCO2.
+        steps: Number of points along the sweep (each is a full dispatch, so keep modest).
+        max_vre_share: Highest VRE share to sweep to (0-1).
+        dispatch_mode: "data" (real weather, slower) or "parametric".
+    """
+    base = load_country_profile(country.upper()).get("shares", {})
+    non_vre = {k: max(base.get(k, 0.0), 0.0) for k in ("gas_ccgt", "coal", "nuclear", "other")}
+    nv_total = sum(non_vre.values()) or 1.0
+    vre_keys = ("solar", "wind_onshore", "wind_offshore")
+    vre_base = {k: max(base.get(k, 0.0), 0.0) for k in vre_keys}
+    vb_total = sum(vre_base.values())
+    split = ({k: vre_base[k] / vb_total for k in vre_keys} if vb_total > 0
+             else {"solar": 0.6, "wind_onshore": 0.4, "wind_offshore": 0.0})
+
+    curve: list[dict[str, float]] = []
+    for i in range(steps + 1):
+        vre = round(max_vre_share * i / steps, 4)
+        shares = {k: vre * split[k] for k in vre_keys}
+        for k, w in non_vre.items():
+            shares[k] = (1.0 - vre) * w / nv_total
+        r = calculate_system_lcoe(country=country.upper(), shares=shares,
+                                  carbon_price=carbon_price, dispatch_mode=dispatch_mode)
+        curve.append({
+            "vre_share": vre,
+            "system_lcoe_usd_mwh": round(r["system_lcoe"], 2),
+            "emission_intensity_gco2_kwh": round(r["emission_intensity"] * 1000, 1),
+            "curtailment_rate": round(r["curtailment_rate"], 4),
+        })
+    return {"country": country.upper(), "curve": curve}
+
+
+@mcp.tool()
+def validate_generator_config(generator_config: dict[str, Any]) -> dict[str, Any]:
+    """Validate a generator configuration, reporting which fields are fitted, defaulted or missing
+    per component — the same check the app runs before accepting a custom profile.
+
+    Args:
+        generator_config: A {generator: {field: value}} config (e.g. a profile's "generators").
+    """
+    return _validate_config(generator_config)
+
+
+@mcp.tool()
+def fit_curve(
+    data_points: list[list[float]],
+    func_type: str,
+    bounds: dict[str, list[float]] | None = None,
+) -> dict[str, Any]:
+    """Fit a parametric curve to (x, y) data points and return the fitted parameters, R-squared and
+    95% confidence intervals — used to derive capacity-factor / efficiency / cost functions.
+
+    Args:
+        data_points: List of [x, y] pairs.
+        func_type: One of the allowed function types (e.g. "linear", "logarithmic", "power",
+            "quadratic", "constant", "piecewise").
+        bounds: Optional {param: [lo, hi]} bounds on the fit.
+    """
+    r = _fit_curve(
+        data_points=[(float(x), float(y)) for x, y in data_points],
+        func_type=func_type, bounds=bounds,
+    )
+    return {
+        "params": r.params, "r_squared": round(r.r_squared, 4),
+        "confidence_intervals": {k: list(v) for k, v in r.confidence_intervals.items()},
+        "sufficient_data": r.sufficient_data, "error_message": r.error_message,
+    }
 
 
 @mcp.tool()

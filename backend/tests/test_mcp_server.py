@@ -15,7 +15,8 @@ pytest.importorskip("mcp")
 from backend import mcp_server as srv  # noqa: E402
 
 _EXPECTED_TOOLS = {
-    "list_countries", "get_country_profile", "calculate_lcoe",
+    "list_countries", "get_country_profile", "calculate_lcoe", "run_dispatch",
+    "lcoe_vs_vre_curve", "validate_generator_config", "fit_curve",
     "simulate_decarbonisation_pathway", "size_firm_capacity_for_reliability",
     "size_least_cost_mix_for_reliability",
 }
@@ -42,6 +43,43 @@ def test_calculate_lcoe_summary_shape_and_sanity() -> None:
     assert "generation_shares" in r and "lcoe_by_generator" in r
     # No raw hourly arrays leak into the compact summary.
     assert all(k not in r for k in ("dispatch", "ldc", "chronological", "curve_data"))
+
+
+def test_calculate_supports_all_policy_levers() -> None:
+    r = srv.calculate_lcoe(
+        "DE", carbon_price=90.0, ev_penetration=0.2, subsidy_itc_pct=0.3,
+        rps_target_share=0.7, rps_penalty_usd_mwh=60.0, fuel_import_tariff_pct=0.5,
+        min_cf={"nuclear": 0.8}, max_cf={"coal": 0.5}, ess_short_power_gw=5.0,
+        dispatch_mode="parametric", include_dispatch=True,
+    )
+    assert r["system_lcoe_usd_mwh"] > 0
+    assert set(r["dispatch"]) == {"per_generator", "scalars", "load_duration_curve"}
+    assert r["dispatch"]["load_duration_curve"]["net_load_peak_gw"] is not None
+
+
+def test_run_dispatch_returns_compact_summary() -> None:
+    d = srv.run_dispatch("US", carbon_price=50.0, dispatch_mode="parametric")
+    assert d["system_lcoe_usd_mwh"] > 0
+    assert "curtailment_rate" in d["scalars"] and "unserved_twh" in d["scalars"]
+    assert d["per_generator"]["capacity_factor"]  # per-generator CFs present
+    # No raw hourly arrays.
+    assert all(isinstance(v, (int, float, type(None))) for v in d["load_duration_curve"].values())
+
+
+def test_lcoe_vs_vre_curve_is_a_real_sweep() -> None:
+    out = srv.lcoe_vs_vre_curve("KR", carbon_price=50.0, steps=4, dispatch_mode="parametric")
+    curve = out["curve"]
+    assert len(curve) == 5
+    assert [p["vre_share"] for p in curve] == sorted(p["vre_share"] for p in curve)  # ascending
+    # Emissions fall as the VRE share rises.
+    assert curve[0]["emission_intensity_gco2_kwh"] > curve[-1]["emission_intensity_gco2_kwh"]
+
+
+def test_validate_and_fit_tools() -> None:
+    prof = srv.get_country_profile("KR")
+    assert "status" in srv.validate_generator_config(prof["generators"])
+    fit = srv.fit_curve([[0.1, 0.2], [0.3, 0.18], [0.5, 0.15], [0.7, 0.12]], "linear")
+    assert fit["r_squared"] > 0.9 and "a" in fit["params"]
 
 
 def test_pathway_tool_runs_with_expansion() -> None:

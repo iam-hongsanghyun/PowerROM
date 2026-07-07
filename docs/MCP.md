@@ -11,13 +11,18 @@ JSON summaries (scalars + small maps), not raw 8760-hour arrays, so results fit 
 |------|--------------|
 | `list_countries` | Every modelled country with its real Ember data (demand, installed capacity by tech, generation mix, data year). |
 | `get_country_profile` | Full technology profile for a country (capex/opex, fuel price, heat rate, emission factor, capacity factor, storage, discount rate, sources). |
-| `calculate_lcoe` | Price a fleet: hourly dispatch → system LCOE, emission intensity, curtailment, unserved energy, import dependency, per-tech LCOE, realised mix. Supports carbon price, EV load, min/max CF limits, storage, and capacity expansion to meet 100% load. |
+| `calculate_lcoe` | Price a fleet: hourly dispatch → system LCOE, emission intensity, curtailment, unserved energy, import dependency, per-tech LCOE, realised mix. Exposes **every policy lever**: carbon price, EV load, min/max CF limits, manual merit order, storage (power + duration), capacity expansion, an RPS target + penalty, ITC/PTC clean-energy subsidies, a fuel-import tariff, demand-shape controls, ensemble/weather-year settings, and profile overrides. Optional `include_dispatch` adds the hourly-dispatch digest. |
+| `run_dispatch` | Run the 8760-hour dispatch and return a compact digest: per-generator capacity factor / energy / share, scalar metrics (curtailment, unserved), and a Load-Duration-Curve summary. |
+| `lcoe_vs_vre_curve` | Sweep the renewable share 0→max and return the LCOE / emissions / curtailment frontier — traces the cost of decarbonisation. |
 | `simulate_decarbonisation_pathway` | Run a plan from today's fleet to a target-year mix (phase-outs, escalating carbon price, demand growth), optionally growing selected resources to meet load each year. |
 | `size_firm_capacity_for_reliability` | Minimum GW of one firm resource to meet a reliability standard (LOLE ≤ target h/yr). |
 | `size_least_cost_mix_for_reliability` | Co-size the least-cost combination of selected resources to meet the reliability standard. |
+| `validate_generator_config` | Validate a generator config (which fields are fitted / defaulted / missing per component). |
+| `fit_curve` | Fit a parametric curve (linear, logarithmic, power, …) to (x, y) points; returns params, R², 95% CIs. |
 
-Generators are `solar`, `wind_onshore`, `gas_ccgt`, `coal`, `nuclear`, `other`; storage is `storage`
-(short + long tiers).
+Generators are `solar`, `wind_onshore`, `wind_offshore`, `gas_ccgt`, `coal`, `nuclear`, `other`;
+storage is `storage` (short + long tiers). These ten tools cover the full modelling surface of the
+web app.
 
 ## Install & run
 

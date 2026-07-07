@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 
 import type { ChronologicalPayload } from "@/lib/api";
-import { GENERATOR_COLORS, GENERATOR_LABELS } from "@/lib/constants";
+import { GENERATOR_COLORS, GENERATOR_LABELS, orderStackKeys } from "@/lib/constants";
 
 const Plot = dynamic(() => import("react-plotly.js"), { ssr: false });
 
@@ -20,9 +20,12 @@ const PLOT_CONFIG: Partial<Plotly.Config> = {
  */
 export function HourlyMixChart({
   chronological,
+  order,
   loading,
 }: {
   chronological: ChronologicalPayload | null;
+  /** Merit-list order (display only) — reorders the stack, not the dispatch. */
+  order?: string[];
   loading: boolean;
 }) {
   if (!chronological) {
@@ -38,7 +41,12 @@ export function HourlyMixChart({
 
   const { hours, series, resource_order } = chronological;
   const dayOfYear = hours.map((h) => h / 24);
-  const stackKeys = resource_order.filter((key) => series[key]);
+  // Display order only: reorder the stack to mirror the user's merit list. The backend already
+  // ran the real marginal-cost dispatch; this does not change any value, only how it stacks.
+  const stackKeys = orderStackKeys(
+    resource_order.filter((key) => series[key]),
+    order,
+  );
 
   const hasStorage = Array.isArray(series.storage);
   const traces: Plotly.Data[] = [

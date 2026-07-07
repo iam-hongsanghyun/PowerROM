@@ -10,6 +10,7 @@ import type {
   CalculateResponse,
   Capacities,
   DispatchResponse,
+  GeneratorKey,
   Shares,
   SizeForAdequacyResult,
   SizeMixForAdequacyResult,
@@ -173,6 +174,8 @@ interface Props {
   isDispatchLoading: boolean;
   shares: Shares;
   capacities: Capacities;
+  /** User's merit-list order (display only) — reorders the chart stacks, not the dispatch. */
+  generatorOrder: GeneratorKey[];
   onSizeForAdequacy?: (firmKey: string, targetHours: number) => Promise<SizeForAdequacyResult>;
   onSizeMixForAdequacy?: (targetHours: number) => Promise<SizeMixForAdequacyResult>;
 }
@@ -208,6 +211,7 @@ export function ProfileAnalysis({
   isDispatchLoading,
   shares,
   capacities,
+  generatorOrder,
   onSizeForAdequacy,
   onSizeMixForAdequacy,
 }: Props) {
@@ -297,12 +301,14 @@ export function ProfileAnalysis({
 
       <HourlyMixChart
         chronological={dispatchResult?.chronological ?? result.chronological ?? null}
+        order={generatorOrder}
         loading={isDispatchLoading}
       />
 
       <LoadDurationCurveChart
         ldc={dispatchResult?.ldc ?? result.ldc ?? null}
         dispatch={dispatchResult?.dispatch ?? result.dispatch ?? null}
+        order={generatorOrder}
         loading={isDispatchLoading}
       />
     </div>

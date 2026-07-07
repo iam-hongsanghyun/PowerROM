@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 
 import type { DispatchSummary, LdcPayload, LdcSeriesBand } from "@/lib/api";
-import { GENERATOR_COLORS, GENERATOR_LABELS } from "@/lib/constants";
+import { GENERATOR_COLORS, GENERATOR_LABELS, orderStackKeys } from "@/lib/constants";
 
 const Plot = dynamic(() => import("react-plotly.js"), { ssr: false });
 
@@ -90,10 +90,12 @@ function scalarMedian(dispatch: DispatchSummary | null, key: string): number | n
 interface Props {
   ldc: LdcPayload | null;
   dispatch: DispatchSummary | null;
+  /** Merit-list order (display only) — reorders the stack, not the dispatch. */
+  order?: string[];
   loading?: boolean;
 }
 
-export function LoadDurationCurveChart({ ldc, dispatch, loading = false }: Props) {
+export function LoadDurationCurveChart({ ldc, dispatch, order, loading = false }: Props) {
   if (!ldc) {
     return (
       <div className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-[0_20px_80px_-48px_rgba(15,23,42,0.35)]">
@@ -111,7 +113,11 @@ export function LoadDurationCurveChart({ ldc, dispatch, loading = false }: Props
   const servedLoad = displayLdc.series.served_load;
   const curtailed = displayLdc.series.curtailed_vre;
   const unserved = displayLdc.series.unserved;
-  const stackKeys = displayLdc.resource_order.filter((key) => displayLdc.series[key]);
+  // Display order only: reorder the stack to mirror the user's merit list (does not change dispatch).
+  const stackKeys = orderStackKeys(
+    displayLdc.resource_order.filter((key) => displayLdc.series[key]),
+    order,
+  );
 
   // Net storage flow, sorted by gross load like every other series: + discharge stacks on top of
   // generation (fills toward served load), − charge is drawn below zero (absorbing surplus).

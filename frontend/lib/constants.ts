@@ -50,6 +50,20 @@ export const GENERATOR_COLORS: Record<string, string> = {
 /** Storage accent (charts): soft green — clean, flexible resource. */
 export const STORAGE_COLOR = "#8BC34A";
 
+/**
+ * Order stacked-chart series so the chart's vertical stack mirrors the user's merit list.
+ * `order` is the merit list top→bottom; Plotly stacks the first trace at the bottom, so we
+ * reverse it (list-bottom → chart-bottom). This is display only — it never changes dispatch,
+ * which the backend computes by marginal cost. Series keys not present in `order` keep their
+ * original relative position at the end. With no `order`, the input order is returned unchanged.
+ */
+export function orderStackKeys(keys: string[], order?: string[]): string[] {
+  if (!order?.length) return keys;
+  const reversed = [...order].reverse().filter((key) => keys.includes(key));
+  const rest = keys.filter((key) => !reversed.includes(key));
+  return [...reversed, ...rest];
+}
+
 // ── Country defaults ──────────────────────────────────────────────────────────
 
 /**

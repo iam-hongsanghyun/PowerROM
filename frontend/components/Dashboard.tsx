@@ -593,6 +593,7 @@ export function Dashboard() {
                   isDispatchLoading={isDispatchLoading}
                   shares={shares}
                   capacities={capacities}
+                  generatorOrder={generatorOrder}
                   onSizeForAdequacy={handleSizeForAdequacy}
                   onSizeMixForAdequacy={handleSizeMixForAdequacy}
                 />

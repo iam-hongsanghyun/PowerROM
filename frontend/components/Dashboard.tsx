@@ -228,7 +228,6 @@ export function Dashboard() {
           custom_params,
           dispatch_mode: dispatchMode,
           weather_years: weatherYears.length ? weatherYears : null,
-          generator_order: generatorOrder,
         }),
         dispatchSystem({
           country,
@@ -240,7 +239,6 @@ export function Dashboard() {
           dispatch_mode: dispatchMode,
           weather_years: weatherYears.length ? weatherYears : null,
           ensemble,
-          generator_order: generatorOrder,
         }),
       ]);
       setResult(calculation);

@@ -460,6 +460,7 @@ def _calculate_system_lcoe_dispatch(
         include_ldc=include_ldc,
         capacities_gw=normalized_capacities,
         generator_order=generator_order,
+        carbon_price=carbon_price,
     )
 
     current = _calculate_from_dispatch_summary(
@@ -503,6 +504,7 @@ def _calculate_system_lcoe_dispatch(
             settings=settings,
             include_ldc=False,
             generator_order=generator_order,
+            carbon_price=carbon_price,
         )
         point_result = _calculate_from_dispatch_summary(
             profile=profile,

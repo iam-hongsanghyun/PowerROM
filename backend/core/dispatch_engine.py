@@ -31,14 +31,51 @@ class DispatchResult:
     capacities_gw: dict[str, float]
 
 
+def _marginal_cost_usd_mwh(generator_config: dict[str, Any], carbon_price: float) -> float:
+    """Short-run (dispatch) marginal cost of a flexible generator, $/MWh.
+
+    This is the *ordering* cost for the merit stack — variable O&M plus fuel plus the
+    carbon charge — so a rising carbon price can reorder the stack (e.g. gas overtaking
+    coal once its lower emission factor outweighs its higher fuel cost). Capital and
+    fixed O&M are sunk for dispatch and excluded here (they still enter the LCOE).
+
+    Algorithm:
+        $$mc = opex_{var} + fuel_{\\$/mmbtu}\\cdot HR_{mmbtu/MWh} + p_{CO_2}\\cdot ef_{tCO_2/MWh}$$
+        ASCII: mc = opex_var + fuel_price*heat_rate + carbon_price*emission_factor
+    """
+    variable = float(generator_config.get("opex_var_usd_mwh", 0.0))
+    fuel = 0.0
+    if "heat_rate_mmbtu_mwh" in generator_config and "fuel_usd_mmbtu" in generator_config:
+        fuel = float(generator_config["fuel_usd_mmbtu"]) * float(generator_config["heat_rate_mmbtu_mwh"])
+    carbon = float(carbon_price) * float(generator_config.get("emission_factor_tco2_mwh", 0.0))
+    return variable + fuel + carbon
+
+
 def dispatch_hourly(
     profile: dict[str, Any],
     year_profile: YearProfile,
     shares: dict[str, float],
     annual_demand_twh: float,
+    carbon_price: float = 0.0,
     capacities_gw: dict[str, float] | None = None,
     generator_order: list[str] | None = None,
 ) -> DispatchResult:
+    """Screening merit-order dispatch over the hourly (net-load) pattern.
+
+    Stacking order, bottom to top:
+
+    1. **Nuclear must-run baseload** — runs flat at its base capacity factor (the
+       "minimum capacity factor of nuclear" rule); curtails only if it alone exceeds
+       demand. Non-dispatchable policy baseload.
+    2. **VRE priority** — solar/wind serve the post-nuclear residual at ~zero marginal
+       cost; the surplus is curtailed.
+    3. **Flexible thermals** — coal/gas/other fill the remaining residual in ascending
+       ``_marginal_cost_usd_mwh`` order, so the merit stack responds to carbon price.
+       An explicit ``generator_order`` overrides this with a manual merit order.
+
+    This replaces a fixed hand-ordered greedy stack; the annual energy per generator is
+    the area under its slice of the net-load duration curve.
+    """
     generator_names = _ordered_generators(profile, generator_order)
     normalized_shares = _normalize_shares(shares)
     fixed_capacities = _normalize_capacities(capacities_gw or {})
@@ -86,12 +123,41 @@ def dispatch_hourly(
             capacities_gw[gen] = target_gwh / (gen_cf * hours) if target_gwh > 0 else 0.0
         available_gw[gen] = np.full(hours, capacities_gw[gen], dtype=float)
 
+    vre_names = [gen for gen in generator_names if gen in VRE_GENERATORS]
+    flexible_names = [gen for gen in generator_names if gen not in VRE_GENERATORS and gen != "nuclear"]
+    if generator_order:
+        # Manual merit override (advanced): order flexibles by the given sequence.
+        priority = {gen: index for index, gen in enumerate(generator_order)}
+        flexible_names.sort(key=lambda gen: priority.get(gen, len(priority)))
+    else:
+        # Default: ascending short-run marginal cost, so carbon price reorders the stack.
+        flexible_names.sort(
+            key=lambda gen: _marginal_cost_usd_mwh(profile["generators"][gen], carbon_price)
+        )
+
     residual_gw = demand_gw.copy()
-    for gen in generator_names:
+
+    # 1. Nuclear must-run baseload: runs flat, curtails only when it alone tops demand.
+    if "nuclear" in generator_names:
+        must_run_gw = available_gw["nuclear"]
+        curtailed_gw["nuclear"] = np.maximum(must_run_gw - demand_gw, 0.0)
+        dispatch_gw["nuclear"] = must_run_gw - curtailed_gw["nuclear"]
+        residual_gw = np.maximum(residual_gw - dispatch_gw["nuclear"], 0.0)
+
+    # 2. VRE priority: serve the residual, curtail the surplus (allocated pro-rata).
+    vre_available_gw = sum((available_gw[gen] for gen in vre_names), np.zeros(hours, dtype=float))
+    served_vre_gw = np.minimum(residual_gw, vre_available_gw)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        served_fraction = np.where(vre_available_gw > 0.0, served_vre_gw / vre_available_gw, 0.0)
+    for gen in vre_names:
+        dispatch_gw[gen] = available_gw[gen] * served_fraction
+        curtailed_gw[gen] = available_gw[gen] - dispatch_gw[gen]
+    residual_gw = np.maximum(residual_gw - served_vre_gw, 0.0)
+
+    # 3. Flexible thermals fill the residual in merit order.
+    for gen in flexible_names:
         dispatch_gw[gen] = np.minimum(residual_gw, available_gw[gen])
         residual_gw = np.maximum(residual_gw - dispatch_gw[gen], 0.0)
-        if gen in VRE_GENERATORS:
-            curtailed_gw[gen] = np.maximum(available_gw[gen] - dispatch_gw[gen], 0.0)
 
     unserved_gw = residual_gw
 
@@ -118,6 +184,7 @@ def run_dispatch_ensemble(
     include_ldc: bool = False,
     capacities_gw: dict[str, float] | None = None,
     generator_order: list[str] | None = None,
+    carbon_price: float = 0.0,
 ) -> dict[str, Any]:
     from backend.core.hourly_profiles import sample_ensemble
 
@@ -128,6 +195,7 @@ def run_dispatch_ensemble(
             year_profile=year_profile,
             shares=shares,
             annual_demand_twh=annual_demand_twh,
+            carbon_price=carbon_price,
             capacities_gw=capacities_gw,
             generator_order=generator_order,
         )

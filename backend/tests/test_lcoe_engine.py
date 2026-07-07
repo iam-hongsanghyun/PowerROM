@@ -16,7 +16,6 @@ def test_korean_default_lcoe_range() -> None:
     )
     assert 80 <= result["system_lcoe"] <= 150
     assert result["emission_intensity"] >= 0
-    assert len(result["curve_data"]) == 101
 
 
 def test_share_normalization_notice() -> None:

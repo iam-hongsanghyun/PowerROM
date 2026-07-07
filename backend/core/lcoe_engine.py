@@ -471,68 +471,10 @@ def _calculate_system_lcoe_dispatch(
         dispatch_summary=dispatch_summary,
     )
 
+    # The 0→100% VRE-share sweep (curve_data) was an arbitrary interpolated path used
+    # only by sensitivity sub-charts that have been removed. Dropped to avoid re-running
+    # the full dispatch ensemble 101× per request. Results describe the chosen mix only.
     curve_data: list[dict[str, float]] = []
-    vre_share = sum(normalized_shares.get(key, 0.0) for key in VRE_GENERATORS)
-    base_non_vre = 1.0 - vre_share
-    solar_ratio = normalized_shares.get("solar", 0.0) / vre_share if vre_share > 0 else 0.5
-    wind_ratio = normalized_shares.get("wind_onshore", 0.0) / vre_share if vre_share > 0 else 0.5
-    non_vre_weights = {
-        key: (normalized_shares.get(key, 0.0) / base_non_vre if base_non_vre > 0 else 0.0)
-        for key in normalized_shares
-        if key not in VRE_GENERATORS
-    }
-
-    for vre_percent in range(0, 101):
-        vre_point = vre_percent / 100
-        curve_shares = {
-            "solar": vre_point * solar_ratio,
-            "wind_onshore": vre_point * wind_ratio,
-        }
-        residual = max(1.0 - vre_point, 0.0)
-        for key, weight in non_vre_weights.items():
-            curve_shares[key] = residual * weight
-        for key in normalized_shares:
-            curve_shares.setdefault(key, 0.0)
-        if sum(max(value, 0.0) for value in curve_shares.values()) <= 0:
-            curve_shares["solar"] = 1e-6
-
-        curve_dispatch_summary = run_dispatch_ensemble(
-            profile=profile,
-            year_profiles=year_profiles,
-            shares=curve_shares,
-            annual_demand_twh=profile["annual_generation_twh"],
-            settings=settings,
-            include_ldc=False,
-            generator_order=generator_order,
-            carbon_price=carbon_price,
-        )
-        point_result = _calculate_from_dispatch_summary(
-            profile=profile,
-            shares=curve_shares,
-            carbon_price=carbon_price,
-            ev_penetration=ev_penetration,
-            dispatch_summary=curve_dispatch_summary,
-        )
-        curve_data.append(
-            {
-                "vre_share": vre_point,
-                "system_lcoe": point_result["system_lcoe"],
-                "emission_intensity": point_result["emission_intensity"],
-                "ess_gwh": point_result["ess_requirement_gwh"],
-                "ess_gw": point_result["ess_requirement_gw"],
-                "capex": point_result["stack_components"]["capex"],
-                "fuel": point_result["stack_components"]["fuel"],
-                "carbon": point_result["stack_components"]["carbon"],
-                "integration": point_result["stack_components"]["integration"],
-                "ess": point_result["stack_components"]["ess"],
-                "ess_short_gwh": point_result["ess_short_gwh"],
-                "ess_long_gwh": point_result["ess_long_gwh"],
-                "curtailment_rate": point_result["curtailment_rate"],
-                "curtailed_twh": point_result["curtailed_twh"],
-                "backup_flexibility": point_result["backup_flexibility"],
-                "unserved_twh": point_result["unserved_twh"],
-            }
-        )
 
     source_note = "Hourly profiles are generated from the parametric synthesizer."
     if dispatch_mode == "data":

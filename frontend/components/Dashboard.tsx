@@ -430,16 +430,9 @@ export function Dashboard() {
                   result={result}
                   dispatchResult={dispatchResult}
                   isDispatchLoading={isDispatchLoading}
-                  country={country}
-                  carbonPrice={carbonPrice}
                   essCostUsdKwh={essCostUsdKwh}
                   shares={shares}
                   capacities={capacities}
-                  annualDemandTwh={annualDemandTwh}
-                  evPenetration={evPenetration}
-                  dispatchMode={dispatchMode}
-                  weatherYears={weatherYears}
-                  generatorOrder={generatorOrder}
                 />
               </Tabs.Content>
 

@@ -13,17 +13,24 @@ export function ControlPanel({
   countries,
   country,
   storage,
+  storageExpandable,
+  addedStorageGw,
   annualDemandTwh,
   onCountryChange,
   onStorageChange,
+  onStorageExpandableToggle,
   onAnnualDemandChange,
 }: {
   countries: CountrySummary[];
   country: string;
   storage: StorageInput;
+  storageExpandable: boolean;
+  /** GW of short-duration storage power the solver added on the last run. */
+  addedStorageGw?: number;
   annualDemandTwh: number;
   onCountryChange: (country: string) => void;
   onStorageChange: (value: StorageInput) => void;
+  onStorageExpandableToggle: (value: boolean) => void;
   onAnnualDemandChange: (value: number) => void;
 }) {
   return (
@@ -89,6 +96,20 @@ export function ControlPanel({
             </label>
           ))}
         </div>
+        <label className="flex items-center justify-between gap-2 text-[10px] text-slate-500">
+          <span className="flex items-center gap-1">
+            Expandable to meet 100% load
+            {addedStorageGw && addedStorageGw > 0 ? (
+              <span className="font-semibold text-emerald-600">+{addedStorageGw.toFixed(0)} GW</span>
+            ) : null}
+          </span>
+          <input
+            type="checkbox"
+            checked={storageExpandable}
+            onChange={(event) => onStorageExpandableToggle(event.target.checked)}
+            className="h-3.5 w-3.5 rounded border-slate-300"
+          />
+        </label>
         <p className="text-[10px] text-slate-400">
           Endogenous: charges from surplus, discharges to shortfall. Duration set in Parameters → ESS.
         </p>

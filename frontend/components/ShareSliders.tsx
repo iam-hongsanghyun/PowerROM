@@ -50,8 +50,8 @@ export function ShareSliders({
   generatorOrder: GeneratorKey[];
   /** Model-calculated generation share per generator (0–1) from the last run. */
   calculatedShares?: Record<string, number>;
-  /** Generators the solver may grow to meet 100% load. */
-  expandable: Set<GeneratorKey>;
+  /** Generators (or "storage") the solver may grow to meet 100% load. */
+  expandable: Set<string>;
   meetFullLoad: boolean;
   /** GW the solver added per generator on the last run. */
   addedCapacities?: Record<string, number>;

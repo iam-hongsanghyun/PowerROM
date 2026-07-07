@@ -18,6 +18,25 @@ def test_expansion_meets_full_load_and_prices_it() -> None:
     assert set(added).issubset({"gas_ccgt", "nuclear"})  # only the checked generators grew
 
 
+def test_expansion_can_grow_storage() -> None:
+    # VRE-heavy fleet with a recoverable evening deficit; storage + gas should firm it.
+    caps = {"solar": 160, "wind_onshore": 70, "gas_ccgt": 18, "coal": 4, "nuclear": 10, "other": 3}
+    base = dict(
+        country="KR", shares=caps, carbon_price=50.0, capacities_gw=caps, ensemble=_SINGLE,
+        ess_short_power_gw=5.0, ess_long_power_gw=2.0,
+    )
+    before = calculate_system_lcoe(**base)
+    with_storage = calculate_system_lcoe(**base, expandable=["storage"], meet_full_load=True)
+    with_both = calculate_system_lcoe(**base, expandable=["storage", "gas_ccgt"], meet_full_load=True)
+
+    # Storage alone narrows the gap and grows the short-duration battery.
+    assert with_storage["unserved_twh"] < before["unserved_twh"]
+    assert with_storage["expansion"]["added_capacities_gw"].get("storage", 0.0) > 0.0
+    # Storage + a dispatchable closes it to ~100% served.
+    assert with_both["unserved_twh"] < 0.1
+    assert "storage" in with_both["expansion"]["added_capacities_gw"]
+
+
 def test_expansion_requires_a_dispatchable() -> None:
     caps = {"solar": 100, "wind_onshore": 50, "gas_ccgt": 10, "coal": 5, "nuclear": 10, "other": 3}
     result = calculate_system_lcoe(

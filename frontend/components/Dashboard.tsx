@@ -123,8 +123,8 @@ export function Dashboard() {
     capacityInputDefaults(DEFAULT_CAPACITIES_GW),
   );
   const [generatorOrder, setGeneratorOrder] = useState<GeneratorKey[]>([...GENERATOR_KEYS]);
-  // Capacity expansion: which generators the solver may grow to meet 100% load.
-  const [expandable, setExpandable] = useState<Set<GeneratorKey>>(new Set());
+  // Capacity expansion: which generators (or "storage") the solver may grow to meet 100% load.
+  const [expandable, setExpandable] = useState<Set<string>>(new Set());
   const [meetFullLoad, setMeetFullLoad] = useState(false);
   const [carbonPrice, setCarbonPrice] = useState(DEFAULT_CARBON_PRICE_USD_TCO2);
   const [evPenetration, setEvPenetration] = useState(DEFAULT_EV_PENETRATION);
@@ -261,7 +261,7 @@ export function Dashboard() {
     setCapacityInputs((prev) => ({ ...prev, [key]: value }));
   }
 
-  function toggleExpandable(key: GeneratorKey) {
+  function toggleExpandable(key: string) {
     setExpandable((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
@@ -299,9 +299,12 @@ export function Dashboard() {
                 countries={countries}
                 country={country}
                 storage={storage}
+                storageExpandable={expandable.has("storage")}
+                addedStorageGw={result?.expansion?.added_capacities_gw?.storage}
                 annualDemandTwh={annualDemandTwh}
                 onCountryChange={handleCountryChange}
                 onStorageChange={setStorage}
+                onStorageExpandableToggle={() => toggleExpandable("storage")}
                 onAnnualDemandChange={setAnnualDemandTwh}
               />
               <ShareSliders

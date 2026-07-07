@@ -1,0 +1,240 @@
+{
+  "ember_source": "https://storage.googleapis.com/emb-prod-bkt-publicdata/public-downloads/yearly_full_release_long_format.csv",
+  "latest_settled_year": 2024,
+  "country_count": 33,
+  "cost_source": "Regional cost levers \u2014 delivered gas/coal prices, discount rate (WACC) and a VRE capex multiplier \u2014 from IEA WEO 2024 regional assumptions and IRENA 2024 (see COUNTRY_REGION)",
+  "countries": {
+    "AE": {
+      "name": "United Arab Emirates",
+      "iso3": "ARE",
+      "data_year": 2024,
+      "region": "middle_east",
+      "demand_twh": 177.02
+    },
+    "AR": {
+      "name": "Argentina",
+      "iso3": "ARG",
+      "data_year": 2024,
+      "region": "lat_am",
+      "demand_twh": 161.68
+    },
+    "AU": {
+      "name": "Australia",
+      "iso3": "AUS",
+      "data_year": 2024,
+      "region": "oceania",
+      "demand_twh": 281.64
+    },
+    "BR": {
+      "name": "Brazil",
+      "iso3": "BRA",
+      "data_year": 2024,
+      "region": "lat_am",
+      "demand_twh": 757.31
+    },
+    "CA": {
+      "name": "Canada",
+      "iso3": "CAN",
+      "data_year": 2024,
+      "region": "north_america",
+      "demand_twh": 624.36
+    },
+    "CL": {
+      "name": "Chile",
+      "iso3": "CHL",
+      "data_year": 2024,
+      "region": "lat_am",
+      "demand_twh": 88.62
+    },
+    "CN": {
+      "name": "China",
+      "iso3": "CHN",
+      "data_year": 2024,
+      "region": "china",
+      "demand_twh": 10069.88
+    },
+    "DE": {
+      "name": "Germany",
+      "iso3": "DEU",
+      "data_year": 2024,
+      "region": "europe",
+      "demand_twh": 522.26
+    },
+    "DK": {
+      "name": "Denmark",
+      "iso3": "DNK",
+      "data_year": 2024,
+      "region": "europe",
+      "demand_twh": 38.96
+    },
+    "ES": {
+      "name": "Spain",
+      "iso3": "ESP",
+      "data_year": 2024,
+      "region": "europe",
+      "demand_twh": 270.71
+    },
+    "FI": {
+      "name": "Finland",
+      "iso3": "FIN",
+      "data_year": 2024,
+      "region": "europe",
+      "demand_twh": 85.73
+    },
+    "FR": {
+      "name": "France",
+      "iso3": "FRA",
+      "data_year": 2024,
+      "region": "europe",
+      "demand_twh": 471.96
+    },
+    "GB": {
+      "name": "United Kingdom",
+      "iso3": "GBR",
+      "data_year": 2024,
+      "region": "europe",
+      "demand_twh": 317.35
+    },
+    "ID": {
+      "name": "Indonesia",
+      "iso3": "IDN",
+      "data_year": 2024,
+      "region": "se_asia",
+      "demand_twh": 372.5
+    },
+    "IE": {
+      "name": "Ireland",
+      "iso3": "IRL",
+      "data_year": 2024,
+      "region": "europe",
+      "demand_twh": 36.14
+    },
+    "IN": {
+      "name": "India",
+      "iso3": "IND",
+      "data_year": 2024,
+      "region": "south_asia",
+      "demand_twh": 2034.22
+    },
+    "IT": {
+      "name": "Italy",
+      "iso3": "ITA",
+      "data_year": 2024,
+      "region": "europe",
+      "demand_twh": 318.56
+    },
+    "JP": {
+      "name": "Japan",
+      "iso3": "JPN",
+      "data_year": 2024,
+      "region": "ne_asia_adv",
+      "demand_twh": 1016.39
+    },
+    "KR": {
+      "name": "South Korea",
+      "iso3": "KOR",
+      "data_year": 2024,
+      "region": "ne_asia_adv",
+      "demand_twh": 625.38
+    },
+    "MX": {
+      "name": "Mexico",
+      "iso3": "MEX",
+      "data_year": 2024,
+      "region": "north_america",
+      "demand_twh": 354.87
+    },
+    "MY": {
+      "name": "Malaysia",
+      "iso3": "MYS",
+      "data_year": 2024,
+      "region": "se_asia",
+      "demand_twh": 197.04
+    },
+    "NL": {
+      "name": "Netherlands",
+      "iso3": "NLD",
+      "data_year": 2024,
+      "region": "europe",
+      "demand_twh": 118.11
+    },
+    "NO": {
+      "name": "Norway",
+      "iso3": "NOR",
+      "data_year": 2024,
+      "region": "europe",
+      "demand_twh": 138.67
+    },
+    "PH": {
+      "name": "Philippines",
+      "iso3": "PHL",
+      "data_year": 2024,
+      "region": "se_asia",
+      "demand_twh": 124.17
+    },
+    "PL": {
+      "name": "Poland",
+      "iso3": "POL",
+      "data_year": 2024,
+      "region": "europe",
+      "demand_twh": 174.09
+    },
+    "SA": {
+      "name": "Saudi Arabia",
+      "iso3": "SAU",
+      "data_year": 2024,
+      "region": "middle_east",
+      "demand_twh": 454.59
+    },
+    "SE": {
+      "name": "Sweden",
+      "iso3": "SWE",
+      "data_year": 2024,
+      "region": "europe",
+      "demand_twh": 138.71
+    },
+    "TH": {
+      "name": "Thailand",
+      "iso3": "THA",
+      "data_year": 2024,
+      "region": "se_asia",
+      "demand_twh": 231.93
+    },
+    "TR": {
+      "name": "Turkey",
+      "iso3": "TUR",
+      "data_year": 2024,
+      "region": "emerging_europe",
+      "demand_twh": 340.24
+    },
+    "TW": {
+      "name": "Taiwan",
+      "iso3": "TWN",
+      "data_year": 2024,
+      "region": "ne_asia_adv",
+      "demand_twh": 288.56
+    },
+    "US": {
+      "name": "United States",
+      "iso3": "USA",
+      "data_year": 2024,
+      "region": "north_america",
+      "demand_twh": 4404.83
+    },
+    "VN": {
+      "name": "Vietnam",
+      "iso3": "VNM",
+      "data_year": 2024,
+      "region": "se_asia",
+      "demand_twh": 307.18
+    },
+    "ZA": {
+      "name": "South Africa",
+      "iso3": "ZAF",
+      "data_year": 2024,
+      "region": "africa",
+      "demand_twh": 246.22
+    }
+  },
+  "refresh": "python -m backend.data.build_country_profiles --download"
+}

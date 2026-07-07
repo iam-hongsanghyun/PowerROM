@@ -120,11 +120,44 @@ CF_BOUNDS: dict[str, tuple[float, float]] = {
 MIN_CAPACITY_GW = 0.20  # below this, CF is numerically unreliable → use template default
 
 # ── Cost / fuel / discount template ─────────────────────────────────────────────
-# This pass replaces only the *data* fields (demand, capacity, generation mix, capacity
-# factors). Technology costs, fuel prices, dispatch functions and the discount rate are left
-# at the shared literature-based template (TEMPLATE_COUNTRY's profile) — they are technology,
-# not country, parameters. Real per-country cost/fuel differentiation would need a real cost
-# source (IEA/IRENA country tables) and is out of scope here.
+# Technology *structure* (dispatch functions, heat rates, emission factors, storage, and the
+# capex/opex base levels) comes from the shared literature template (TEMPLATE_COUNTRY's profile).
+# On top of that, three cost levers that genuinely vary by market are applied per **region**:
+# delivered fuel prices (gas/coal), the discount rate (WACC), and a VRE capex multiplier.
+
+# Each country's region. Regions group markets with similar delivered fuel prices and cost of
+# capital.
+COUNTRY_REGION: dict[str, str] = {
+    "US": "north_america", "CA": "north_america", "MX": "north_america",
+    "DE": "europe", "FR": "europe", "GB": "europe", "ES": "europe", "IT": "europe",
+    "NL": "europe", "PL": "europe", "SE": "europe", "FI": "europe", "DK": "europe",
+    "NO": "europe", "IE": "europe",
+    "KR": "ne_asia_adv", "JP": "ne_asia_adv", "TW": "ne_asia_adv",
+    "CN": "china", "IN": "south_asia",
+    "ID": "se_asia", "MY": "se_asia", "PH": "se_asia", "TH": "se_asia", "VN": "se_asia",
+    "AE": "middle_east", "SA": "middle_east",
+    "AU": "oceania", "TR": "emerging_europe",
+    "BR": "lat_am", "AR": "lat_am", "CL": "lat_am", "ZA": "africa",
+}
+
+# Regional cost levers. Fuel prices (USD/MMBtu, delivered) and WACC follow IEA WEO 2024 regional
+# assumptions and market benchmarks (US Henry Hub / Asian LNG / European TTF for gas); the VRE
+# capex multiplier scales the template solar/wind capex by IRENA 2024 regional cost ratios (China
+# lowest, OECD ~1.0). nuclear and "other" fuel stay at the template value.
+REGIONS: dict[str, dict[str, float]] = {
+    #                     gas   coal   wacc   vre_capex_mult
+    "north_america":  {"gas": 3.5,  "coal": 2.0, "wacc": 0.055, "vre_mult": 1.00},
+    "europe":         {"gas": 11.0, "coal": 4.5, "wacc": 0.050, "vre_mult": 1.05},
+    "ne_asia_adv":    {"gas": 13.5, "coal": 4.5, "wacc": 0.055, "vre_mult": 1.00},
+    "china":          {"gas": 9.0,  "coal": 4.0, "wacc": 0.070, "vre_mult": 0.75},
+    "south_asia":     {"gas": 11.0, "coal": 3.0, "wacc": 0.090, "vre_mult": 0.80},
+    "se_asia":        {"gas": 9.0,  "coal": 3.5, "wacc": 0.085, "vre_mult": 0.90},
+    "middle_east":    {"gas": 3.0,  "coal": 5.0, "wacc": 0.070, "vre_mult": 0.95},
+    "oceania":        {"gas": 8.5,  "coal": 2.0, "wacc": 0.060, "vre_mult": 1.05},
+    "lat_am":         {"gas": 7.0,  "coal": 4.0, "wacc": 0.090, "vre_mult": 1.00},
+    "africa":         {"gas": 6.0,  "coal": 2.0, "wacc": 0.100, "vre_mult": 1.00},
+    "emerging_europe": {"gas": 11.0, "coal": 4.5, "wacc": 0.100, "vre_mult": 1.00},
+}
 
 SOURCE_EMBER = (
     "Ember Yearly Electricity Data (full release), "
@@ -132,9 +165,12 @@ SOURCE_EMBER = (
     "demand, installed capacity and generation by fuel (CC-BY-4.0)"
 )
 SOURCE_COSTS = (
-    "Technology costs, fuel prices, discount rate & dispatch functions: IEA World Energy "
-    "Outlook 2024 / IRENA Renewable Power Generation Costs 2024 (shared global template, "
-    "identical across countries)"
+    "Technology structure (heat rates, dispatch/curtailment functions, storage): IEA WEO 2024 / "
+    "IRENA Renewable Power Generation Costs 2024 (shared template)"
+)
+SOURCE_REGIONAL = (
+    "Regional cost levers — delivered gas/coal prices, discount rate (WACC) and a VRE capex "
+    "multiplier — from IEA WEO 2024 regional assumptions and IRENA 2024 (see COUNTRY_REGION)"
 )
 
 
@@ -252,7 +288,16 @@ def build_profile(code: str, iso3: str, name: str, template: dict[str, Any],
     # Demand" input from this so net-importing countries (e.g. AR, GB) show true demand, not
     # just domestic generation.
     profile["annual_demand_twh"] = round(data["demand_twh"], 2)
-    # discount_rate and all cost/fuel fields are left at the template value (see SOURCE_COSTS).
+
+    # Regional cost levers: WACC, delivered gas/coal price, and a VRE capex multiplier.
+    region = REGIONS[COUNTRY_REGION[code]]
+    profile["discount_rate"] = region["wacc"]
+    profile["region"] = COUNTRY_REGION[code]
+    profile["generators"]["gas_ccgt"]["fuel_usd_mmbtu"] = region["gas"]
+    profile["generators"]["coal"]["fuel_usd_mmbtu"] = region["coal"]
+    for vre in ("solar", "wind_onshore"):
+        base_capex = float(template["generators"][vre]["capex_usd_kw"])
+        profile["generators"][vre]["capex_usd_kw"] = round(base_capex * region["vre_mult"], 1)
 
     total_gen = data["total_gen_twh"] or 1.0
     capacities: dict[str, float] = {}
@@ -279,6 +324,7 @@ def build_profile(code: str, iso3: str, name: str, template: dict[str, Any],
     profile["sources"] = [
         f"{SOURCE_EMBER}; data year {data['year']}",
         SOURCE_COSTS,
+        SOURCE_REGIONAL,
     ]
     return profile
 
@@ -300,6 +346,7 @@ def main() -> int:
     print(f"{'code':<5}{'yr':<6}{'demand':>9}{'solar_cf':>10}{'wind_cf':>9}"
           f"{'solarGW':>9}{'windGW':>8}{'gasGW':>8}{'coalGW':>8}{'nucGW':>8}")
     written = 0
+    manifest_countries: dict[str, dict[str, Any]] = {}
     for code, (iso3, name) in sorted(COUNTRIES.items()):
         data = extract_country(rows, iso3, year_cap)
         profile = build_profile(code, iso3, name, template, data)
@@ -309,14 +356,30 @@ def main() -> int:
               f"{cf['solar']['cf_base']:>10.3f}{cf['wind_onshore']['cf_base']:>9.3f}"
               f"{cg['solar']:>9.1f}{cg['wind_onshore']:>8.1f}{cg['gas_ccgt']:>8.1f}"
               f"{cg['coal']:>8.1f}{cg['nuclear']:>8.1f}")
+        manifest_countries[code] = {
+            "name": name, "iso3": iso3, "data_year": data["year"],
+            "region": profile["region"], "demand_twh": profile["annual_demand_twh"],
+        }
         if not args.check:
             (PROFILE_DIR / f"{code}.json").write_text(json.dumps(profile, indent=2) + "\n")
             written += 1
 
     if args.check:
         print("\n--check: no files written.")
-    else:
-        print(f"\nWrote {written} profiles to {PROFILE_DIR}")
+        return 0
+
+    # Deterministic provenance manifest (no build timestamp, so rebuilds stay clean in git).
+    manifest = {
+        "ember_source": EMBER_URL,
+        "latest_settled_year": year_cap,
+        "country_count": len(manifest_countries),
+        "cost_source": SOURCE_REGIONAL,
+        "countries": manifest_countries,
+        "refresh": "python -m backend.data.build_country_profiles --download",
+    }
+    # Written to DATA_DIR (not PROFILE_DIR, which is globbed as country profiles).
+    (DATA_DIR / "country_profiles_manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    print(f"\nWrote {written} profiles + country_profiles_manifest.json")
     return 0
 
 

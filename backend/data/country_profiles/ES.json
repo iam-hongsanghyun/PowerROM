@@ -4,7 +4,7 @@
   "discount_rate": 0.05,
   "generators": {
     "solar": {
-      "capex_usd_kw": 900,
+      "capex_usd_kw": 945.0,
       "opex_fixed_usd_kw_yr": 15,
       "opex_var_usd_mwh": 0,
       "lifetime_yr": 25,
@@ -50,7 +50,7 @@
       "variability_factor": 1.0
     },
     "wind_onshore": {
-      "capex_usd_kw": 1400,
+      "capex_usd_kw": 1470.0,
       "opex_fixed_usd_kw_yr": 40,
       "opex_var_usd_mwh": 0,
       "lifetime_yr": 25,
@@ -101,7 +101,7 @@
       "opex_var_usd_mwh": 4,
       "lifetime_yr": 30,
       "emission_factor_tco2_mwh": 0.36,
-      "fuel_usd_mmbtu": 12.0,
+      "fuel_usd_mmbtu": 11.0,
       "heat_rate_mmbtu_mwh": 6.5,
       "cf_base": 0.2181,
       "cf_eff_func": {
@@ -140,7 +140,7 @@
       "opex_var_usd_mwh": 5,
       "lifetime_yr": 40,
       "emission_factor_tco2_mwh": 0.92,
-      "fuel_usd_mmbtu": 3.5,
+      "fuel_usd_mmbtu": 4.5,
       "heat_rate_mmbtu_mwh": 9.5,
       "cf_base": 0.1389,
       "cf_eff_func": {
@@ -278,7 +278,8 @@
   },
   "sources": [
     "Ember Yearly Electricity Data (full release), https://ember-energy.org/data/yearly-electricity-data/ \u2014 demand, installed capacity and generation by fuel (CC-BY-4.0); data year 2024",
-    "Technology costs, fuel prices, discount rate & dispatch functions: IEA World Energy Outlook 2024 / IRENA Renewable Power Generation Costs 2024 (shared global template, identical across countries)"
+    "Technology structure (heat rates, dispatch/curtailment functions, storage): IEA WEO 2024 / IRENA Renewable Power Generation Costs 2024 (shared template)",
+    "Regional cost levers \u2014 delivered gas/coal prices, discount rate (WACC) and a VRE capex multiplier \u2014 from IEA WEO 2024 regional assumptions and IRENA 2024 (see COUNTRY_REGION)"
   ],
   "data_year": 2024,
   "annual_demand_twh": 270.71,
@@ -297,5 +298,6 @@
     "coal": 0.0092,
     "nuclear": 0.1941,
     "other": 0.1815
-  }
+  },
+  "region": "europe"
 }

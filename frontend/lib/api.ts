@@ -314,7 +314,11 @@ export interface PathwayStep {
   annual_emissions_mtco2: number;
   emission_intensity: number;
   import_dependency: number;
+  unserved_twh?: number;
+  /** Built fleet at this year — interpolated target plus any expansion the solver added. */
   capacities_gw: Record<string, number>;
+  /** GW the solver added per generator (or "storage") to meet load this year. */
+  added_capacities_gw?: Record<string, number>;
 }
 
 export interface PathwayResponse {
@@ -337,6 +341,8 @@ export async function simulatePathway(payload: {
   ess_short_duration_hr?: number | null;
   ess_long_power_gw?: number | null;
   ess_long_duration_hr?: number | null;
+  expandable?: string[];
+  meet_full_load?: boolean;
 }): Promise<PathwayResponse> {
   return request<PathwayResponse>("/pathway", {
     method: "POST",

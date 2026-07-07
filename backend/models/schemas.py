@@ -237,6 +237,10 @@ class PathwayRequest(BaseModel):
     ess_short_duration_hr: float | None = Field(default=None, ge=0)
     ess_long_power_gw: float | None = Field(default=None, ge=0)
     ess_long_duration_hr: float | None = Field(default=None, ge=0)
+    # Capacity expansion at each milestone year: grow these generators (or "storage") to meet
+    # 100% of load, cheapest-first, on top of the interpolated target capacities.
+    expandable: list[str] | None = None
+    meet_full_load: bool = False
 
 
 class PathwayResponse(BaseModel):

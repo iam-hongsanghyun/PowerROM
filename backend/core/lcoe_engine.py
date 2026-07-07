@@ -1073,6 +1073,8 @@ def simulate_pathway(
     annual_demand_twh_start: float | None = None,
     annual_demand_twh_end: float | None = None,
     ensemble: Any | None = None,
+    expandable: list[str] | None = None,
+    meet_full_load: bool = False,
     **calculate_kwargs: Any,
 ) -> dict[str, Any]:
     """Run the single-year model along a planning pathway and return the trajectory.
@@ -1093,13 +1095,18 @@ def simulate_pathway(
         annual_demand_twh_start / _end: Optional demand (TWh) at the first / last year; if either is
             omitted both fall back to ``calculate_kwargs['annual_demand_twh']`` (flat demand).
         ensemble: Ensemble settings passed to each snapshot.
+        expandable: Generators (and/or ``"storage"``) the solver may grow at each milestone year to
+            meet 100% of load, cheapest-first, on top of the interpolated target capacities. Only
+            applied when ``meet_full_load`` is True. The reported ``capacities_gw`` for each year is
+            then the interpolated target plus what was added.
+        meet_full_load: Enable the per-year capacity expansion described above.
         **calculate_kwargs: Forwarded verbatim to :func:`calculate_system_lcoe` (carbon price,
             demand, capacities, and ensemble are supplied per-year and must not be duplicated here).
 
     Returns:
         ``{"country", "years", "steps": [{year, fraction, carbon_price, annual_demand_twh,
-        system_lcoe, annual_emissions_mtco2, emission_intensity, import_dependency,
-        capacities_gw}, ...]}`` — one step per milestone year.
+        system_lcoe, annual_emissions_mtco2, emission_intensity, import_dependency, unserved_twh,
+        capacities_gw, added_capacities_gw}, ...]}`` — one step per milestone year.
     """
     if not years:
         raise ValueError("A pathway needs at least one milestone year.")
@@ -1130,8 +1137,14 @@ def simulate_pathway(
             carbon_price=carbon_price,
             annual_demand_twh=demand,
             ensemble=ensemble,
+            expandable=expandable,
+            meet_full_load=meet_full_load,
             **calculate_kwargs,
         )
+        # When expansion is on, the built fleet is the interpolated target plus what the solver
+        # added to meet load, so report the post-expansion capacities (and what was added).
+        expansion = result.get("expansion") or {}
+        built = result.get("capacities_gw") or capacities
         steps.append({
             "year": year,
             "fraction": round(fraction, 4),
@@ -1141,7 +1154,13 @@ def simulate_pathway(
             "annual_emissions_mtco2": result["annual_emissions_mtco2"],
             "emission_intensity": result["emission_intensity"],
             "import_dependency": result["import_dependency"],
-            "capacities_gw": {key: round(value, 3) for key, value in capacities.items()},
+            "unserved_twh": result.get("unserved_twh", 0.0),
+            "capacities_gw": {key: round(float(value), 3) for key, value in built.items()},
+            "added_capacities_gw": {
+                key: round(float(value), 3)
+                for key, value in (expansion.get("added_capacities_gw") or {}).items()
+                if value > 1e-6
+            },
         })
     return {"country": country.upper(), "years": list(years), "steps": steps}
 

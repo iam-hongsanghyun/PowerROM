@@ -4,7 +4,7 @@ import { useState } from "react";
 
 import type { Capacities, EnsembleConfig, PathwayStep } from "@/lib/api";
 import { simulatePathway } from "@/lib/api";
-import { GENERATOR_COLORS, GENERATOR_LABELS } from "@/lib/constants";
+import { GENERATOR_COLORS, GENERATOR_LABELS, STORAGE_COLOR } from "@/lib/constants";
 import { InfoTip } from "@/components/InfoTip";
 import type { StorageInput } from "@/components/ControlPanel";
 
@@ -41,9 +41,21 @@ export function PathwayPanel({
   const [endCarbon, setEndCarbon] = useState(150);
   const [endDemand, setEndDemand] = useState(Math.round(startDemandTwh));
   const [target, setTarget] = useState<Capacities>({ ...startCapacities });
+  // Capacity expansion: grow the checked resources to meet 100% load at each milestone year.
+  const [meetFullLoad, setMeetFullLoad] = useState(false);
+  const [expandable, setExpandable] = useState<Set<string>>(new Set());
   const [steps, setSteps] = useState<PathwayStep[] | null>(null);
   const [isRunning, setIsRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  function toggleExpandable(key: string) {
+    setExpandable((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
 
   async function run() {
     setIsRunning(true);
@@ -61,6 +73,8 @@ export function PathwayPanel({
         ensemble,
         ess_short_power_gw: storage.shortPowerGw || null,
         ess_long_power_gw: storage.longPowerGw || null,
+        expandable: meetFullLoad ? [...expandable] : undefined,
+        meet_full_load: meetFullLoad,
       });
       setSteps(response.steps);
     } catch (caught) {
@@ -116,27 +130,69 @@ export function PathwayPanel({
 
       <div className="space-y-1.5">
         <div className="text-xs font-medium text-slate-600">
-          {endYear} target capacity (GW) — set to 0 to phase out
+          {endYear} target capacity (GW) — set to 0 to phase out, check ⤢ to let it expand
         </div>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
           {GENERATOR_KEYS.map((key) => (
-            <label key={key} className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs">
+            <div key={key} className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs">
               <span className="flex items-center gap-1.5 text-slate-600">
                 <span className="h-2 w-2 rounded-full" style={{ backgroundColor: GENERATOR_COLORS[key] }} />
                 {GENERATOR_LABELS[key]}
               </span>
-              <input
-                type="number"
-                min={0}
-                value={target[key]}
-                onChange={(event) =>
-                  setTarget((prev) => ({ ...prev, [key]: Math.max(0, Number(event.target.value)) }))
-                }
-                className="w-16 rounded-lg border border-slate-200 bg-white px-2 py-1 text-right tabular-nums text-slate-900 outline-none transition focus:border-slate-400"
-              />
-            </label>
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="number"
+                  min={0}
+                  value={target[key]}
+                  onChange={(event) =>
+                    setTarget((prev) => ({ ...prev, [key]: Math.max(0, Number(event.target.value)) }))
+                  }
+                  aria-label={`${GENERATOR_LABELS[key]} target capacity in GW`}
+                  className="w-16 rounded-lg border border-slate-200 bg-white px-2 py-1 text-right tabular-nums text-slate-900 outline-none transition focus:border-slate-400"
+                />
+                <input
+                  type="checkbox"
+                  checked={expandable.has(key)}
+                  onChange={() => toggleExpandable(key)}
+                  disabled={!meetFullLoad}
+                  aria-label={`Expand ${GENERATOR_LABELS[key]} to meet load`}
+                  title="Let the solver grow this generator to meet 100% load (enable 'Meet 100% load' first)"
+                  className="h-3.5 w-3.5 rounded border-slate-300 disabled:opacity-40"
+                />
+              </div>
+            </div>
           ))}
         </div>
+      </div>
+
+      <div className="space-y-1.5">
+        <label className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs text-slate-700">
+          <span>
+            Meet 100% load each year
+            <span className="ml-1 text-[10px] text-slate-400">grow the checked (⤢) resources, cheapest-first</span>
+          </span>
+          <input
+            type="checkbox"
+            checked={meetFullLoad}
+            onChange={(event) => setMeetFullLoad(event.target.checked)}
+            className="h-4 w-4 rounded border-slate-300"
+          />
+        </label>
+        <label className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs text-slate-700">
+          <span className="flex items-center gap-1.5">
+            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: STORAGE_COLOR }} />
+            Storage (short + long)
+          </span>
+          <input
+            type="checkbox"
+            checked={expandable.has("storage")}
+            onChange={() => toggleExpandable("storage")}
+            disabled={!meetFullLoad}
+            aria-label="Expand storage to meet load"
+            title="Let the solver grow storage to meet 100% load"
+            className="h-3.5 w-3.5 rounded border-slate-300 disabled:opacity-40"
+          />
+        </label>
       </div>
 
       <button
@@ -239,20 +295,36 @@ function PathwayChart({ steps }: { steps: PathwayStep[] }) {
               <th className="py-1 pr-3 font-medium">LCOE</th>
               <th className="py-1 pr-3 font-medium">MtCO₂/yr</th>
               <th className="py-1 pr-3 font-medium">gCO₂/kWh</th>
-              <th className="py-1 font-medium">Import</th>
+              <th className="py-1 pr-3 font-medium">Import</th>
+              <th className="py-1 pr-3 font-medium">Unserved</th>
+              <th className="py-1 font-medium">Built +GW</th>
             </tr>
           </thead>
           <tbody className="text-slate-700">
-            {steps.map((s) => (
-              <tr key={s.year} className="border-t border-slate-100">
-                <td className="py-1 pr-3">{s.year}</td>
-                <td className="py-1 pr-3">${s.carbon_price.toFixed(0)}</td>
-                <td className="py-1 pr-3">${s.system_lcoe.toFixed(1)}</td>
-                <td className="py-1 pr-3">{s.annual_emissions_mtco2.toFixed(0)}</td>
-                <td className="py-1 pr-3">{(s.emission_intensity * 1000).toFixed(0)}</td>
-                <td className="py-1">{(s.import_dependency * 100).toFixed(0)}%</td>
-              </tr>
-            ))}
+            {steps.map((s) => {
+              const added = s.added_capacities_gw ?? {};
+              const addedTotal = Object.values(added).reduce((sum, v) => sum + v, 0);
+              const addedLabel = Object.entries(added)
+                .map(([key, v]) => `${GENERATOR_LABELS[key] ?? key} +${v.toFixed(1)}`)
+                .join(", ");
+              const unserved = s.unserved_twh ?? 0;
+              return (
+                <tr key={s.year} className="border-t border-slate-100">
+                  <td className="py-1 pr-3">{s.year}</td>
+                  <td className="py-1 pr-3">${s.carbon_price.toFixed(0)}</td>
+                  <td className="py-1 pr-3">${s.system_lcoe.toFixed(1)}</td>
+                  <td className="py-1 pr-3">{s.annual_emissions_mtco2.toFixed(0)}</td>
+                  <td className="py-1 pr-3">{(s.emission_intensity * 1000).toFixed(0)}</td>
+                  <td className="py-1 pr-3">{(s.import_dependency * 100).toFixed(0)}%</td>
+                  <td className={`py-1 pr-3 ${unserved > 0.05 ? "text-rose-600" : "text-slate-400"}`}>
+                    {unserved > 0.05 ? `${unserved.toFixed(1)} TWh` : "—"}
+                  </td>
+                  <td className="py-1 text-emerald-600" title={addedLabel}>
+                    {addedTotal > 0.05 ? `+${addedTotal.toFixed(0)}` : "—"}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

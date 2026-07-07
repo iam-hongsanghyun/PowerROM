@@ -80,6 +80,35 @@ def test_pathway_phase_out_decarbonises_over_time() -> None:
     assert all(a >= b for a, b in zip(imports, imports[1:]))             # import reliance falls too
 
 
+def test_pathway_capacity_expansion_meets_load_after_phase_out() -> None:
+    # Phase coal + gas out entirely, then let the solver grow the selected clean resources to meet
+    # 100% load each milestone year. Without expansion the final year is badly short; with it the
+    # gap is closed and the built capacity is reported per year.
+    start = {"solar": 30, "wind_onshore": 15, "gas_ccgt": 30, "coal": 30, "nuclear": 20, "other": 3}
+    target = {"solar": 30, "wind_onshore": 15, "gas_ccgt": 0, "coal": 0, "nuclear": 20, "other": 3}
+    common = dict(
+        country="KR", start_capacities=start, target_capacities=target,
+        years=[2025, 2050], carbon_price_start=40.0, carbon_price_end=150.0,
+        annual_demand_twh_start=625.0, annual_demand_twh_end=625.0, ensemble=_SINGLE,
+    )
+
+    no_expand = simulate_pathway(**common)
+    assert no_expand["steps"][-1]["unserved_twh"] > 1.0            # coal+gas gone, nothing fills it
+    assert no_expand["steps"][-1]["added_capacities_gw"] == {}
+
+    expanded = simulate_pathway(
+        **common, meet_full_load=True,
+        expandable=["solar", "wind_onshore", "nuclear", "storage"],
+        ess_short_power_gw=10.0, ess_long_power_gw=5.0,
+    )
+    final = expanded["steps"][-1]
+    assert final["unserved_twh"] < 0.5                             # firmed to ~100% served
+    assert sum(final["added_capacities_gw"].values()) > 0.0        # capacity was built
+    assert set(final["added_capacities_gw"]).issubset(            # only the checked resources grew
+        {"solar", "wind_onshore", "nuclear", "storage", "storage_long"}
+    )
+
+
 def test_expansion_meets_full_load_and_prices_it() -> None:
     # Deliberately under-built dispatchable fleet -> large unserved energy.
     caps = {"solar": 100, "wind_onshore": 50, "gas_ccgt": 10, "coal": 5, "nuclear": 10, "other": 3}

@@ -31,6 +31,8 @@ def pathway(payload: PathwayRequest) -> PathwayResponse:
         ess_short_duration_hr=payload.ess_short_duration_hr,
         ess_long_power_gw=payload.ess_long_power_gw,
         ess_long_duration_hr=payload.ess_long_duration_hr,
+        expandable=payload.expandable,
+        meet_full_load=payload.meet_full_load,
     )
     return PathwayResponse(**result)
 

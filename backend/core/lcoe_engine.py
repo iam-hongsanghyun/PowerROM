@@ -431,6 +431,8 @@ def _calculate_system_lcoe_dispatch(
     ess_long_duration_hr: float | None = None,
     demand_pattern: str = "default",
     demand_peak_ratio: float | None = None,
+    demand_monthly: list[float] | None = None,
+    demand_daily: list[float] | None = None,
 ) -> dict[str, Any]:
     base_profile = load_country_profile(country)
     profile = deep_merge(base_profile, custom_params or {})
@@ -463,6 +465,8 @@ def _calculate_system_lcoe_dispatch(
         seed=settings.seed,
         demand_pattern=demand_pattern,
         demand_peak_ratio=demand_peak_ratio,
+        demand_monthly=demand_monthly,
+        demand_daily=demand_daily,
     )
     dispatch_summary = run_dispatch_ensemble(
         profile=profile,
@@ -569,6 +573,8 @@ def calculate_system_lcoe(
     ess_long_duration_hr: float | None = None,
     demand_pattern: str = "default",
     demand_peak_ratio: float | None = None,
+    demand_monthly: list[float] | None = None,
+    demand_daily: list[float] | None = None,
 ) -> dict[str, Any]:
     return _calculate_system_lcoe_dispatch(
         country=country,
@@ -589,4 +595,6 @@ def calculate_system_lcoe(
         ess_long_duration_hr=ess_long_duration_hr,
         demand_pattern=demand_pattern,
         demand_peak_ratio=demand_peak_ratio,
+        demand_monthly=demand_monthly,
+        demand_daily=demand_daily,
     )

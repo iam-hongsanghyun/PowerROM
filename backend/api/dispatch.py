@@ -29,6 +29,8 @@ def dispatch(payload: CalculateRequest) -> DispatchResponse:
         ess_long_duration_hr=payload.ess_long_duration_hr,
         demand_pattern=payload.demand_pattern,
         demand_peak_ratio=payload.demand_peak_ratio,
+        demand_monthly=payload.demand_monthly,
+        demand_daily=payload.demand_daily,
     )
     return DispatchResponse(
         country=result["country"],

@@ -56,6 +56,9 @@ class CalculateRequest(BaseModel):
     # Demand-shape controls for the synthesized load profile.
     demand_pattern: Literal["default", "winter_peak", "summer_peak", "flat"] = "default"
     demand_peak_ratio: float | None = Field(default=None, gt=1.0, le=4.0)
+    # Visual demand editor: 12 monthly + 24 hourly relative levels (override the archetype).
+    demand_monthly: list[float] | None = Field(default=None, min_length=12, max_length=12)
+    demand_daily: list[float] | None = Field(default=None, min_length=24, max_length=24)
 
     @model_validator(mode="after")
     def validate_shares(self) -> "CalculateRequest":

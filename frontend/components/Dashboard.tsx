@@ -5,6 +5,7 @@ import { ChevronLeft, ChevronRight, Play } from "lucide-react";
 import * as Tabs from "@radix-ui/react-tabs";
 
 import { ControlPanel, type DemandInput, type StorageInput } from "@/components/ControlPanel";
+import { DemandProfileEditor, DEFAULT_DEMAND_PROFILE, type DemandProfile } from "@/components/DemandProfileEditor";
 import { ShareSliders } from "@/components/ShareSliders";
 import { ParametersTab } from "@/components/ParametersTab";
 import { ProfileAnalysis } from "@/components/ProfileAnalysis";
@@ -139,6 +140,11 @@ export function Dashboard() {
     longDurationHr: 100,
   });
   const [demand, setDemand] = useState<DemandInput>({ pattern: "default", peakRatio: 1.4 });
+  // Visual demand profile (12 monthly + 24 hourly). When edited, overrides the archetype.
+  const [demandProfile, setDemandProfile] = useState<DemandProfile>({
+    monthly: [...DEFAULT_DEMAND_PROFILE.monthly],
+    daily: [...DEFAULT_DEMAND_PROFILE.daily],
+  });
   const [dispatchMode, setDispatchMode] = useState<DispatchMode>("parametric");
   const [weatherYears, setWeatherYears] = useState<number[]>([]);
   const [ensemble, setEnsemble] = useState<EnsembleConfig>({
@@ -232,6 +238,10 @@ export function Dashboard() {
       ess_long_duration_hr: storage.longDurationHr,
       demand_pattern: demand.pattern,
       demand_peak_ratio: demand.peakRatio,
+      // Only override the archetype/peak controls once the visual profile is edited.
+      ...(JSON.stringify(demandProfile) === JSON.stringify(DEFAULT_DEMAND_PROFILE)
+        ? {}
+        : { demand_monthly: demandProfile.monthly, demand_daily: demandProfile.daily }),
     };
 
     try {
@@ -460,10 +470,10 @@ export function Dashboard() {
 
               {/* Parameters tab — forceMount keeps state alive across tab switches */}
               <Tabs.Content value="parameters" forceMount className="data-[state=inactive]:hidden">
-                <ParametersTab
-                  country={country}
-                  onProfileEdited={setCustomProfile}
-                />
+                <div className="space-y-4">
+                  <DemandProfileEditor profile={demandProfile} onChange={setDemandProfile} />
+                  <ParametersTab country={country} onProfileEdited={setCustomProfile} />
+                </div>
               </Tabs.Content>
             </Tabs.Root>
           </main>

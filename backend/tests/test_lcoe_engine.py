@@ -1,5 +1,33 @@
 from backend.core.lcoe_engine import calculate_system_lcoe
 
+_SINGLE = {"method": "single", "n_samples": 1, "sigma": 0.0, "seed": 42}
+
+
+def test_expansion_meets_full_load_and_prices_it() -> None:
+    # Deliberately under-built dispatchable fleet -> large unserved energy.
+    caps = {"solar": 100, "wind_onshore": 50, "gas_ccgt": 10, "coal": 5, "nuclear": 10, "other": 3}
+    base = dict(country="KR", shares=caps, carbon_price=50.0, capacities_gw=caps, ensemble=_SINGLE)
+
+    before = calculate_system_lcoe(**base)
+    after = calculate_system_lcoe(**base, expandable=["gas_ccgt", "nuclear"], meet_full_load=True)
+
+    assert before["unserved_twh"] > 1.0  # under-built
+    assert after["unserved_twh"] < 0.1   # firmed to ~100% served
+    added = after["expansion"]["added_capacities_gw"]
+    assert sum(added.values()) > 0.0
+    assert set(added).issubset({"gas_ccgt", "nuclear"})  # only the checked generators grew
+
+
+def test_expansion_requires_a_dispatchable() -> None:
+    caps = {"solar": 100, "wind_onshore": 50, "gas_ccgt": 10, "coal": 5, "nuclear": 10, "other": 3}
+    result = calculate_system_lcoe(
+        country="KR", shares=caps, carbon_price=50.0, capacities_gw=caps, ensemble=_SINGLE,
+        expandable=["solar", "wind_onshore"], meet_full_load=True,
+    )
+    # VRE alone cannot firm the peak -> nothing added, explanatory note returned.
+    assert not result["expansion"]["added_capacities_gw"]
+    assert result["expansion"]["note"]
+
 
 def test_korean_default_lcoe_range() -> None:
     result = calculate_system_lcoe(

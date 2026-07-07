@@ -86,6 +86,11 @@ export interface CalculateResponse {
   dispatch?: DispatchSummary | null;
   ldc?: LdcPayload | null;
   chronological?: ChronologicalPayload | null;
+  expansion?: {
+    requested: string[];
+    added_capacities_gw: Record<string, number>;
+    note: string;
+  } | null;
   data_quality: DataQuality;
 }
 
@@ -212,6 +217,8 @@ export async function calculateSystem(payload: {
   demand_peak_ratio?: number | null;
   demand_monthly?: number[] | null;
   demand_daily?: number[] | null;
+  expandable?: string[];
+  meet_full_load?: boolean;
 }): Promise<CalculateResponse> {
   return request<CalculateResponse>("/calculate", {
     method: "POST",
@@ -239,6 +246,8 @@ export async function dispatchSystem(payload: {
   demand_peak_ratio?: number | null;
   demand_monthly?: number[] | null;
   demand_daily?: number[] | null;
+  expandable?: string[];
+  meet_full_load?: boolean;
 }): Promise<DispatchResponse> {
   return request<DispatchResponse>("/dispatch", {
     method: "POST",

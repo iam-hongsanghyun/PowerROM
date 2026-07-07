@@ -37,15 +37,29 @@ export function ShareSliders({
   capacityInputs,
   generatorOrder,
   calculatedShares,
+  expandable,
+  meetFullLoad,
+  addedCapacities,
+  expansionNote,
   onChange,
   onOrderChange,
+  onExpandableToggle,
+  onMeetFullLoadChange,
 }: {
   capacityInputs: Record<GeneratorKey, string>;
   generatorOrder: GeneratorKey[];
   /** Model-calculated generation share per generator (0–1) from the last run. */
   calculatedShares?: Record<string, number>;
+  /** Generators the solver may grow to meet 100% load. */
+  expandable: Set<GeneratorKey>;
+  meetFullLoad: boolean;
+  /** GW the solver added per generator on the last run. */
+  addedCapacities?: Record<string, number>;
+  expansionNote?: string;
   onChange: (key: GeneratorKey, value: string) => void;
   onOrderChange: (order: GeneratorKey[]) => void;
+  onExpandableToggle: (key: GeneratorKey) => void;
+  onMeetFullLoadChange: (value: boolean) => void;
 }) {
   const [draggingKey, setDraggingKey] = useState<GeneratorKey | null>(null);
   const rowRefs = useRef(new Map<GeneratorKey, HTMLDivElement | null>());
@@ -98,10 +112,24 @@ export function ShareSliders({
         </span>
       </div>
 
+      <label className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs text-slate-700">
+        <span>
+          Meet 100% load
+          <span className="ml-1 text-[10px] text-slate-400">grow the checked (⤢) generators, cheapest-first</span>
+        </span>
+        <input
+          type="checkbox"
+          checked={meetFullLoad}
+          onChange={(event) => onMeetFullLoadChange(event.target.checked)}
+          className="h-4 w-4 rounded border-slate-300"
+        />
+      </label>
+
       {generators.map((key, index) => {
         const displayValue = Math.max(0, parsedCapacities[key]);
         const capacityShare = totalCapacity > 0 ? displayValue / totalCapacity : 0;
         const share = hasCalculated ? calculatedShares[key] ?? 0 : capacityShare;
+        const added = addedCapacities?.[key] ?? 0;
         const label = GENERATOR_LABELS[key] ?? key;
         const color = GENERATOR_COLORS[key] ?? "#64748b";
         return (
@@ -148,6 +176,24 @@ export function ShareSliders({
             />
 
             <span
+              className="w-10 shrink-0 text-right text-xs font-medium tabular-nums"
+              title={added > 0 ? "Capacity added to meet 100% load" : "expandable"}
+            >
+              {added > 0 ? (
+                <span className="text-emerald-600">+{added.toFixed(0)}</span>
+              ) : null}
+            </span>
+
+            <input
+              type="checkbox"
+              checked={expandable.has(key)}
+              onChange={() => onExpandableToggle(key)}
+              aria-label={`Make ${label} expandable`}
+              title="Expandable — the solver may grow this generator to meet 100% load"
+              className="h-3.5 w-3.5 shrink-0 rounded border-slate-300"
+            />
+
+            <span
               className="w-11 shrink-0 text-right text-xs font-medium tabular-nums text-slate-500"
               title={hasCalculated ? "Calculated generation share" : "Capacity share (run to see generation share)"}
             >
@@ -156,6 +202,12 @@ export function ShareSliders({
           </div>
         );
       })}
+
+      {expansionNote ? (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] text-amber-700">
+          {expansionNote}
+        </p>
+      ) : null}
 
       <div className="flex items-center justify-between px-2 pt-1 text-[11px] text-slate-500">
         <span>Total capacity</span>

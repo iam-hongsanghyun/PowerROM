@@ -59,6 +59,9 @@ class CalculateRequest(BaseModel):
     # Visual demand editor: 12 monthly + 24 hourly relative levels (override the archetype).
     demand_monthly: list[float] | None = Field(default=None, min_length=12, max_length=12)
     demand_daily: list[float] | None = Field(default=None, min_length=24, max_length=24)
+    # Capacity expansion: grow these generators to meet 100% load, cheapest-first.
+    expandable: list[str] | None = None
+    meet_full_load: bool = False
 
     @model_validator(mode="after")
     def validate_shares(self) -> "CalculateRequest":
@@ -187,6 +190,7 @@ class CalculateResponse(BaseModel):
     dispatch: dict[str, Any] | None = None
     ldc: LdcPayload | None = None
     chronological: ChronologicalPayload | None = None
+    expansion: dict[str, Any] | None = None
     data_quality: DataQuality
 
 

@@ -123,6 +123,9 @@ export function Dashboard() {
     capacityInputDefaults(DEFAULT_CAPACITIES_GW),
   );
   const [generatorOrder, setGeneratorOrder] = useState<GeneratorKey[]>([...GENERATOR_KEYS]);
+  // Capacity expansion: which generators the solver may grow to meet 100% load.
+  const [expandable, setExpandable] = useState<Set<GeneratorKey>>(new Set());
+  const [meetFullLoad, setMeetFullLoad] = useState(false);
   const [carbonPrice, setCarbonPrice] = useState(DEFAULT_CARBON_PRICE_USD_TCO2);
   const [evPenetration, setEvPenetration] = useState(DEFAULT_EV_PENETRATION);
   const [annualDemandTwh, setAnnualDemandTwh] = useState(
@@ -214,6 +217,8 @@ export function Dashboard() {
       ess_long_power_gw: storage.longPowerGw,
       demand_monthly: demandProfile.monthly,
       demand_daily: demandProfile.daily,
+      expandable: [...expandable],
+      meet_full_load: meetFullLoad,
     };
 
     try {
@@ -256,6 +261,15 @@ export function Dashboard() {
     setCapacityInputs((prev) => ({ ...prev, [key]: value }));
   }
 
+  function toggleExpandable(key: GeneratorKey) {
+    setExpandable((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(14,165,233,0.16),_transparent_28%),linear-gradient(135deg,_#f7fbff_0%,_#eef5ff_45%,_#fefcf6_100%)] text-slate-900">
       <div className="mx-auto max-w-[1600px] px-6 py-8 lg:px-10">
@@ -294,8 +308,14 @@ export function Dashboard() {
                 capacityInputs={capacityInputs}
                 generatorOrder={generatorOrder}
                 calculatedShares={calculatedShares}
+                expandable={expandable}
+                meetFullLoad={meetFullLoad}
+                addedCapacities={result?.expansion?.added_capacities_gw}
+                expansionNote={result?.expansion?.note || undefined}
                 onChange={handleCapacityInputChange}
                 onOrderChange={setGeneratorOrder}
+                onExpandableToggle={toggleExpandable}
+                onMeetFullLoadChange={setMeetFullLoad}
               />
               <button
                 type="button"

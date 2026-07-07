@@ -7,7 +7,12 @@ from typing import Any
 
 import numpy as np
 
-from backend.core.dispatch_engine import run_dispatch_ensemble
+from backend.core.dispatch_engine import (
+    VRE_GENERATORS as _DISPATCH_VRE,
+    _base_capacity_factor,
+    dispatch_hourly,
+    run_dispatch_ensemble,
+)
 from backend.core.function_catalog import evaluate_function
 from backend.core.hourly_profiles import EnsembleSettings, load_hourly_profiles
 
@@ -267,6 +272,91 @@ def _ess_metrics(profile: dict[str, Any], storage_tiers: list[dict[str, float]])
     return result
 
 
+# ── Capacity expansion (screening-curve, to meet 100% load) ─────────────────────
+_EXPANSION_MAX_ITERS: int = 8
+_EXPANSION_UNSERVED_TOL_TWH: float = 0.02  # treat as "no unserved hour"
+_EXPANSION_LEVELS: int = 120               # duration-curve slices for the screening sweep
+_HOURS_PER_YEAR: int = 8760
+
+
+def _lcoe_at_cf(generator_config: dict[str, Any], cf: float, carbon_price: float, discount_rate: float) -> float:
+    """Full LCOE ($/MWh) of a generator run at capacity factor ``cf``.
+
+    Fixed costs (CAPEX·CRF, fixed O&M) spread over ``cf × 8760`` MWh — so LCOE rises as
+    CF falls — plus the flat marginal terms. This is the screening-curve value used to
+    pick the cheapest expandable technology for each slice of the unserved-duration curve.
+    """
+    cf = max(cf, 1e-3)
+    energy_mwh = cf * _HOURS_PER_YEAR
+    capex = generator_config["capex_usd_kw"] * crf(discount_rate, generator_config["lifetime_yr"]) / energy_mwh * 1000
+    fixed = generator_config["opex_fixed_usd_kw_yr"] / energy_mwh * 1000
+    variable = float(generator_config.get("opex_var_usd_mwh", 0.0))
+    fuel = float(generator_config.get("fuel_usd_mmbtu", 0.0)) * float(generator_config.get("heat_rate_mmbtu_mwh", 0.0))
+    carbon = carbon_price * float(generator_config.get("emission_factor_tco2_mwh", 0.0))
+    return capex + fixed + variable + fuel + carbon
+
+
+def _expand_to_meet_load(
+    profile: dict[str, Any],
+    year_profile: Any,
+    base_capacities: dict[str, float],
+    expandable: list[str],
+    carbon_price: float,
+    storage_tiers: list[dict[str, float]],
+    annual_demand_twh: float,
+) -> tuple[dict[str, float], str]:
+    """Grow the expandable dispatchable generators to eliminate unserved energy, cheapest-first.
+
+    Screening-curve expansion on the unserved-duration curve: each firm-capacity slice is
+    assigned to the expandable generator with the lowest ``_lcoe_at_cf`` at that slice's
+    capacity factor (peak slices → cheap-to-build peakers, sustained slices → cheap-to-run
+    baseload). Re-dispatches after each pass so VRE/storage feedback is captured; a few
+    iterations converge. VRE cannot firm the peak, so only dispatchable checks are grown.
+
+    Returns ``(added_capacity_gw_by_generator, note)``.
+    """
+    gens = profile["generators"]
+    discount = profile["discount_rate"]
+    expandable_disp = [g for g in expandable if g in gens and g not in _DISPATCH_VRE]
+    added: dict[str, float] = {g: 0.0 for g in expandable_disp}
+    if not expandable_disp:
+        return added, (
+            "Select a dispatchable generator (or storage) to expand — variable renewables "
+            "alone cannot guarantee zero unserved hours."
+        )
+
+    capacities = {key: max(0.0, float(value)) for key, value in base_capacities.items()}
+    for _ in range(_EXPANSION_MAX_ITERS):
+        result = dispatch_hourly(
+            profile=profile,
+            year_profile=year_profile,
+            shares=capacities,
+            annual_demand_twh=annual_demand_twh,
+            carbon_price=carbon_price,
+            capacities_gw=capacities,
+            storage_tiers=storage_tiers,
+        )
+        unserved = result.unserved_gw
+        if float(np.sum(unserved)) / 1000 <= _EXPANSION_UNSERVED_TOL_TWH:
+            break
+        unserved_sorted = np.sort(unserved)[::-1]
+        peak = float(unserved_sorted[0])
+        if peak <= 1e-6:
+            break
+        hours = len(unserved_sorted)
+        step = peak / _EXPANSION_LEVELS
+        for level in range(_EXPANSION_LEVELS):
+            height = (level + 0.5) * step
+            cf = max(float(np.count_nonzero(unserved_sorted > height)) / hours, 1e-3)
+            best = min(expandable_disp, key=lambda g: _lcoe_at_cf(gens[g], cf, carbon_price, discount))
+            # Nuclear runs as must-run baseload, so it delivers only cf_base of firm power.
+            availability = _base_capacity_factor(gens[best], fallback=0.85) if best == "nuclear" else 1.0
+            capacity_added = step / max(availability, 0.1)
+            capacities[best] = capacities.get(best, 0.0) + capacity_added
+            added[best] += capacity_added
+    return added, ""
+
+
 def _coerce_ensemble_settings(ensemble: Any | None) -> EnsembleSettings:
     if ensemble is None:
         return EnsembleSettings()
@@ -433,6 +523,8 @@ def _calculate_system_lcoe_dispatch(
     demand_peak_ratio: float | None = None,
     demand_monthly: list[float] | None = None,
     demand_daily: list[float] | None = None,
+    expandable: list[str] | None = None,
+    meet_full_load: bool = False,
 ) -> dict[str, Any]:
     base_profile = load_country_profile(country)
     profile = deep_merge(base_profile, custom_params or {})
@@ -468,6 +560,34 @@ def _calculate_system_lcoe_dispatch(
         demand_monthly=demand_monthly,
         demand_daily=demand_daily,
     )
+
+    # Capacity expansion: grow the checked generators to meet 100% of load, cheapest-first.
+    expansion: dict[str, Any] | None = None
+    if meet_full_load and expandable and normalized_capacities:
+        added, note = _expand_to_meet_load(
+            profile=profile,
+            year_profile=year_profiles[0],
+            base_capacities=normalized_capacities,
+            expandable=expandable,
+            carbon_price=carbon_price,
+            storage_tiers=storage_tiers,
+            annual_demand_twh=profile["annual_generation_twh"],
+        )
+        normalized_capacities = {
+            key: normalized_capacities.get(key, 0.0) + added.get(key, 0.0)
+            for key in set(normalized_capacities) | set(added)
+        }
+        total_expanded = sum(normalized_capacities.values())
+        if total_expanded > 0:
+            normalized_shares = {
+                key: normalized_capacities.get(key, 0.0) / total_expanded for key in profile["generators"]
+            }
+        expansion = {
+            "requested": list(expandable),
+            "added_capacities_gw": {key: round(value, 3) for key, value in added.items() if value > 1e-6},
+            "note": note,
+        }
+
     dispatch_summary = run_dispatch_ensemble(
         profile=profile,
         year_profiles=year_profiles,
@@ -551,6 +671,8 @@ def _calculate_system_lcoe_dispatch(
         result["ldc"] = dispatch_summary["ldc"]
     if include_ldc and "chronological" in dispatch_summary:
         result["chronological"] = dispatch_summary["chronological"]
+    if expansion is not None:
+        result["expansion"] = expansion
     return result
 
 
@@ -575,6 +697,8 @@ def calculate_system_lcoe(
     demand_peak_ratio: float | None = None,
     demand_monthly: list[float] | None = None,
     demand_daily: list[float] | None = None,
+    expandable: list[str] | None = None,
+    meet_full_load: bool = False,
 ) -> dict[str, Any]:
     return _calculate_system_lcoe_dispatch(
         country=country,
@@ -597,4 +721,6 @@ def calculate_system_lcoe(
         demand_peak_ratio=demand_peak_ratio,
         demand_monthly=demand_monthly,
         demand_daily=demand_daily,
+        expandable=expandable,
+        meet_full_load=meet_full_load,
     )

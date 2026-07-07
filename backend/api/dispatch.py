@@ -31,6 +31,8 @@ def dispatch(payload: CalculateRequest) -> DispatchResponse:
         demand_peak_ratio=payload.demand_peak_ratio,
         demand_monthly=payload.demand_monthly,
         demand_daily=payload.demand_daily,
+        expandable=payload.expandable,
+        meet_full_load=payload.meet_full_load,
     )
     return DispatchResponse(
         country=result["country"],

@@ -61,8 +61,15 @@ export interface CountrySummary {
   code: string;
   name: string;
   annual_generation_twh: number;
+  /** Ember electricity-demand series (generation ± net imports); seeds the demand input. */
+  annual_demand_twh?: number | null;
   discount_rate: number;
   generators: string[];
+  /** Real installed capacity (GW) per technology, sourced from Ember. */
+  capacities_gw: Record<string, number>;
+  /** Default generation mix (fraction, sums to 1) per technology, sourced from Ember. */
+  shares: Record<string, number>;
+  data_year?: number | null;
   sources: string[];
 }
 

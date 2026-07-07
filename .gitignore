@@ -99,3 +99,6 @@ instance/
 .vercel
 
 Archive/
+
+# Ember source dataset (regenerate profiles via build_country_profiles.py)
+backend/data/ember/

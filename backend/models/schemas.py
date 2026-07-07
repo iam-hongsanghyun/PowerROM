@@ -340,8 +340,16 @@ class CountrySummary(BaseModel):
     code: str
     name: str
     annual_generation_twh: float
+    # Ember electricity-demand series (generation ± net imports); the UI's demand input seeds
+    # from this. Optional so older/hand-authored profiles without it still validate.
+    annual_demand_twh: float | None = None
     discount_rate: float
     generators: list[str]
+    # Real installed capacity (GW) and default generation mix (fraction) per technology,
+    # sourced from Ember; the UI seeds the left-panel inputs from these per country.
+    capacities_gw: dict[str, float] = Field(default_factory=dict)
+    shares: dict[str, float] = Field(default_factory=dict)
+    data_year: int | None = None
     sources: list[str]
 
 

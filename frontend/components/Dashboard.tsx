@@ -36,30 +36,44 @@ import {
 } from "@/lib/constants";
 
 // Fallback country list shown while the API is loading or unavailable.
-// Values must stay in sync with the JSON profiles in backend/data/country_profiles/.
+// Values are real Ember actuals and must stay in sync with backend/data/country_profiles/
+// (regenerate both via backend/data/build_country_profiles.py).
+const GENS = ["solar", "wind_onshore", "gas_ccgt", "coal", "nuclear", "other"];
 const FALLBACK_COUNTRIES: CountrySummary[] = [
   {
     code: "KR",
     name: "South Korea",
-    annual_generation_twh: 595,
+    annual_generation_twh: 625.38,
+    annual_demand_twh: 625.38,
     discount_rate: 0.05,
-    generators: ["solar", "wind_onshore", "gas_ccgt", "coal", "nuclear", "other"],
+    generators: GENS,
+    capacities_gw: { solar: 26.68, wind_onshore: 2.26, gas_ccgt: 50.26, coal: 41.19, nuclear: 26.05, other: 8.0 },
+    shares: { solar: 0.0523, wind_onshore: 0.0054, gas_ccgt: 0.2852, coal: 0.3051, nuclear: 0.3018, other: 0.0502 },
+    data_year: 2024,
     sources: [],
   },
   {
     code: "AU",
     name: "Australia",
-    annual_generation_twh: 273,
+    annual_generation_twh: 281.64,
+    annual_demand_twh: 281.64,
     discount_rate: 0.05,
-    generators: ["solar", "wind_onshore", "gas_ccgt", "coal", "nuclear", "other"],
+    generators: GENS,
+    capacities_gw: { solar: 36.0, wind_onshore: 15.56, gas_ccgt: 26.28, coal: 22.83, nuclear: 0.0, other: 11.1 },
+    shares: { solar: 0.1783, wind_onshore: 0.1162, gas_ccgt: 0.1743, coal: 0.4521, nuclear: 0.0, other: 0.079 },
+    data_year: 2024,
     sources: [],
   },
   {
     code: "JP",
     name: "Japan",
-    annual_generation_twh: 988,
+    annual_generation_twh: 1016.39,
+    annual_demand_twh: 1016.39,
     discount_rate: 0.05,
-    generators: ["solar", "wind_onshore", "gas_ccgt", "coal", "nuclear", "other"],
+    generators: GENS,
+    capacities_gw: { solar: 89.6, wind_onshore: 5.86, gas_ccgt: 81.48, coal: 55.25, nuclear: 33.08, other: 54.27 },
+    shares: { solar: 0.0951, wind_onshore: 0.0114, gas_ccgt: 0.3407, coal: 0.3219, nuclear: 0.0835, other: 0.1475 },
+    data_year: 2024,
     sources: [],
   },
 ];
@@ -103,6 +117,26 @@ function capacityInputDefaults(capacities: Capacities): Record<(typeof GENERATOR
   };
 }
 
+// Real installed capacities (GW) for a country, from its Ember-sourced profile. Falls back to
+// the generic defaults only if the API returns a country with no capacity data.
+function capacitiesFromSummary(current: CountrySummary): Capacities {
+  const src = current.capacities_gw ?? {};
+  const caps: Capacities = {
+    solar: src.solar ?? 0,
+    wind_onshore: src.wind_onshore ?? 0,
+    gas_ccgt: src.gas_ccgt ?? 0,
+    coal: src.coal ?? 0,
+    nuclear: src.nuclear ?? 0,
+    other: src.other ?? 0,
+  };
+  const total = Object.values(caps).reduce((sum, value) => sum + Math.max(0, value), 0);
+  return total > 0 ? caps : { ...DEFAULT_CAPACITIES_GW };
+}
+
+const INITIAL_CAPACITIES = capacitiesFromSummary(
+  FALLBACK_COUNTRIES.find((c) => c.code === INITIAL_COUNTRY) ?? FALLBACK_COUNTRIES[0],
+);
+
 function parseCapacityInputs(
   capacityInputs: Record<(typeof GENERATOR_KEYS)[number], string>,
 ): Capacities | null {
@@ -123,9 +157,9 @@ function parseCapacityInputs(
 export function Dashboard() {
   const [countries, setCountries] = useState<CountrySummary[]>(FALLBACK_COUNTRIES);
   const [country, setCountry] = useState(INITIAL_COUNTRY);
-  const [capacities, setCapacities] = useState<Capacities>({ ...DEFAULT_CAPACITIES_GW });
+  const [capacities, setCapacities] = useState<Capacities>({ ...INITIAL_CAPACITIES });
   const [capacityInputs, setCapacityInputs] = useState<Record<(typeof GENERATOR_KEYS)[number], string>>(
-    capacityInputDefaults(DEFAULT_CAPACITIES_GW),
+    capacityInputDefaults(INITIAL_CAPACITIES),
   );
   const [generatorOrder, setGeneratorOrder] = useState<GeneratorKey[]>([...GENERATOR_KEYS]);
   // Capacity expansion: which generators (or "storage") the solver may grow to meet 100% load.
@@ -180,12 +214,21 @@ export function Dashboard() {
       )
     : undefined;
 
+  // Seed the left-panel demand + installed-capacity inputs from a country's real Ember profile.
+  function applyCountryDefaults(current: CountrySummary) {
+    // Prefer Ember's demand series; fall back to generation for profiles that predate the field.
+    setAnnualDemandTwh(current.annual_demand_twh ?? current.annual_generation_twh);
+    const caps = capacitiesFromSummary(current);
+    setCapacities(caps);
+    setCapacityInputs(capacityInputDefaults(caps));
+  }
+
   function handleCountryChange(nextCountry: string) {
     setCountry(nextCountry);
     setCustomProfile(null); // clear edits when switching country
     const current = countries.find((item) => item.code === nextCountry);
     if (current) {
-      setAnnualDemandTwh(current.annual_generation_twh);
+      applyCountryDefaults(current);
     }
   }
 
@@ -195,7 +238,7 @@ export function Dashboard() {
         setCountries(response.countries);
         const current = response.countries.find((item) => item.code === country);
         if (current) {
-          setAnnualDemandTwh(current.annual_generation_twh);
+          applyCountryDefaults(current);
         }
       })
       .catch(() => {

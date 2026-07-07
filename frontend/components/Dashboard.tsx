@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight, Play } from "lucide-react";
 import * as Tabs from "@radix-ui/react-tabs";
 
-import { ControlPanel } from "@/components/ControlPanel";
+import { ControlPanel, type StorageInput } from "@/components/ControlPanel";
 import { ShareSliders } from "@/components/ShareSliders";
 import { ParametersTab } from "@/components/ParametersTab";
 import { ProfileAnalysis } from "@/components/ProfileAnalysis";
@@ -131,6 +131,13 @@ export function Dashboard() {
   const [essCostUsdKwh, setEssCostUsdKwh] = useState(
     COUNTRY_ESS_CAPEX[INITIAL_COUNTRY] ?? FALLBACK_ESS_CAPEX_USD_KWH,
   );
+  // User-set storage, dispatched endogenously (energy = power × duration). Illustrative defaults.
+  const [storage, setStorage] = useState<StorageInput>({
+    shortPowerGw: 20,
+    shortDurationHr: 4,
+    longPowerGw: 5,
+    longDurationHr: 100,
+  });
   const [dispatchMode, setDispatchMode] = useState<DispatchMode>("parametric");
   const [weatherYears, setWeatherYears] = useState<number[]>([]);
   const [ensemble, setEnsemble] = useState<EnsembleConfig>({
@@ -217,6 +224,12 @@ export function Dashboard() {
     setIsAnalyzing(true);
     setIsDispatchLoading(true);
     const custom_params = buildCustomParams();
+    const essPayload = {
+      ess_short_power_gw: storage.shortPowerGw,
+      ess_short_duration_hr: storage.shortDurationHr,
+      ess_long_power_gw: storage.longPowerGw,
+      ess_long_duration_hr: storage.longDurationHr,
+    };
 
     try {
       const [calculation, dispatch] = await Promise.all([
@@ -229,6 +242,7 @@ export function Dashboard() {
           custom_params,
           dispatch_mode: dispatchMode,
           weather_years: weatherYears.length ? weatherYears : null,
+          ...essPayload,
         }),
         dispatchSystem({
           country,
@@ -240,6 +254,7 @@ export function Dashboard() {
           dispatch_mode: dispatchMode,
           weather_years: weatherYears.length ? weatherYears : null,
           ensemble,
+          ...essPayload,
         }),
       ]);
       setResult(calculation);
@@ -286,6 +301,7 @@ export function Dashboard() {
                 country={country}
                 carbonPrice={carbonPrice}
                 essCostUsdKwh={essCostUsdKwh}
+                storage={storage}
                 evPenetration={evPenetration}
                 annualDemandTwh={annualDemandTwh}
                 dispatchMode={dispatchMode}
@@ -295,6 +311,7 @@ export function Dashboard() {
                 onCountryChange={handleCountryChange}
                 onCarbonPriceChange={setCarbonPrice}
                 onEssCostChange={setEssCostUsdKwh}
+                onStorageChange={setStorage}
                 onEvPenetrationChange={setEvPenetration}
                 onAnnualDemandChange={setAnnualDemandTwh}
                 onDispatchModeChange={setDispatchMode}

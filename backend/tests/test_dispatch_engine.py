@@ -1,7 +1,7 @@
 import numpy as np
 
 from backend.core.dispatch_engine import (
-    _size_storage_from_pattern,
+    _simulate_storage_soc,
     aggregate_dispatch_results,
     dispatch_hourly,
 )
@@ -180,38 +180,48 @@ def test_nuclear_must_run_displaces_free_vre() -> None:
     assert float(np.sum(result.unserved_gw)) == 0.0
 
 
-def test_storage_sizing_zero_when_no_surplus_or_deficit() -> None:
-    zero = np.zeros(HOURS_PER_YEAR)
-    result = _size_storage_from_pattern(zero, zero)
-    assert all(value == 0.0 for value in result.values())
+def test_storage_soc_shifts_energy_within_limits() -> None:
+    # 1 GW surplus for 10 h, then 1 GW deficit for 10 h; a 1 GW / 5 GWh store, lossless.
+    surplus = np.zeros(20)
+    deficit = np.zeros(20)
+    surplus[:10] = 1.0
+    deficit[10:] = 1.0
+    charge, discharge = _simulate_storage_soc(surplus, deficit, power_gw=1.0, energy_gwh=5.0, efficiency=1.0)
+    # Fills 5 GWh (energy-limited), then returns all 5 GWh to the deficit.
+    np.testing.assert_allclose(charge.sum(), 5.0)
+    np.testing.assert_allclose(discharge.sum(), 5.0)
+    assert charge[5:10].sum() == 0.0  # full after 5 h
+    assert discharge[15:].sum() == 0.0  # empty after serving 5 h
 
 
-def test_storage_sizing_intraday_pattern_has_no_seasonal_reservoir() -> None:
-    # 1 GW surplus at noon and 1 GW deficit each evening, every day: purely intraday.
-    surplus = np.zeros(HOURS_PER_YEAR)
-    deficit = np.zeros(HOURS_PER_YEAR)
-    surplus[12::24] = 1.0
-    deficit[20::24] = 1.0
-
-    result = _size_storage_from_pattern(surplus, deficit)
-
-    # Each day shifts exactly 1 GWh within the day; nothing spills to the next day.
-    np.testing.assert_allclose(result["storage_short_shift_gwh"], 1.0, atol=1e-9)
-    assert result["storage_long_depth_gwh"] < 1e-9
-    assert result["storage_long_recoverable_gwh"] < 1e-9
+def test_storage_soc_applies_round_trip_efficiency() -> None:
+    surplus = np.zeros(20)
+    deficit = np.zeros(20)
+    surplus[:10] = 1.0
+    deficit[10:] = 1.0
+    charge, discharge = _simulate_storage_soc(surplus, deficit, power_gw=1.0, energy_gwh=5.0, efficiency=0.5)
+    # Stores 5 GWh but only delivers 50% of it.
+    np.testing.assert_allclose(charge.sum(), 5.0)
+    np.testing.assert_allclose(discharge.sum(), 2.5)
 
 
-def test_storage_sizing_seasonal_pattern_fills_reservoir() -> None:
-    # Surplus only in the first 90 days, deficit only in the last 90 days: purely seasonal.
-    surplus = np.zeros(HOURS_PER_YEAR)
-    deficit = np.zeros(HOURS_PER_YEAR)
-    surplus[: 90 * 24] = 0.5
-    deficit[-90 * 24 :] = 0.5
-
-    result = _size_storage_from_pattern(surplus, deficit)
-
-    # Never surplus and deficit on the same day -> no intraday shifting.
-    assert result["storage_short_shift_gwh"] < 1e-9
-    # 90 days x 24 h x 0.5 GW = 1080 GWh available on each side, fully recoverable.
-    np.testing.assert_allclose(result["storage_long_recoverable_gwh"], 1080.0, rtol=1e-6)
-    np.testing.assert_allclose(result["storage_long_depth_gwh"], 1080.0, rtol=1e-6)
+def test_storage_in_dispatch_reduces_curtailment_and_unserved() -> None:
+    # Solar on even hours (2 GW available), demand flat 1 GW: even hours curtail 1 GW,
+    # odd hours unserved 1 GW. A 1 GW / long-duration store should mop up both.
+    solar_cf = np.zeros(HOURS_PER_YEAR)
+    solar_cf[::2] = 1.0
+    year = YearProfile("TT", 2024, np.ones(HOURS_PER_YEAR), solar_cf, np.zeros(HOURS_PER_YEAR), "test")
+    kwargs = dict(
+        profile={"generators": {"solar": {"cf_base": 0.5}}},
+        year_profile=year, shares={"solar": 1.0}, annual_demand_twh=8.76,
+        capacities_gw={"solar": 2.0},
+    )
+    without = dispatch_hourly(**kwargs)
+    with_storage = dispatch_hourly(
+        **kwargs,
+        storage_tiers=[{"name": "short", "power_gw": 1.0, "duration_hr": 8.0, "efficiency": 1.0}],
+    )
+    assert float(np.sum(without.curtailed_gw["solar"])) > 0.0
+    assert float(np.sum(without.unserved_gw)) > 0.0
+    assert float(np.sum(with_storage.curtailed_gw["solar"])) < float(np.sum(without.curtailed_gw["solar"]))
+    assert float(np.sum(with_storage.unserved_gw)) < float(np.sum(without.unserved_gw))

@@ -11,11 +11,6 @@ VRE_GENERATORS = ("solar", "wind_onshore")
 DISPLAY_ORDER = ("solar", "wind_onshore", "nuclear", "coal", "gas_ccgt", "other")
 QUANTILES = (0.1, 0.5, 0.9)
 
-# Day-sizing percentile for storage: size to the 95th-percentile day so a single
-# extreme day does not dominate the storage estimate.
-STORAGE_SIZING_QUANTILE = 0.95
-HOURS_PER_DAY = 24
-
 
 @dataclass(frozen=True)
 class DispatchResult:
@@ -29,6 +24,57 @@ class DispatchResult:
     curtailed_gw: dict[str, np.ndarray]
     unserved_gw: np.ndarray
     capacities_gw: dict[str, float]
+
+
+def _simulate_storage_soc(
+    surplus_gw: np.ndarray,
+    deficit_gw: np.ndarray,
+    power_gw: float,
+    energy_gwh: float,
+    efficiency: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Chronological state-of-charge dispatch of one storage device.
+
+    Walks the 8760-hour surplus/deficit signal in order, charging from surplus and
+    discharging to deficit within the device's power and energy limits. This is what
+    makes storage *endogenous*: the user sets power (GW) and duration (h) — energy =
+    power × duration — and the model decides how much it actually shifts, reducing
+    curtailment (via charging) and unserved energy (via discharging).
+
+    Args:
+        surplus_gw: Hourly chargeable surplus (curtailed generation), GW.
+        deficit_gw: Hourly dischargeable need (unserved demand), GW.
+        power_gw: Rated charge/discharge power, GW.
+        energy_gwh: Usable energy capacity (= power × duration), GWh.
+        efficiency: Round-trip efficiency (energy delivered ÷ energy stored), 0–1.
+
+    Returns:
+        ``(charge_gw, discharge_gw)`` hourly arrays — energy drawn from surplus and
+        energy delivered to deficit respectively.
+
+    Algorithm:
+        Greedy causal loop with state of charge ``soc``:
+        charge ``c = min(surplus, power, energy - soc)`` → ``soc += c``;
+        discharge ``d = min(deficit, power, soc·η)`` → ``soc -= d/η``.
+    """
+    hours = len(surplus_gw)
+    charge = np.zeros(hours, dtype=float)
+    discharge = np.zeros(hours, dtype=float)
+    if power_gw <= 0.0 or energy_gwh <= 0.0:
+        return charge, discharge
+
+    soc = 0.0
+    eff = max(1e-6, float(efficiency))
+    for h in range(hours):
+        if surplus_gw[h] > 1e-9 and soc < energy_gwh:
+            c = min(float(surplus_gw[h]), power_gw, energy_gwh - soc)
+            charge[h] = c
+            soc += c
+        elif deficit_gw[h] > 1e-9 and soc > 1e-9:
+            d = min(float(deficit_gw[h]), power_gw, soc * eff)
+            discharge[h] = d
+            soc -= d / eff
+    return charge, discharge
 
 
 def _marginal_cost_usd_mwh(generator_config: dict[str, Any], carbon_price: float) -> float:
@@ -59,6 +105,7 @@ def dispatch_hourly(
     carbon_price: float = 0.0,
     capacities_gw: dict[str, float] | None = None,
     generator_order: list[str] | None = None,
+    storage_tiers: list[dict[str, float]] | None = None,
 ) -> DispatchResult:
     """Screening merit-order dispatch over the hourly (net-load) pattern.
 
@@ -161,6 +208,27 @@ def dispatch_hourly(
 
     unserved_gw = residual_gw
 
+    # 4. Endogenous storage (user-set tiers): charge from curtailment, discharge to
+    #    unserved demand, in tier order (short/intraday first, then long/seasonal).
+    if storage_tiers:
+        curtailed_total = sum(curtailed_gw.values(), np.zeros(hours, dtype=float))
+        surplus_gw = curtailed_total.copy()
+        deficit_gw = unserved_gw.copy()
+        for tier in storage_tiers:
+            power = float(tier.get("power_gw", 0.0))
+            energy = power * float(tier.get("duration_hr", 0.0))
+            charge, discharge = _simulate_storage_soc(
+                surplus_gw, deficit_gw, power, energy, float(tier.get("efficiency", 0.85))
+            )
+            surplus_gw = surplus_gw - charge
+            deficit_gw = deficit_gw - discharge
+        # Attribute the absorbed surplus back to each generator's curtailment pro-rata.
+        with np.errstate(divide="ignore", invalid="ignore"):
+            remaining_fraction = np.where(curtailed_total > 0.0, surplus_gw / curtailed_total, 0.0)
+        for gen in curtailed_gw:
+            curtailed_gw[gen] = curtailed_gw[gen] * remaining_fraction
+        unserved_gw = np.maximum(deficit_gw, 0.0)
+
     return DispatchResult(
         country=year_profile.country,
         year=year_profile.year,
@@ -185,6 +253,7 @@ def run_dispatch_ensemble(
     capacities_gw: dict[str, float] | None = None,
     generator_order: list[str] | None = None,
     carbon_price: float = 0.0,
+    storage_tiers: list[dict[str, float]] | None = None,
 ) -> dict[str, Any]:
     from backend.core.hourly_profiles import sample_ensemble
 
@@ -198,6 +267,7 @@ def run_dispatch_ensemble(
             carbon_price=carbon_price,
             capacities_gw=capacities_gw,
             generator_order=generator_order,
+            storage_tiers=storage_tiers,
         )
         for year_profile in sampled_profiles
     ]
@@ -221,11 +291,6 @@ def aggregate_dispatch_results(
         "served_twh",
         "residual_peak_gw",
         "peak_load_gw",
-        "storage_short_shift_gwh",
-        "storage_short_power_gw",
-        "storage_long_depth_gwh",
-        "storage_long_recoverable_gwh",
-        "storage_long_power_gw",
     )
     grouped_metric_names = (
         "capacity_factor",
@@ -307,9 +372,6 @@ def _dispatch_metrics(result: DispatchResult, generator_names: list[str]) -> dic
     net_load = np.maximum(result.demand_gw - vre_dispatch, 0.0)
     unserved_twh = float(np.sum(result.unserved_gw)) / 1000
 
-    surplus_gw = sum((result.curtailed_gw.get(gen, np.zeros(hours)) for gen in VRE_GENERATORS), np.zeros(hours))
-    storage = _size_storage_from_pattern(surplus_gw, result.unserved_gw)
-
     return {
         "capacity_factor": capacity_factor,
         "realized_share": realized_share,
@@ -326,86 +388,7 @@ def _dispatch_metrics(result: DispatchResult, generator_names: list[str]) -> dic
             "served_twh": total_served_twh,
             "residual_peak_gw": float(np.max(net_load)) if len(net_load) else 0.0,
             "peak_load_gw": float(np.max(result.demand_gw)) if len(result.demand_gw) else 0.0,
-            **storage,
         },
-    }
-
-
-def _size_storage_from_pattern(
-    surplus_gw: np.ndarray,
-    deficit_gw: np.ndarray,
-) -> dict[str, float]:
-    """Extract the raw storage-sizing quantities from the hourly surplus/deficit pattern.
-
-    Storage can only move energy that is *surplus* (curtailed VRE) at one hour and
-    *deficit* (unserved demand) at another. This function reports the pattern
-    quantities on two timescales; the caller turns them into built energy capacity by
-    applying each device's real ``duration_hr`` (see ``lcoe_engine._ess_metrics``), so
-    no storage device is ever sized beyond the energy its power rating can hold.
-
-    * **Intraday (short-duration)** — surplus/deficit matched *within the same day*.
-    * **Seasonal (long-duration)** — the residual net daily imbalance, characterised by
-      the cumulative reservoir depth, the recoverable energy (``min`` of residual
-      surplus and residual deficit — you cannot shift more than the smaller side), and
-      the peak sustained power.
-
-    Both timescales are sized to the 95th-percentile day so one extreme day does not
-    dominate.
-
-    Args:
-        surplus_gw: Hourly curtailed VRE available to charge storage, GW (8760).
-        deficit_gw: Hourly unserved demand storage could discharge to serve, GW (8760).
-
-    Returns:
-        ``storage_short_shift_gwh`` / ``storage_short_power_gw`` (intraday) and
-        ``storage_long_depth_gwh`` / ``storage_long_recoverable_gwh`` /
-        ``storage_long_power_gw`` (seasonal).
-
-    Algorithm:
-        $$R_d = S_d - D_d,\\quad C_d = \\sum_{k\\le d} R_k$$
-        intraday shift $= Q_{0.95}(\\min(S_d, D_d))$; reservoir depth $= \\max C - \\min C$;
-        recoverable $= \\min(\\Sigma R^{+}, \\Sigma R^{-})$; seasonal power $= \\max_d|R_d| / 24$.
-
-        ASCII: resid = daily_surplus - daily_deficit; depth = max(cumsum) - min(cumsum);
-               recoverable = min(sum(resid>0), sum(-resid<0)).
-    """
-    zero = {
-        "storage_short_shift_gwh": 0.0,
-        "storage_short_power_gw": 0.0,
-        "storage_long_depth_gwh": 0.0,
-        "storage_long_recoverable_gwh": 0.0,
-        "storage_long_power_gw": 0.0,
-    }
-    hours = len(surplus_gw)
-    days = hours // HOURS_PER_DAY
-    if days == 0:
-        return zero
-
-    # Hourly step is 1 h, so GW over one hour equals GWh numerically.
-    s_day = surplus_gw[: days * HOURS_PER_DAY].reshape(days, HOURS_PER_DAY)
-    d_day = deficit_gw[: days * HOURS_PER_DAY].reshape(days, HOURS_PER_DAY)
-    daily_surplus = s_day.sum(axis=1)  # GWh chargeable each day
-    daily_deficit = d_day.sum(axis=1)  # GWh needing discharge each day
-
-    intraday_shift = np.minimum(daily_surplus, daily_deficit)  # GWh moved within a day
-    short_shift_gwh = float(np.quantile(intraday_shift, STORAGE_SIZING_QUANTILE))
-    daily_peak_flow = np.maximum(s_day.max(axis=1), d_day.max(axis=1))  # GW charge/discharge
-    short_power_gw = float(np.quantile(daily_peak_flow, STORAGE_SIZING_QUANTILE))
-
-    # Seasonal reservoir on the net daily imbalance (intraday-matched energy cancels).
-    residual = daily_surplus - daily_deficit
-    reservoir = np.cumsum(residual)  # GWh state of charge
-    long_depth_gwh = float(reservoir.max() - reservoir.min())
-    long_recoverable_gwh = float(
-        min(np.clip(residual, 0.0, None).sum(), np.clip(-residual, 0.0, None).sum())
-    )
-    long_power_gw = float(np.max(np.abs(residual)) / HOURS_PER_DAY)  # avg GW over peak residual day
-    return {
-        "storage_short_shift_gwh": short_shift_gwh,
-        "storage_short_power_gw": short_power_gw,
-        "storage_long_depth_gwh": long_depth_gwh,
-        "storage_long_recoverable_gwh": long_recoverable_gwh,
-        "storage_long_power_gw": long_power_gw,
     }
 
 

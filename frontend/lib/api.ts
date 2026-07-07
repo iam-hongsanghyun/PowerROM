@@ -192,6 +192,10 @@ export async function calculateSystem(payload: {
   dispatch_mode?: DispatchMode;
   weather_years?: number[] | null;
   ensemble?: EnsembleConfig | null;
+  ess_short_power_gw?: number | null;
+  ess_short_duration_hr?: number | null;
+  ess_long_power_gw?: number | null;
+  ess_long_duration_hr?: number | null;
 }): Promise<CalculateResponse> {
   return request<CalculateResponse>("/calculate", {
     method: "POST",
@@ -211,6 +215,10 @@ export async function dispatchSystem(payload: {
   dispatch_mode?: DispatchMode;
   weather_years?: number[] | null;
   ensemble?: EnsembleConfig | null;
+  ess_short_power_gw?: number | null;
+  ess_short_duration_hr?: number | null;
+  ess_long_power_gw?: number | null;
+  ess_long_duration_hr?: number | null;
 }): Promise<DispatchResponse> {
   return request<DispatchResponse>("/dispatch", {
     method: "POST",

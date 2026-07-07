@@ -15,10 +15,14 @@ VRE_GENERATORS = {"solar", "wind_onshore"}
 # ── Model constants ────────────────────────────────────────────────────────────
 # These are the only numeric literals that are NOT read from country profiles.
 
-# Fraction of intraday short-duration storage relieved per unit of EV penetration.
-# EV smart-charging soaks up midday surplus, shrinking the stationary battery need.
-# Relief is clipped to [0, 1], so at this rate 50 % EV penetration relieves ~20 %.
-_EV_SHORT_STORAGE_RELIEF_PER_UNIT: float = 0.4
+# Round-trip efficiency of each storage tier (energy delivered ÷ energy stored),
+# used when the profile does not specify `round_trip_efficiency`.
+_SHORT_STORAGE_RTE: float = 0.85  # intraday lithium battery
+_LONG_STORAGE_RTE: float = 0.45   # seasonal store (e.g. hydrogen)
+
+# Fallback storage duration (hours) when neither the request nor the profile sets it.
+_DEFAULT_SHORT_DURATION_HR: float = 4.0
+_DEFAULT_LONG_DURATION_HR: float = 168.0
 
 # Share normalisation tolerance: shares are considered already normalised when
 # |sum − 1| ≤ this value (avoids floating-point noise triggering the flag).
@@ -195,74 +199,70 @@ def _backup_flexibility(
     return max(0.0, min(1.0, weighted))
 
 
-def _ess_metrics(
+def _build_storage_tiers(
     profile: dict[str, Any],
-    dispatch_summary: dict[str, Any],
-    ev_penetration: float = 0.0,
-) -> dict[str, float]:
-    """Cost pattern-derived storage that hourly dispatch already sized.
+    ess_short_power_gw: float | None,
+    ess_short_duration_hr: float | None,
+    ess_long_power_gw: float | None,
+    ess_long_duration_hr: float | None,
+) -> list[dict[str, float]]:
+    """Assemble the two user-set storage tiers for endogenous dispatch and costing.
 
-    Storage energy (GWh) and power (GW) come straight from the hourly surplus/deficit
-    pattern (see ``dispatch_engine._size_storage_from_pattern``): short-duration is
-    intraday shifting, long-duration is the seasonal reservoir. This function only
-    applies the annualised capital cost to those capacities — no VRE-share power law
-    or curtailment-absorption heuristic remains.
+    Power (GW) and duration (h) are user inputs (energy = power × duration); capex,
+    lifetime, and round-trip efficiency come from the profile ``ess`` block (with
+    fallbacks). Power defaults to 0 (no storage) when the caller does not set it.
+    """
+    ess = profile.get("ess", {})
+    specs = (
+        ("short", ess.get("short_dur", {}), ess_short_power_gw, ess_short_duration_hr,
+         _DEFAULT_SHORT_DURATION_HR, _SHORT_STORAGE_RTE),
+        ("long", ess.get("long_dur", {}), ess_long_power_gw, ess_long_duration_hr,
+         _DEFAULT_LONG_DURATION_HR, _LONG_STORAGE_RTE),
+    )
+    tiers: list[dict[str, float]] = []
+    for name, cfg, power, duration, default_duration, default_rte in specs:
+        tiers.append({
+            "name": name,
+            "power_gw": float(power) if power is not None else 0.0,
+            "duration_hr": float(duration) if duration is not None else float(cfg.get("duration_hr", default_duration)),
+            "efficiency": float(cfg.get("round_trip_efficiency", default_rte)),
+            "capex_usd_kwh": float(cfg.get("capex_usd_kwh", 0.0)),
+            "lifetime_yr": float(cfg.get("lifetime_yr", 15.0)),
+        })
+    return tiers
 
-    Args:
-        profile: Country profile with the ``ess`` capex/lifetime block.
-        dispatch_summary: Ensemble summary carrying ``storage_*`` scalar bands.
-        ev_penetration: EV fraction (0–1); smart-charging relieves intraday storage.
 
-    Returns:
-        Storage energy/power totals and the short/long LCOE contributions ($/MWh).
+def _ess_metrics(profile: dict[str, Any], storage_tiers: list[dict[str, float]]) -> dict[str, float]:
+    """Annualised capital cost of the user-set storage tiers, $/MWh of system energy.
+
+    Storage capacity is now exogenous (the user sets power and duration) and dispatched
+    endogenously in ``dispatch_hourly`` — this function only prices it. Energy capacity
+    is ``power × duration``; cost is ``capex × CRF × energy ÷ annual_generation``.
     """
     annual_twh = profile["annual_generation_twh"]
-    ess = profile["ess"]
-    short = ess["short_dur"]
-    long = ess["long_dur"]
-
-    # Built energy = power × the device's own duration, so no device is ever sized to
-    # hold more than its power rating can. The seasonal device is additionally bounded
-    # by the recoverable curtailment (it exists to recover surplus VRE, not to firm the
-    # system against chronic under-capacity — that stays visible as unserved energy).
-    short_power_gw = _median_scalar(dispatch_summary, "storage_short_power_gw")
-    short_gwh = min(
-        _median_scalar(dispatch_summary, "storage_short_shift_gwh"),
-        short_power_gw * float(short["duration_hr"]),
-    )
-    short_gw = short_gwh / float(short["duration_hr"]) if short["duration_hr"] else 0.0
-
-    long_power_gw = _median_scalar(dispatch_summary, "storage_long_power_gw")
-    long_gwh = min(
-        _median_scalar(dispatch_summary, "storage_long_depth_gwh"),
-        _median_scalar(dispatch_summary, "storage_long_recoverable_gwh"),
-        long_power_gw * float(long["duration_hr"]),
-    )
-    long_gw = long_gwh / float(long["duration_hr"]) if long["duration_hr"] else 0.0
-
-    # EV smart-charging absorbs midday surplus, shrinking the stationary intraday battery.
-    ev_relief = min(1.0, max(0.0, ev_penetration) * _EV_SHORT_STORAGE_RELIEF_PER_UNIT)
-    short_gwh *= 1.0 - ev_relief
-    short_gw *= 1.0 - ev_relief
-
-    short_lcoe = (
-        short["capex_usd_kwh"] * crf(profile["discount_rate"], short["lifetime_yr"]) * short_gwh / annual_twh
-    )
-    long_lcoe = (
-        long["capex_usd_kwh"] * crf(profile["discount_rate"], long["lifetime_yr"]) * long_gwh / annual_twh
-    )
-
-    return {
-        "ess_requirement_gwh": short_gwh + long_gwh,
-        "ess_requirement_gw": short_gw + long_gw,
-        "ess_lcoe": short_lcoe + long_lcoe,
-        "ess_short_gwh": short_gwh,
-        "ess_short_gw": short_gw,
-        "ess_short_lcoe": short_lcoe,
-        "ess_long_gwh": long_gwh,
-        "ess_long_gw": long_gw,
-        "ess_long_lcoe": long_lcoe,
-    }
+    discount = profile["discount_rate"]
+    result: dict[str, float] = {"ess_requirement_gwh": 0.0, "ess_requirement_gw": 0.0, "ess_lcoe": 0.0}
+    for tier in storage_tiers:
+        name = str(tier["name"])
+        power = float(tier.get("power_gw", 0.0))
+        energy = power * float(tier.get("duration_hr", 0.0))
+        lcoe = (
+            float(tier.get("capex_usd_kwh", 0.0))
+            * crf(discount, float(tier.get("lifetime_yr", 15.0)))
+            * energy
+            / annual_twh
+        ) if annual_twh > 0 else 0.0
+        result[f"ess_{name}_gwh"] = energy
+        result[f"ess_{name}_gw"] = power
+        result[f"ess_{name}_lcoe"] = lcoe
+        result["ess_requirement_gwh"] += energy
+        result["ess_requirement_gw"] += power
+        result["ess_lcoe"] += lcoe
+    for name in ("short", "long"):
+        result.setdefault(f"ess_{name}_gwh", 0.0)
+        result.setdefault(f"ess_{name}_gw", 0.0)
+        result.setdefault(f"ess_{name}_lcoe", 0.0)
+    return result
 
 
 def _coerce_ensemble_settings(ensemble: Any | None) -> EnsembleSettings:
@@ -297,7 +297,7 @@ def _calculate_from_dispatch_summary(
     profile: dict[str, Any],
     shares: dict[str, float],
     carbon_price: float,
-    ev_penetration: float,
+    storage_tiers: list[dict[str, float]],
     dispatch_summary: dict[str, Any],
 ) -> dict[str, Any]:
     normalized_shares, _ = normalize_shares(shares)
@@ -375,7 +375,7 @@ def _calculate_from_dispatch_summary(
         for key in ("capex", "fixed_opex", "variable_opex", "fuel", "carbon", "integration"):
             stack_components[key] += realized_share * generator_breakdown[key]
 
-    ess_metrics = _ess_metrics(profile, dispatch_summary, ev_penetration)
+    ess_metrics = _ess_metrics(profile, storage_tiers)
     system_lcoe += ess_metrics["ess_lcoe"]
     stack_components["ess"] = ess_metrics["ess_lcoe"]
 
@@ -423,12 +423,19 @@ def _calculate_system_lcoe_dispatch(
     include_ldc: bool,
     capacities_gw: dict[str, float] | None,
     generator_order: list[str] | None = None,
+    ess_short_power_gw: float | None = None,
+    ess_short_duration_hr: float | None = None,
+    ess_long_power_gw: float | None = None,
+    ess_long_duration_hr: float | None = None,
 ) -> dict[str, Any]:
     base_profile = load_country_profile(country)
     profile = deep_merge(base_profile, custom_params or {})
     if annual_demand_twh is not None:
         profile["annual_generation_twh"] = annual_demand_twh
 
+    storage_tiers = _build_storage_tiers(
+        profile, ess_short_power_gw, ess_short_duration_hr, ess_long_power_gw, ess_long_duration_hr
+    )
     settings = _coerce_ensemble_settings(ensemble)
     if capacities_gw:
         normalized_capacities = {key: max(0.0, float(value)) for key, value in capacities_gw.items()}
@@ -461,13 +468,14 @@ def _calculate_system_lcoe_dispatch(
         capacities_gw=normalized_capacities,
         generator_order=generator_order,
         carbon_price=carbon_price,
+        storage_tiers=storage_tiers,
     )
 
     current = _calculate_from_dispatch_summary(
         profile=profile,
         shares=normalized_shares,
         carbon_price=carbon_price,
-        ev_penetration=ev_penetration,
+        storage_tiers=storage_tiers,
         dispatch_summary=dispatch_summary,
     )
 
@@ -524,6 +532,10 @@ def calculate_system_lcoe(
     include_ldc: bool = False,
     capacities_gw: dict[str, float] | None = None,
     generator_order: list[str] | None = None,
+    ess_short_power_gw: float | None = None,
+    ess_short_duration_hr: float | None = None,
+    ess_long_power_gw: float | None = None,
+    ess_long_duration_hr: float | None = None,
 ) -> dict[str, Any]:
     return _calculate_system_lcoe_dispatch(
         country=country,
@@ -538,4 +550,8 @@ def calculate_system_lcoe(
         include_ldc=include_ldc,
         capacities_gw=capacities_gw,
         generator_order=generator_order,
+        ess_short_power_gw=ess_short_power_gw,
+        ess_short_duration_hr=ess_short_duration_hr,
+        ess_long_power_gw=ess_long_power_gw,
+        ess_long_duration_hr=ess_long_duration_hr,
     )

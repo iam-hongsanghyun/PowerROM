@@ -22,6 +22,10 @@ def calculate(payload: CalculateRequest) -> CalculateResponse:
         ensemble=payload.ensemble.model_dump() if payload.ensemble else None,
         capacities_gw=payload.capacities_gw,
         generator_order=payload.generator_order,
+        ess_short_power_gw=payload.ess_short_power_gw,
+        ess_short_duration_hr=payload.ess_short_duration_hr,
+        ess_long_power_gw=payload.ess_long_power_gw,
+        ess_long_duration_hr=payload.ess_long_duration_hr,
     )
     return CalculateResponse(**result)
 

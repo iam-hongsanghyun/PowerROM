@@ -5,11 +5,20 @@ import type { DispatchMode, EnsembleConfig, EnsembleMethod } from "@/lib/api";
 
 const WEATHER_YEAR_OPTIONS = [2020, 2021, 2022, 2023, 2024];
 
+/** User-set storage: rated power (GW) and duration (h) per tier. Energy = power × duration. */
+export interface StorageInput {
+  shortPowerGw: number;
+  shortDurationHr: number;
+  longPowerGw: number;
+  longDurationHr: number;
+}
+
 export function ControlPanel({
   countries,
   country,
   carbonPrice,
   essCostUsdKwh,
+  storage,
   evPenetration,
   annualDemandTwh,
   dispatchMode,
@@ -19,6 +28,7 @@ export function ControlPanel({
   onCountryChange,
   onCarbonPriceChange,
   onEssCostChange,
+  onStorageChange,
   onEvPenetrationChange,
   onAnnualDemandChange,
   onDispatchModeChange,
@@ -30,6 +40,7 @@ export function ControlPanel({
   country: string;
   carbonPrice: number;
   essCostUsdKwh: number;
+  storage: StorageInput;
   evPenetration: number;
   annualDemandTwh: number;
   dispatchMode: DispatchMode;
@@ -39,6 +50,7 @@ export function ControlPanel({
   onCountryChange: (country: string) => void;
   onCarbonPriceChange: (value: number) => void;
   onEssCostChange: (value: number) => void;
+  onStorageChange: (value: StorageInput) => void;
   onEvPenetrationChange: (value: number) => void;
   onAnnualDemandChange: (value: number) => void;
   onDispatchModeChange: (value: DispatchMode) => void;
@@ -107,6 +119,37 @@ export function ControlPanel({
         />
         <p className="text-[10px] text-slate-400">
           Today ~$280 · 2030 target ~$120 · Higher → more expensive VRE
+        </p>
+      </div>
+
+      <div className="space-y-2">
+        <div className="flex items-center justify-between text-sm font-medium text-slate-800">
+          <label>Storage</label>
+          <span className="text-[10px] text-slate-400">power × duration</span>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          {([
+            ["Short power", "shortPowerGw", "GW"],
+            ["Short duration", "shortDurationHr", "h"],
+            ["Long power", "longPowerGw", "GW"],
+            ["Long duration", "longDurationHr", "h"],
+          ] as const).map(([label, key, unit]) => (
+            <label key={key} className="flex flex-col gap-1 text-[10px] text-slate-400">
+              {label} ({unit})
+              <input
+                type="number"
+                min={0}
+                value={storage[key]}
+                onChange={(event) =>
+                  onStorageChange({ ...storage, [key]: Math.max(0, Number(event.target.value)) })
+                }
+                className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm tabular-nums text-slate-900 outline-none transition focus:border-slate-400"
+              />
+            </label>
+          ))}
+        </div>
+        <p className="text-[10px] text-slate-400">
+          Endogenous: charges from surplus, discharges to shortfall. Energy = power × duration.
         </p>
       </div>
 

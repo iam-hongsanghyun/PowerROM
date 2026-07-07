@@ -47,6 +47,12 @@ class CalculateRequest(BaseModel):
     dispatch_mode: Literal["parametric", "data"] = "parametric"
     weather_years: list[int] | None = None
     ensemble: "EnsembleConfig | None" = None
+    # User-set storage: power (GW) + duration (h) per tier; energy = power × duration.
+    # None falls back to no storage (power 0) / the profile's duration.
+    ess_short_power_gw: float | None = Field(default=None, ge=0)
+    ess_short_duration_hr: float | None = Field(default=None, ge=0)
+    ess_long_power_gw: float | None = Field(default=None, ge=0)
+    ess_long_duration_hr: float | None = Field(default=None, ge=0)
 
     @model_validator(mode="after")
     def validate_shares(self) -> "CalculateRequest":

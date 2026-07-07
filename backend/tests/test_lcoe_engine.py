@@ -18,6 +18,22 @@ def test_expansion_meets_full_load_and_prices_it() -> None:
     assert set(added).issubset({"gas_ccgt", "nuclear"})  # only the checked generators grew
 
 
+def test_clean_energy_subsidy_targets_clean_only() -> None:
+    caps = {"solar": 120, "wind_onshore": 60, "gas_ccgt": 30, "coal": 15, "nuclear": 18, "other": 6}
+    base = dict(country="KR", shares=caps, carbon_price=50.0, capacities_gw=caps, ensemble=_SINGLE)
+
+    baseline = calculate_system_lcoe(**base)["system_lcoe"]
+    itc = calculate_system_lcoe(**base, subsidy_itc_pct=0.30)
+    ptc = calculate_system_lcoe(**base, subsidy_ptc_usd_mwh=25.0)
+
+    assert itc["system_lcoe"] < baseline  # capex credit lowers cost
+    assert ptc["system_lcoe"] < baseline  # production credit lowers cost
+    # PTC is a negative $/MWh line on clean generators only.
+    assert ptc["lcoe_by_generator"]["solar"]["subsidy"] < 0.0
+    assert ptc["lcoe_by_generator"]["nuclear"]["subsidy"] < 0.0
+    assert ptc["lcoe_by_generator"]["gas_ccgt"]["subsidy"] == 0.0
+
+
 def test_rps_target_badge_and_penalty() -> None:
     caps = {"solar": 120, "wind_onshore": 60, "gas_ccgt": 30, "coal": 15, "nuclear": 18, "other": 6}
     base = dict(country="KR", shares=caps, carbon_price=50.0, capacities_gw=caps, ensemble=_SINGLE)

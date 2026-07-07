@@ -35,6 +35,8 @@ def dispatch(payload: CalculateRequest) -> DispatchResponse:
         meet_full_load=payload.meet_full_load,
         rps_target_share=payload.rps_target_share,
         rps_penalty_usd_mwh=payload.rps_penalty_usd_mwh,
+        subsidy_itc_pct=payload.subsidy_itc_pct,
+        subsidy_ptc_usd_mwh=payload.subsidy_ptc_usd_mwh,
     )
     return DispatchResponse(
         country=result["country"],

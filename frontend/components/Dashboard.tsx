@@ -130,6 +130,9 @@ export function Dashboard() {
   // Renewable-target (RPS) policy lever: share target (0 = off) + shortfall penalty.
   const [rpsTarget, setRpsTarget] = useState(0);
   const [rpsPenalty, setRpsPenalty] = useState(50);
+  // Clean-energy subsidy (solar + wind + nuclear): ITC (0–1 capex) + PTC ($/MWh).
+  const [subsidyItc, setSubsidyItc] = useState(0);
+  const [subsidyPtc, setSubsidyPtc] = useState(0);
   const [evPenetration, setEvPenetration] = useState(DEFAULT_EV_PENETRATION);
   const [annualDemandTwh, setAnnualDemandTwh] = useState(
     FALLBACK_COUNTRIES.find((c) => c.code === INITIAL_COUNTRY)?.annual_generation_twh ?? 595,
@@ -224,6 +227,8 @@ export function Dashboard() {
       meet_full_load: meetFullLoad,
       rps_target_share: rpsTarget > 0 ? rpsTarget : null,
       rps_penalty_usd_mwh: rpsTarget > 0 ? rpsPenalty : null,
+      subsidy_itc_pct: subsidyItc > 0 ? subsidyItc : null,
+      subsidy_ptc_usd_mwh: subsidyPtc > 0 ? subsidyPtc : null,
     };
 
     try {
@@ -458,6 +463,8 @@ export function Dashboard() {
                     carbonPrice={carbonPrice}
                     rpsTarget={rpsTarget}
                     rpsPenalty={rpsPenalty}
+                    subsidyItc={subsidyItc}
+                    subsidyPtc={subsidyPtc}
                     evPenetration={evPenetration}
                     dispatchMode={dispatchMode}
                     weatherYears={weatherYears}
@@ -466,6 +473,8 @@ export function Dashboard() {
                     onCarbonPriceChange={setCarbonPrice}
                     onRpsTargetChange={setRpsTarget}
                     onRpsPenaltyChange={setRpsPenalty}
+                    onSubsidyItcChange={setSubsidyItc}
+                    onSubsidyPtcChange={setSubsidyPtc}
                     onEvPenetrationChange={setEvPenetration}
                     onDispatchModeChange={setDispatchMode}
                     onWeatherYearsChange={setWeatherYears}

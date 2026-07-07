@@ -228,6 +228,8 @@ export async function calculateSystem(payload: {
   meet_full_load?: boolean;
   rps_target_share?: number | null;
   rps_penalty_usd_mwh?: number | null;
+  subsidy_itc_pct?: number | null;
+  subsidy_ptc_usd_mwh?: number | null;
 }): Promise<CalculateResponse> {
   return request<CalculateResponse>("/calculate", {
     method: "POST",
@@ -259,6 +261,8 @@ export async function dispatchSystem(payload: {
   meet_full_load?: boolean;
   rps_target_share?: number | null;
   rps_penalty_usd_mwh?: number | null;
+  subsidy_itc_pct?: number | null;
+  subsidy_ptc_usd_mwh?: number | null;
 }): Promise<DispatchResponse> {
   return request<DispatchResponse>("/dispatch", {
     method: "POST",

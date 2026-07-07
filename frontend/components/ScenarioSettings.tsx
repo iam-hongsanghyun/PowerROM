@@ -14,6 +14,8 @@ export function ScenarioSettings({
   carbonPrice,
   rpsTarget,
   rpsPenalty,
+  subsidyItc,
+  subsidyPtc,
   evPenetration,
   dispatchMode,
   weatherYears,
@@ -22,6 +24,8 @@ export function ScenarioSettings({
   onCarbonPriceChange,
   onRpsTargetChange,
   onRpsPenaltyChange,
+  onSubsidyItcChange,
+  onSubsidyPtcChange,
   onEvPenetrationChange,
   onDispatchModeChange,
   onWeatherYearsChange,
@@ -33,6 +37,10 @@ export function ScenarioSettings({
   rpsTarget: number;
   /** Shortfall (REC) penalty, $/MWh. */
   rpsPenalty: number;
+  /** Investment tax credit, 0–1 (fraction of capex) on clean generators. */
+  subsidyItc: number;
+  /** Production tax credit, $/MWh on clean generators. */
+  subsidyPtc: number;
   evPenetration: number;
   dispatchMode: DispatchMode;
   weatherYears: number[];
@@ -41,6 +49,8 @@ export function ScenarioSettings({
   onCarbonPriceChange: (value: number) => void;
   onRpsTargetChange: (value: number) => void;
   onRpsPenaltyChange: (value: number) => void;
+  onSubsidyItcChange: (value: number) => void;
+  onSubsidyPtcChange: (value: number) => void;
   onEvPenetrationChange: (value: number) => void;
   onDispatchModeChange: (value: DispatchMode) => void;
   onWeatherYearsChange: (value: number[]) => void;
@@ -111,6 +121,38 @@ export function ScenarioSettings({
             />
           </label>
         ) : null}
+      </div>
+
+      <div className="space-y-2 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+        <div className="flex items-center gap-1.5 text-sm font-medium text-slate-800">
+          <span>Clean-Energy Subsidy</span>
+          <InfoTip text="Support for solar + wind + nuclear: an investment tax credit (% of capex) and/or a production tax credit ($/MWh). The mirror image of the carbon price." />
+        </div>
+        <div className="space-y-1">
+          <div className="flex items-center justify-between text-[11px] text-slate-500">
+            <label>Investment credit (% of capex)</label>
+            <span>{Math.round(subsidyItc * 100)}%</span>
+          </div>
+          <input
+            type="range"
+            min={0}
+            max={50}
+            step={5}
+            value={Math.round(subsidyItc * 100)}
+            onChange={(event) => onSubsidyItcChange(Number(event.target.value) / 100)}
+            className="h-2 w-full cursor-pointer appearance-none rounded-full bg-slate-200"
+          />
+        </div>
+        <label className="flex items-center justify-between gap-2 text-[11px] text-slate-500">
+          Production credit ($/MWh)
+          <input
+            type="number"
+            min={0}
+            value={subsidyPtc}
+            onChange={(event) => onSubsidyPtcChange(Math.max(0, Number(event.target.value)))}
+            className="w-20 rounded-lg border border-slate-200 bg-white px-2 py-1 text-right text-sm tabular-nums text-slate-900 outline-none transition focus:border-slate-400"
+          />
+        </label>
       </div>
 
       <div className="space-y-2">

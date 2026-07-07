@@ -65,6 +65,9 @@ class CalculateRequest(BaseModel):
     # Renewable-target (RPS) policy lever.
     rps_target_share: float | None = Field(default=None, ge=0, le=1)
     rps_penalty_usd_mwh: float | None = Field(default=None, ge=0)
+    # Clean-energy subsidy (applies to solar + wind + nuclear).
+    subsidy_itc_pct: float | None = Field(default=None, ge=0, le=1)
+    subsidy_ptc_usd_mwh: float | None = Field(default=None, ge=0)
 
     @model_validator(mode="after")
     def validate_shares(self) -> "CalculateRequest":

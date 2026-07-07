@@ -118,6 +118,8 @@ def _generator_breakdown(
     carbon_price: float,
     discount_rate: float,
     cf_eff: float,
+    itc_rate: float = 0.0,
+    ptc_usd_mwh: float = 0.0,
 ) -> dict[str, float]:
     """Money math for one generator at its dispatch-realized capacity factor.
 
@@ -141,8 +143,10 @@ def _generator_breakdown(
     eta = _evaluate_configured_function(generator_config["eta_func"], eta_x, context)
     eta_reference = float(generator_config.get("eta_reference", generator_config["eta_func"]["params"].get("a", eta)))
     efficiency_penalty = eta_reference / max(eta, 1e-6)
+    # Investment tax credit (ITC): a fraction of capex is subsidised before annualisation.
     capex = (
         generator_config["capex_usd_kw"]
+        * (1.0 - max(0.0, min(1.0, itc_rate)))
         * crf(discount_rate, generator_config["lifetime_yr"])
         / (cf_eff * 8760)
         * 1000
@@ -160,6 +164,8 @@ def _generator_breakdown(
 
     emission_factor = float(generator_config.get("emission_factor_tco2_mwh", 0.0))
     carbon = carbon_price * emission_factor * efficiency_penalty
+    # Production tax credit / feed-in tariff: a negative $/MWh subsidy on output.
+    subsidy = -max(0.0, ptc_usd_mwh)
 
     return {
         "generator": generator_name,
@@ -171,7 +177,8 @@ def _generator_breakdown(
         "fuel": fuel,
         "carbon": carbon,
         "integration": 0.0,
-        "total_lcoe": capex + fixed_opex + variable_opex + fuel + carbon,
+        "subsidy": subsidy,
+        "total_lcoe": capex + fixed_opex + variable_opex + fuel + carbon + subsidy,
         "emission_intensity_tco2_mwh": emission_factor * efficiency_penalty,
     }
 
@@ -433,12 +440,18 @@ def _median_scalar(summary: dict[str, Any], key: str) -> float:
     return float(summary["metrics"]["scalars"].get(key, {}).get("median", 0.0))
 
 
+# Generators eligible for the clean-energy subsidy (ITC / PTC) — the low-carbon set.
+_CLEAN_GENERATORS = {"solar", "wind_onshore", "nuclear"}
+
+
 def _calculate_from_dispatch_summary(
     profile: dict[str, Any],
     shares: dict[str, float],
     carbon_price: float,
     storage_tiers: list[dict[str, float]],
     dispatch_summary: dict[str, Any],
+    subsidy_itc_pct: float = 0.0,
+    subsidy_ptc_usd_mwh: float = 0.0,
 ) -> dict[str, Any]:
     normalized_shares, _ = normalize_shares(shares)
     vre_share = sum(normalized_shares.get(key, 0.0) for key in VRE_GENERATORS)
@@ -466,6 +479,7 @@ def _calculate_from_dispatch_summary(
         "fuel": 0.0,
         "carbon": 0.0,
         "integration": 0.0,
+        "subsidy": 0.0,
         "ess": 0.0,
     }
 
@@ -483,6 +497,7 @@ def _calculate_from_dispatch_summary(
                 "fuel": 0.0,
                 "carbon": 0.0,
                 "integration": 0.0,
+                "subsidy": 0.0,
                 "total_lcoe": 0.0,
                 "emission_intensity_tco2_mwh": 0.0,
                 "share_weighted_cost": 0.0,
@@ -493,6 +508,7 @@ def _calculate_from_dispatch_summary(
             }
             continue
 
+        eligible = generator_name in _CLEAN_GENERATORS
         generator_breakdown = _generator_breakdown(
             generator_name=generator_name,
             generator_config=profile["generators"][generator_name],
@@ -501,6 +517,8 @@ def _calculate_from_dispatch_summary(
             carbon_price=carbon_price,
             discount_rate=profile["discount_rate"],
             cf_eff=_median_metric(dispatch_summary, "capacity_factor", generator_name),
+            itc_rate=subsidy_itc_pct if eligible else 0.0,
+            ptc_usd_mwh=subsidy_ptc_usd_mwh if eligible else 0.0,
         )
         weighted_cost = realized_share * generator_breakdown["total_lcoe"]
         generator_breakdown["share_weighted_cost"] = weighted_cost
@@ -512,7 +530,7 @@ def _calculate_from_dispatch_summary(
 
         system_lcoe += weighted_cost
         emission_intensity += realized_share * generator_breakdown["emission_intensity_tco2_mwh"]
-        for key in ("capex", "fixed_opex", "variable_opex", "fuel", "carbon", "integration"):
+        for key in ("capex", "fixed_opex", "variable_opex", "fuel", "carbon", "integration", "subsidy"):
             stack_components[key] += realized_share * generator_breakdown[key]
 
     ess_metrics = _ess_metrics(profile, storage_tiers)
@@ -575,6 +593,8 @@ def _calculate_system_lcoe_dispatch(
     meet_full_load: bool = False,
     rps_target_share: float | None = None,
     rps_penalty_usd_mwh: float | None = None,
+    subsidy_itc_pct: float | None = None,
+    subsidy_ptc_usd_mwh: float | None = None,
 ) -> dict[str, Any]:
     base_profile = load_country_profile(country)
     profile = deep_merge(base_profile, custom_params or {})
@@ -663,6 +683,8 @@ def _calculate_system_lcoe_dispatch(
         carbon_price=carbon_price,
         storage_tiers=storage_tiers,
         dispatch_summary=dispatch_summary,
+        subsidy_itc_pct=subsidy_itc_pct or 0.0,
+        subsidy_ptc_usd_mwh=subsidy_ptc_usd_mwh or 0.0,
     )
 
     # Probabilistic band: recompute cost/emissions for each ensemble member so the
@@ -676,6 +698,8 @@ def _calculate_system_lcoe_dispatch(
             carbon_price=carbon_price,
             storage_tiers=storage_tiers,
             dispatch_summary=member,
+            subsidy_itc_pct=subsidy_itc_pct or 0.0,
+            subsidy_ptc_usd_mwh=subsidy_ptc_usd_mwh or 0.0,
         )
         member_lcoe.append(point["system_lcoe"])
         member_emis.append(point["emission_intensity"])
@@ -782,6 +806,8 @@ def calculate_system_lcoe(
     meet_full_load: bool = False,
     rps_target_share: float | None = None,
     rps_penalty_usd_mwh: float | None = None,
+    subsidy_itc_pct: float | None = None,
+    subsidy_ptc_usd_mwh: float | None = None,
 ) -> dict[str, Any]:
     return _calculate_system_lcoe_dispatch(
         country=country,
@@ -808,4 +834,6 @@ def calculate_system_lcoe(
         meet_full_load=meet_full_load,
         rps_target_share=rps_target_share,
         rps_penalty_usd_mwh=rps_penalty_usd_mwh,
+        subsidy_itc_pct=subsidy_itc_pct,
+        subsidy_ptc_usd_mwh=subsidy_ptc_usd_mwh,
     )

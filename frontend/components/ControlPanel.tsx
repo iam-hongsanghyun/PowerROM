@@ -15,6 +15,7 @@ export function ControlPanel({
   storage,
   storageExpandable,
   addedStorageGw,
+  addedStorageLongGw,
   annualDemandTwh,
   onCountryChange,
   onStorageChange,
@@ -27,6 +28,8 @@ export function ControlPanel({
   storageExpandable: boolean;
   /** GW of short-duration storage power the solver added on the last run. */
   addedStorageGw?: number;
+  /** GW of long-duration storage power the solver added on the last run. */
+  addedStorageLongGw?: number;
   annualDemandTwh: number;
   onCountryChange: (country: string) => void;
   onStorageChange: (value: StorageInput) => void;
@@ -79,11 +82,16 @@ export function ControlPanel({
         </div>
         <div className="grid grid-cols-2 gap-2">
           {([
-            ["Short power", "shortPowerGw"],
-            ["Long power", "longPowerGw"],
-          ] as const).map(([label, key]) => (
+            ["Short power", "shortPowerGw", addedStorageGw],
+            ["Long power", "longPowerGw", addedStorageLongGw],
+          ] as const).map(([label, key, added]) => (
             <label key={key} className="flex flex-col gap-1 text-[10px] text-slate-400">
-              {label} (GW)
+              <span className="flex items-center gap-1">
+                {label} (GW)
+                {added && added > 0 ? (
+                  <span className="font-semibold text-emerald-600">+{added.toFixed(0)}</span>
+                ) : null}
+              </span>
               <input
                 type="number"
                 min={0}
@@ -97,12 +105,7 @@ export function ControlPanel({
           ))}
         </div>
         <label className="flex items-center justify-between gap-2 text-[10px] text-slate-500">
-          <span className="flex items-center gap-1">
-            Expandable to meet 100% load
-            {addedStorageGw && addedStorageGw > 0 ? (
-              <span className="font-semibold text-emerald-600">+{addedStorageGw.toFixed(0)} GW</span>
-            ) : null}
-          </span>
+          <span>Expandable to meet 100% load</span>
           <input
             type="checkbox"
             checked={storageExpandable}

@@ -362,15 +362,23 @@ def _expand_to_meet_load(
     on storage energy vs the longest drought: a multi-day lull needs storage deeper than any
     single-cycle can bridge, so some residual may remain and is reported.
 
-    Returns ``(added_by_key, grown_storage_tiers, note)`` where ``added_by_key`` may include a
-    ``"storage"`` entry (added short-duration power, GW).
+    Returns ``(added_by_key, grown_storage_tiers, note)`` where ``added_by_key`` may include
+    ``"storage"`` (added short-duration power, GW) and/or ``"storage_long"`` (added
+    long-duration power, GW) alongside the grown generators.
     """
     gens = profile["generators"]
     discount = profile["discount_rate"]
     expandable_gens = [g for g in expandable if g in gens]  # VRE included: it firms via storage
     tiers = [dict(tier) for tier in storage_tiers]
-    short_tier = next((tier for tier in tiers if tier.get("name") == "short"), None)
-    can_storage = "storage" in expandable and short_tier is not None
+    # Both storage tiers are expansion candidates when "storage" is checked: short-duration
+    # firms sharp/diurnal peaks, long-duration bridges multi-day droughts. Keyed for reporting.
+    storage_candidates: dict[str, dict[str, float]] = {}
+    if "storage" in expandable:
+        for key, name in (("storage", "short"), ("storage_long", "long")):
+            tier = next((t for t in tiers if t.get("name") == name), None)
+            if tier is not None:
+                storage_candidates[key] = tier
+    can_storage = bool(storage_candidates)
     added: dict[str, float] = {g: 0.0 for g in expandable_gens}
     capacities = {key: max(0.0, float(value)) for key, value in base_capacities.items()}
 
@@ -391,9 +399,10 @@ def _expand_to_meet_load(
         return {}, tiers, ""
 
     def _apply(key: str, amount: float) -> None:
-        """Add ``amount`` GW to a candidate (generator capacity or short-storage power) in place."""
-        if key == "storage":
-            short_tier["power_gw"] = float(short_tier.get("power_gw", 0.0)) + amount  # type: ignore[union-attr]
+        """Add ``amount`` GW to a candidate (generator capacity or a storage tier's power) in place."""
+        if key in storage_candidates:
+            tier = storage_candidates[key]
+            tier["power_gw"] = float(tier.get("power_gw", 0.0)) + amount
         else:
             capacities[key] = capacities.get(key, 0.0) + amount
         added[key] = added.get(key, 0.0) + amount
@@ -424,17 +433,21 @@ def _expand_to_meet_load(
             if metric < best_metric:
                 best_key, best_metric = g, metric
 
-        # Storage candidate: one +step GW of short-duration power — only wins if it shaves peak.
-        if can_storage:
+        # Storage candidates: one +step GW of each tier's power — only wins if it shaves peak.
+        # Short firms diurnal peaks cheaply; long-duration is dear per GW but is the only thing
+        # that can bridge a multi-day drought, so it is picked only when nothing else shaves it.
+        for skey, stier in storage_candidates.items():
+            tier_name = stier.get("name")
             trial_tiers = [dict(t) for t in tiers]
-            trial_short = next(t for t in trial_tiers if t.get("name") == "short")
-            trial_short["power_gw"] = float(trial_short.get("power_gw", 0.0)) + step
+            trial_tier = next(t for t in trial_tiers if t.get("name") == tier_name)
+            trial_tier["power_gw"] = float(trial_tier.get("power_gw", 0.0)) + step
             _, trial_peak = _unserved(capacities, trial_tiers)
             shaved = peak_gw - trial_peak
-            if shaved > 1e-6:
-                metric = _annual_fixed_cost_storage(short_tier, discount, step) / shaved
-                if metric < best_metric:
-                    best_key, best_metric = "storage", metric
+            if shaved <= 1e-6:
+                continue
+            metric = _annual_fixed_cost_storage(stier, discount, step) / shaved
+            if metric < best_metric:
+                best_key, best_metric = skey, metric
 
         if best_key is None:
             # No candidate shaves the peak at this granularity. VRE + storage has a *threshold*
@@ -487,10 +500,15 @@ def _expand_to_meet_load(
                 "Could not fully close the gap with the selected options — add another "
                 "dispatchable generator or more storage."
             )
-    elif can_storage and "storage" not in added and not only_vre_expandable and expandable_gens:
+    elif (
+        can_storage
+        and not any(key in added for key in storage_candidates)
+        and not only_vre_expandable
+        and expandable_gens
+    ):
         note = (
-            "Storage was not built: short-duration storage cannot cover the binding peak "
-            "(a low-renewable lull), so firm generation is the cheaper way to reach 100%."
+            "Storage was not built: it could not cover the binding peak (a low-renewable lull) "
+            "more cheaply than firm generation, which reaches 100% at lower cost here."
         )
     return added, tiers, note
 

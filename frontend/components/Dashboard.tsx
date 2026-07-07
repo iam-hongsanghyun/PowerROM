@@ -311,6 +311,7 @@ export function Dashboard() {
                 storage={storage}
                 storageExpandable={expandable.has("storage")}
                 addedStorageGw={result?.expansion?.added_capacities_gw?.storage}
+                addedStorageLongGw={result?.expansion?.added_capacities_gw?.storage_long}
                 annualDemandTwh={annualDemandTwh}
                 onCountryChange={handleCountryChange}
                 onStorageChange={setStorage}

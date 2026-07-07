@@ -78,6 +78,23 @@ def test_expansion_blends_baseload_and_peaker_by_screening() -> None:
     assert blend["system_lcoe"] < gas_only["system_lcoe"]  # cheaper than peaker-only
 
 
+def test_expansion_grows_long_storage_for_multiday_drought() -> None:
+    # A near-100%-renewable fleet must ride through a multi-day winter Dunkelflaute that 12h
+    # short storage cannot bridge. With both storage tiers expandable, the solver grows
+    # long-duration storage (dear per GW, but the only thing that can hold multi-day energy)
+    # to actually close the gap — expensive, but valid and honest.
+    caps = {"solar": 80, "wind_onshore": 40, "nuclear": 2, "coal": 1, "gas_ccgt": 3, "other": 1}
+    r = calculate_system_lcoe(
+        country="KR", shares=caps, carbon_price=50.0, capacities_gw=caps, ensemble=_SINGLE,
+        annual_demand_twh=595.0, ess_short_power_gw=30.0, ess_short_duration_hr=12.0,
+        ess_long_power_gw=0.0, ess_long_duration_hr=168.0,
+        expandable=["solar", "wind_onshore", "storage"], meet_full_load=True,
+    )
+    added = r["expansion"]["added_capacities_gw"]
+    assert r["unserved_twh"] < 0.1  # the multi-day drought is firmed
+    assert added.get("storage_long", 0.0) > 0.0  # ...by growing long-duration storage
+
+
 def test_expansion_storage_only_built_when_it_firms_the_peak() -> None:
     # The binding peak is a low-renewable lull a 4h battery cannot cover, so short storage
     # must NOT be force-grown: the least-firm-cost expansion firms it with gas, not storage.

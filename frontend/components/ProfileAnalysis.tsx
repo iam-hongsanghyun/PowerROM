@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { HourlyMixChart } from "@/components/charts/HourlyMixChart";
 import { LoadDurationCurveChart } from "@/components/charts/LoadDurationCurveChart";
+import { GENERATOR_LABELS } from "@/lib/constants";
 import type {
   Adequacy,
   CalculateResponse,
@@ -11,6 +12,7 @@ import type {
   DispatchResponse,
   Shares,
   SizeForAdequacyResult,
+  SizeMixForAdequacyResult,
 } from "@/lib/api";
 
 // Reference reliability standard (LOLE, hours/year) — "1 day in 10 years" ≈ 2.4 h/yr.
@@ -22,23 +24,47 @@ const FIRM_OPTIONS: { key: string; label: string }[] = [
   { key: "coal", label: "Coal" },
 ];
 
-/** Grow a firm resource to a reliability standard, then show the required capacity. */
+/** Grow a firm resource (or the cheapest mix) to a reliability standard; show what's required. */
 function SizeToStandard({
   onSize,
+  onSizeMix,
 }: {
   onSize: (firmKey: string, targetHours: number) => Promise<SizeForAdequacyResult>;
+  onSizeMix?: (targetHours: number) => Promise<SizeMixForAdequacyResult>;
 }) {
   const [firmKey, setFirmKey] = useState("gas_ccgt");
   const [target, setTarget] = useState(LOLE_STANDARD_HOURS);
   const [running, setRunning] = useState(false);
-  const [result, setResult] = useState<SizeForAdequacyResult | null>(null);
+  const [text, setText] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function run() {
     setRunning(true);
     setError(null);
+    setText(null);
     try {
-      setResult(await onSize(firmKey, target));
+      if (firmKey === "mix" && onSizeMix) {
+        const r = await onSizeMix(target);
+        const blend = Object.entries(r.added_capacities_gw)
+          .map(([key, gw]) => `${GENERATOR_LABELS[key] ?? key.replace("_", " ")} +${gw.toFixed(1)}`)
+          .join(", ");
+        setText(
+          Object.keys(r.added_capacities_gw).length === 0
+            ? `Already meets the standard — no build needed (LOLE ${r.lole_hours.toFixed(1)} h/yr).`
+            : `Cheapest mix: ${blend} — LOLE ${r.baseline_lole_hours.toFixed(1)} → ${r.lole_hours.toFixed(1)} h/yr, ` +
+                `system LCOE $${r.system_lcoe.toFixed(1)}/MWh${r.met ? "" : " (standard not reached)"}.`,
+        );
+      } else {
+        const r = await onSize(firmKey, target);
+        const firmLabel = FIRM_OPTIONS.find((option) => option.key === firmKey)?.label ?? firmKey;
+        setText(
+          r.added_gw > 0
+            ? `Need ${r.required_gw.toFixed(1)} GW ${firmLabel} (+${r.added_gw.toFixed(1)}) — LOLE ` +
+                `${r.baseline_lole_hours.toFixed(1)} → ${r.lole_hours.toFixed(1)} h/yr, system LCOE ` +
+                `$${r.system_lcoe.toFixed(1)}/MWh${r.met ? "" : " (standard not reached)"}.`
+            : `Already meets the standard — no added ${firmLabel} needed (LOLE ${r.lole_hours.toFixed(1)} h/yr).`,
+        );
+      }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Sizing failed");
     } finally {
@@ -46,7 +72,6 @@ function SizeToStandard({
     }
   }
 
-  const firmLabel = FIRM_OPTIONS.find((option) => option.key === firmKey)?.label ?? firmKey;
   return (
     <div className="space-y-2 rounded-xl border border-slate-100 bg-slate-50 p-3">
       <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
@@ -61,6 +86,7 @@ function SizeToStandard({
               {option.label}
             </option>
           ))}
+          {onSizeMix ? <option value="mix">Cheapest mix</option> : null}
         </select>
         <span>to LOLE ≤</span>
         <input
@@ -82,20 +108,7 @@ function SizeToStandard({
         </button>
       </div>
       {error ? <p className="text-[11px] text-rose-600">{error}</p> : null}
-      {result ? (
-        <p className="text-[11px] text-slate-600">
-          {result.added_gw > 0 ? (
-            <>
-              Need <strong className="text-slate-900">{result.required_gw.toFixed(1)} GW</strong> {firmLabel}{" "}
-              (<span className="text-emerald-600">+{result.added_gw.toFixed(1)}</span>) — LOLE{" "}
-              {result.baseline_lole_hours.toFixed(1)} → {result.lole_hours.toFixed(1)} h/yr, system LCOE $
-              {result.system_lcoe.toFixed(1)}/MWh{result.met ? "" : " (standard not reached at the ceiling)"}.
-            </>
-          ) : (
-            <>Already meets the standard — no added {firmLabel} needed (LOLE {result.lole_hours.toFixed(1)} h/yr).</>
-          )}
-        </p>
-      ) : null}
+      {text ? <p className="text-[11px] text-slate-600">{text}</p> : null}
     </div>
   );
 }
@@ -104,9 +117,11 @@ function SizeToStandard({
 function AdequacyPanel({
   adequacy,
   onSize,
+  onSizeMix,
 }: {
   adequacy: Adequacy;
   onSize?: (firmKey: string, targetHours: number) => Promise<SizeForAdequacyResult>;
+  onSizeMix?: (targetHours: number) => Promise<SizeMixForAdequacyResult>;
 }) {
   const meets = adequacy.lole_hours <= LOLE_STANDARD_HOURS;
   const isBlock = adequacy.ensemble_method === "block_bootstrap";
@@ -129,7 +144,7 @@ function AdequacyPanel({
         <Metric label="Shortfall years" value={`${(adequacy.loss_of_load_prob_annual * 100).toFixed(0)}%`} sub={`of ${adequacy.n_scenarios} sampled years`} />
         <Metric label="Worst-year unserved" value={`${(adequacy.unserved_mwh_max / 1000).toFixed(1)} GWh`} sub={`p99 ${(adequacy.unserved_mwh_p99 / 1000).toFixed(1)} GWh`} />
       </div>
-      {onSize ? <SizeToStandard onSize={onSize} /> : null}
+      {onSize ? <SizeToStandard onSize={onSize} onSizeMix={onSizeMix} /> : null}
       <p className="text-[11px] text-slate-400">
         From {adequacy.n_scenarios} jointly-sampled weather years ({adequacy.ensemble_method.replace("_", " ")}).
         {isBlock
@@ -159,6 +174,7 @@ interface Props {
   shares: Shares;
   capacities: Capacities;
   onSizeForAdequacy?: (firmKey: string, targetHours: number) => Promise<SizeForAdequacyResult>;
+  onSizeMixForAdequacy?: (targetHours: number) => Promise<SizeMixForAdequacyResult>;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -193,6 +209,7 @@ export function ProfileAnalysis({
   shares,
   capacities,
   onSizeForAdequacy,
+  onSizeMixForAdequacy,
 }: Props) {
   if (!result) {
     return (
@@ -271,7 +288,11 @@ export function ProfileAnalysis({
       </div>
 
       {result.adequacy && result.adequacy.n_scenarios > 1 ? (
-        <AdequacyPanel adequacy={result.adequacy} onSize={onSizeForAdequacy} />
+        <AdequacyPanel
+          adequacy={result.adequacy}
+          onSize={onSizeForAdequacy}
+          onSizeMix={onSizeMixForAdequacy}
+        />
       ) : null}
 
       <HourlyMixChart

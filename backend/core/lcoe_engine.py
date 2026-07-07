@@ -1235,3 +1235,117 @@ def size_for_adequacy(
         else:
             lo = mid
     return _report(hi, met=True)
+
+
+def size_mix_for_adequacy(
+    country: str,
+    capacities: dict[str, float],
+    expandable: list[str],
+    lole_target_hours: float,
+    carbon_price: float = 0.0,
+    annual_demand_twh: float | None = None,
+    ensemble: Any | None = None,
+    ess_short_power_gw: float | None = None,
+    ess_short_duration_hr: float | None = None,
+    ess_long_power_gw: float | None = None,
+    ess_long_duration_hr: float | None = None,
+) -> dict[str, Any]:
+    """Least-cost *mix* that holds resource adequacy to ``lole_target_hours``.
+
+    Where :func:`size_for_adequacy` grows a single resource, this co-sizes the whole expandable
+    mix. It first runs the meet-100%-load expansion — which already picks a least-cost blend of
+    generators and storage to firm the worst weather sample — then scales that blend down by a
+    single factor and bisects the factor until the **ensemble** LOLE just meets the standard. So
+    the blend's composition comes from the screening expansion and only its overall size is tuned
+    to the (looser than zero-unserved) reliability target, which is cheaper than firming the worst
+    case outright.
+
+    Note: the gas : storage : … ratio is fixed by the worst-case expansion, not re-optimised for
+    the LOLE target, so this is a screening approximation, not a full co-optimisation.
+
+    Returns:
+        Dict with ``requested`` (the expandable set), ``added_capacities_gw`` (the sized blend,
+        which may include ``storage`` / ``storage_long`` power), ``scale`` (fraction of the full
+        expansion), ``baseline_lole_hours``, ``lole_hours``, ``lole_target_hours``, ``met``,
+        ``system_lcoe`` and ``annual_system_cost_usd_billion``.
+    """
+    base = {key: max(0.0, float(value)) for key, value in capacities.items()}
+    target = max(0.0, float(lole_target_hours))
+    base_short = float(ess_short_power_gw or 0.0)
+    base_long = float(ess_long_power_gw or 0.0)
+
+    # 1. Full least-cost expansion to zero unserved on the worst weather sample.
+    full = calculate_system_lcoe(
+        country=country, shares=base, capacities_gw=base, carbon_price=carbon_price,
+        annual_demand_twh=annual_demand_twh, ensemble=ensemble,
+        ess_short_power_gw=ess_short_power_gw, ess_short_duration_hr=ess_short_duration_hr,
+        ess_long_power_gw=ess_long_power_gw, ess_long_duration_hr=ess_long_duration_hr,
+        expandable=expandable, meet_full_load=True,
+    )
+    added_full = dict((full.get("expansion") or {}).get("added_capacities_gw", {}))
+
+    cache: dict[float, tuple[float, dict[str, Any]]] = {}
+
+    def evaluate(scale: float) -> tuple[float, dict[str, Any]]:
+        key = round(scale, 4)
+        if key not in cache:
+            caps = {
+                gen: base.get(gen, 0.0) + scale * added_full.get(gen, 0.0)
+                for gen in set(base) | set(added_full)
+                if gen not in ("storage", "storage_long")
+            }
+            result = calculate_system_lcoe(
+                country=country, shares=caps, capacities_gw=caps, carbon_price=carbon_price,
+                annual_demand_twh=annual_demand_twh, ensemble=ensemble,
+                ess_short_power_gw=base_short + scale * added_full.get("storage", 0.0),
+                ess_short_duration_hr=ess_short_duration_hr,
+                ess_long_power_gw=base_long + scale * added_full.get("storage_long", 0.0),
+                ess_long_duration_hr=ess_long_duration_hr,
+            )
+            adequacy = result.get("adequacy")
+            lole = float(adequacy["lole_hours"]) if adequacy else 0.0
+            cache[key] = (lole, result)
+        return cache[key]
+
+    baseline_lole, baseline_result = evaluate(0.0)
+
+    def _report(scale: float, met: bool) -> dict[str, Any]:
+        lole, result = evaluate(scale)
+        return {
+            "requested": list(expandable),
+            "added_capacities_gw": {
+                gen: round(scale * value, 2) for gen, value in added_full.items() if scale * value > 0.01
+            },
+            "scale": round(scale, 4),
+            "baseline_lole_hours": round(baseline_lole, 2),
+            "lole_hours": round(lole, 2),
+            "lole_target_hours": target,
+            "met": met,
+            "system_lcoe": result["system_lcoe"],
+            "annual_system_cost_usd_billion": result["annual_system_cost_usd_billion"],
+        }
+
+    if baseline_lole <= target:
+        return _report(0.0, met=True)  # already adequate — no build needed
+    if not added_full:
+        return _report(0.0, met=False)  # nothing expandable can firm it
+
+    # The meet-100%-load blend is sized for the worst net-load PEAK; block-bootstrap droughts can
+    # need more, so let the scale grow above 1 (double until the standard is met, or give up).
+    hi = 1.0
+    for _ in range(_SIZE_ADEQUACY_MAX_DOUBLINGS):
+        if evaluate(hi)[0] <= target:
+            break
+        hi *= 2.0
+    if evaluate(hi)[0] > target:
+        return _report(hi, met=False)  # standard unreachable by scaling this blend
+
+    # Bisect [0, hi] for the smallest blend that meets the standard.
+    lo = 0.0
+    for _ in range(_SIZE_ADEQUACY_BISECT_ITERS):
+        mid = (lo + hi) / 2.0
+        if evaluate(mid)[0] <= target:
+            hi = mid
+        else:
+            lo = mid
+    return _report(hi, met=True)

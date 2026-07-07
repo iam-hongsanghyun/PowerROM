@@ -259,6 +259,34 @@ class SizeForAdequacyResponse(BaseModel):
     annual_system_cost_usd_billion: float
 
 
+class SizeMixForAdequacyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    country: str = Field(min_length=2, max_length=2)
+    capacities_gw: dict[str, float]
+    expandable: list[str] = Field(min_length=1)
+    lole_target_hours: float = Field(default=2.4, ge=0, le=8760)
+    carbon_price: float = Field(default=0.0, ge=0, le=500)
+    annual_demand_twh: float | None = Field(default=None, gt=0)
+    ensemble: "EnsembleConfig | None" = None
+    ess_short_power_gw: float | None = Field(default=None, ge=0)
+    ess_short_duration_hr: float | None = Field(default=None, ge=0)
+    ess_long_power_gw: float | None = Field(default=None, ge=0)
+    ess_long_duration_hr: float | None = Field(default=None, ge=0)
+
+
+class SizeMixForAdequacyResponse(BaseModel):
+    requested: list[str]
+    added_capacities_gw: dict[str, float]
+    scale: float
+    baseline_lole_hours: float
+    lole_hours: float
+    lole_target_hours: float
+    met: bool
+    system_lcoe: float
+    annual_system_cost_usd_billion: float
+
+
 class DispatchResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

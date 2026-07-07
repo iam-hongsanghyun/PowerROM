@@ -16,7 +16,9 @@ import {
   dispatchSystem,
   fetchCountries,
   sizeForAdequacy,
+  sizeMixForAdequacy,
   type SizeForAdequacyResult,
+  type SizeMixForAdequacyResult,
   type CalculateResponse,
   type Capacities,
   type CountryProfile,
@@ -212,6 +214,29 @@ export function Dashboard() {
       country,
       capacities_gw: capacities,
       firm_key: firmKey,
+      lole_target_hours: targetHours,
+      carbon_price: carbonPrice,
+      annual_demand_twh: annualDemandTwh,
+      ensemble: {
+        ...ensemble,
+        method: "block_bootstrap",
+        n_samples: Math.max(12, ensemble.n_samples),
+        block_days: ensemble.block_days ?? 14,
+      },
+      ess_short_power_gw: storage.shortPowerGw || null,
+      ess_long_power_gw: storage.longPowerGw || null,
+    });
+  }
+
+  function handleSizeMixForAdequacy(targetHours: number): Promise<SizeMixForAdequacyResult> {
+    // Co-size the least-cost mix. Use the checked expandable set (defaulting to gas + storage if
+    // nothing is checked), and force the block-bootstrap sampler for a drought-aware LOLE.
+    const checked = [...expandable];
+    const mix = checked.length ? checked : ["gas_ccgt", "storage"];
+    return sizeMixForAdequacy({
+      country,
+      capacities_gw: capacities,
+      expandable: mix,
       lole_target_hours: targetHours,
       carbon_price: carbonPrice,
       annual_demand_twh: annualDemandTwh,
@@ -482,6 +507,7 @@ export function Dashboard() {
                   shares={shares}
                   capacities={capacities}
                   onSizeForAdequacy={handleSizeForAdequacy}
+                  onSizeMixForAdequacy={handleSizeMixForAdequacy}
                 />
               </Tabs.Content>
 

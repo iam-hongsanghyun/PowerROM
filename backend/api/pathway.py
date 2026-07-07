@@ -2,12 +2,14 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from backend.core.lcoe_engine import simulate_pathway, size_for_adequacy
+from backend.core.lcoe_engine import simulate_pathway, size_for_adequacy, size_mix_for_adequacy
 from backend.models.schemas import (
     PathwayRequest,
     PathwayResponse,
     SizeForAdequacyRequest,
     SizeForAdequacyResponse,
+    SizeMixForAdequacyRequest,
+    SizeMixForAdequacyResponse,
 )
 
 router = APIRouter()
@@ -50,3 +52,21 @@ def size_adequacy(payload: SizeForAdequacyRequest) -> SizeForAdequacyResponse:
         max_gw=payload.max_gw,
     )
     return SizeForAdequacyResponse(**result)
+
+
+@router.post("/size-mix-for-adequacy", response_model=SizeMixForAdequacyResponse)
+def size_mix_adequacy(payload: SizeMixForAdequacyRequest) -> SizeMixForAdequacyResponse:
+    result = size_mix_for_adequacy(
+        country=payload.country,
+        capacities=payload.capacities_gw,
+        expandable=payload.expandable,
+        lole_target_hours=payload.lole_target_hours,
+        carbon_price=payload.carbon_price,
+        annual_demand_twh=payload.annual_demand_twh,
+        ensemble=payload.ensemble.model_dump() if payload.ensemble else None,
+        ess_short_power_gw=payload.ess_short_power_gw,
+        ess_short_duration_hr=payload.ess_short_duration_hr,
+        ess_long_power_gw=payload.ess_long_power_gw,
+        ess_long_duration_hr=payload.ess_long_duration_hr,
+    )
+    return SizeMixForAdequacyResponse(**result)

@@ -365,6 +365,37 @@ export async function sizeForAdequacy(payload: {
   });
 }
 
+export interface SizeMixForAdequacyResult {
+  requested: string[];
+  added_capacities_gw: Record<string, number>;
+  scale: number;
+  baseline_lole_hours: number;
+  lole_hours: number;
+  lole_target_hours: number;
+  met: boolean;
+  system_lcoe: number;
+  annual_system_cost_usd_billion: number;
+}
+
+export async function sizeMixForAdequacy(payload: {
+  country: string;
+  capacities_gw: Capacities;
+  expandable: string[];
+  lole_target_hours: number;
+  carbon_price: number;
+  annual_demand_twh?: number | null;
+  ensemble?: EnsembleConfig | null;
+  ess_short_power_gw?: number | null;
+  ess_short_duration_hr?: number | null;
+  ess_long_power_gw?: number | null;
+  ess_long_duration_hr?: number | null;
+}): Promise<SizeMixForAdequacyResult> {
+  return request<SizeMixForAdequacyResult>("/size-mix-for-adequacy", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function calculateBatch(
   payloads: Array<{
     country: string;

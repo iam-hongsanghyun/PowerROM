@@ -1,6 +1,11 @@
 import pytest
 
-from backend.core.lcoe_engine import calculate_system_lcoe, simulate_pathway, size_for_adequacy
+from backend.core.lcoe_engine import (
+    calculate_system_lcoe,
+    simulate_pathway,
+    size_for_adequacy,
+    size_mix_for_adequacy,
+)
 
 _BLOCK8 = {"method": "block_bootstrap", "n_samples": 8, "sigma": 0.05, "seed": 42, "block_days": 14}
 
@@ -20,6 +25,22 @@ def test_size_for_adequacy_grows_firm_capacity_to_meet_lole() -> None:
     assert result["added_gw"] > 0.0
     assert result["lole_hours"] <= 5.0 + 0.1          # ...to meet the standard
     assert result["met"] is True
+
+
+def test_size_mix_for_adequacy_co_sizes_a_blend_to_target() -> None:
+    # Co-sizes the whole expandable mix (not one axis): scales the least-cost meet-100%-load blend
+    # until the ensemble LOLE meets the standard. An under-built fleet must build, the achieved
+    # LOLE lands on the target, and a baseload+peaker blend can be part of the answer.
+    caps = {"solar": 160, "wind_onshore": 90, "gas_ccgt": 12, "coal": 3, "nuclear": 10, "other": 2}
+    result = size_mix_for_adequacy(
+        country="KR", capacities=caps, expandable=["gas_ccgt", "nuclear", "storage"],
+        lole_target_hours=5.0, carbon_price=50.0, annual_demand_twh=595.0, ensemble=_BLOCK8,
+        ess_short_power_gw=15.0, ess_short_duration_hr=8.0,
+    )
+    assert result["baseline_lole_hours"] > 5.0            # under-built to start
+    assert result["lole_hours"] <= 5.0 + 0.3              # sized to the standard
+    assert result["met"] is True
+    assert sum(result["added_capacities_gw"].values()) > 0.0  # a real build
 
 
 def test_size_for_adequacy_no_build_when_already_adequate() -> None:

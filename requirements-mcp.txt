@@ -1,0 +1,4 @@
+# Dependencies for the local PowerROM MCP server (backend/mcp_server.py).
+# Kept separate from requirements.txt so the Vercel serverless function stays lean.
+-r requirements.txt
+mcp>=1.2

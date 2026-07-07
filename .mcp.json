@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "powerrom": {
+      "command": "conda",
+      "args": [
+        "run",
+        "--no-capture-output",
+        "-n",
+        "powerrom",
+        "python",
+        "-u",
+        "-m",
+        "backend.mcp_server"
+      ]
+    }
+  }
+}

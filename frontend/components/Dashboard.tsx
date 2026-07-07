@@ -293,6 +293,7 @@ export function Dashboard() {
           custom_params,
           dispatch_mode: dispatchMode,
           weather_years: weatherYears.length ? weatherYears : null,
+          ensemble,
           ...essPayload,
         }),
         dispatchSystem({

@@ -57,13 +57,27 @@ def test_calculate_supports_all_policy_levers() -> None:
     assert r["dispatch"]["load_duration_curve"]["net_load_peak_gw"] is not None
 
 
-def test_run_dispatch_returns_compact_summary() -> None:
+def test_run_dispatch_returns_full_hourly_and_ldc() -> None:
     d = srv.run_dispatch("US", carbon_price=50.0, dispatch_mode="parametric")
     assert d["system_lcoe_usd_mwh"] > 0
-    assert "curtailment_rate" in d["scalars"] and "unserved_twh" in d["scalars"]
-    assert d["per_generator"]["capacity_factor"]  # per-generator CFs present
-    # No raw hourly arrays.
-    assert all(isinstance(v, (int, float, type(None))) for v in d["load_duration_curve"].values())
+    # Full 8760-hour chronological generation per generator.
+    assert len(d["hourly_generation"]["series"]["solar"]) == 8760
+    # Full 8760-point Load-Duration-Curve, net load descending.
+    nl = d["load_duration_curve"]["series"]["net_load"]
+    assert len(nl) == 8760 and nl[0] >= nl[-1]
+    # Full per-generator metric bands + the compact digest.
+    assert "capacity_factor" in d["metrics"] and "scalars" in d["digest"]
+
+
+def test_calculate_full_output_has_everything() -> None:
+    r = srv.calculate_lcoe("KR", carbon_price=50.0, dispatch_mode="parametric", full=True)
+    assert len(r["hourly_generation"]["series"]["solar"]) == 8760       # full hourly
+    assert len(r["load_duration_curve"]["series"]["net_load"]) == 8760   # full LDC
+    assert "capacity_factor" in r["dispatch_metrics_full"]               # full metric bands
+    assert "country_profile" in r["inputs"] and r["inputs"]["parameters"]  # all resolved inputs
+    # Summary stays compact when full is not requested.
+    lean = srv.calculate_lcoe("KR", carbon_price=50.0, dispatch_mode="parametric")
+    assert "hourly_generation" not in lean and "load_duration_curve" not in lean
 
 
 def test_lcoe_vs_vre_curve_is_a_real_sweep() -> None:

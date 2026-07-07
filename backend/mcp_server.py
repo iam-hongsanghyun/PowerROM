@@ -2,8 +2,11 @@
 
 Wraps the same engine the web app uses (``backend.core.lcoe_engine``) in-process, so an AI agent
 can list countries, price a generation mix, size for reliability, and run decarbonisation
-pathways without going through the HTTP API. Returns compact JSON summaries (scalars + small
-maps) rather than raw 8760-hour arrays, so results fit an agent's context.
+pathways without going through the HTTP API. Tools return a compact scalar summary by default,
+and can return the **full** output on request — the complete 8760-hour dispatch, the full
+Load-Duration-Curve, the per-generator metric bands, and every resolved input (via the
+``include_hourly`` / ``include_ldc`` / ``include_inputs`` / ``full`` flags on calculate_lcoe, and
+by default on run_dispatch).
 
 Run (stdio transport):
     python -m backend.mcp_server
@@ -116,6 +119,52 @@ def _summarize_calculation(result: dict[str, Any]) -> dict[str, Any]:
     return summary
 
 
+def _round(x: Any, nd: int = 4) -> Any:
+    """Recursively round floats in nested dict/list structures (keeps full data, trims JSON size)."""
+    if isinstance(x, float):
+        return round(x, nd)
+    if isinstance(x, dict):
+        return {k: _round(v, nd) for k, v in x.items()}
+    if isinstance(x, list):
+        return [_round(v, nd) for v in x]
+    return x
+
+
+def _full_dispatch_metrics(result: dict[str, Any]) -> dict[str, Any]:
+    """The complete per-generator dispatch metrics with p10/median/p90 bands (not just medians)."""
+    return _round((result.get("dispatch") or {}).get("metrics") or {})
+
+
+def _ldc(result: dict[str, Any], nd: int = 2) -> dict[str, Any] | None:
+    """Full 8760-point Load-Duration-Curve as the median line per series (the curve itself); the
+    p10/median/p90 bands are collapsed to the median to keep the payload usable."""
+    ldc = result.get("ldc")
+    if not ldc:
+        return None
+    series = {
+        k: _round(v.get("median") if isinstance(v, dict) else v, nd)
+        for k, v in (ldc.get("series") or {}).items()
+    }
+    return {"x_percent": _round(ldc.get("x_percent"), 3), "series": series,
+            "resource_order": ldc.get("resource_order")}
+
+
+def _resolved_inputs(country: str, result: dict[str, Any], params: dict[str, Any]) -> dict[str, Any]:
+    """Echo every setting used: the resolved fleet, demand, all non-null parameters, and the full
+    (custom-merged) country technology profile the model actually ran on."""
+    profile = load_country_profile(country)
+    if params.get("custom_params"):
+        from backend.core.lcoe_engine import deep_merge
+        profile = deep_merge(profile, params["custom_params"])
+    return {
+        "country": country,
+        "effective_capacities_gw": {k: round(v, 3) for k, v in (result.get("capacities_gw") or {}).items()},
+        "annual_demand_twh": round(result["annual_demand_twh"], 2),
+        "parameters": {k: v for k, v in params.items() if v is not None and v != {} and v != []},
+        "country_profile": profile,
+    }
+
+
 @mcp.tool()
 def list_countries() -> dict[str, Any]:
     """List every modelled country with its real Ember data: code, name, data year, annual demand
@@ -176,6 +225,10 @@ def calculate_lcoe(
     weather_years: list[int] | None = None,
     custom_params: dict[str, Any] | None = None,
     include_dispatch: bool = False,
+    include_ldc: bool = False,
+    include_hourly: bool = False,
+    include_inputs: bool = False,
+    full: bool = False,
 ) -> dict[str, Any]:
     """Price an electricity system: run the hourly dispatch for a country's generation fleet and
     return system LCOE ($/MWh), emission intensity, curtailment, unserved energy, import
@@ -212,8 +265,19 @@ def calculate_lcoe(
         ensemble_samples / ensemble_sigma / ensemble_seed: Ensemble configuration.
         weather_years: Weather years to use in data mode (e.g. [2018, 2019]).
         custom_params: Deep-merged overrides onto the country profile (e.g. per-generator costs).
-        include_dispatch: Also return the compact hourly-dispatch summary (CF, energy, LDC digest).
+        include_dispatch: Add the full per-generator dispatch metrics (CF, energy, shares — with
+            p10/median/p90 bands) and the LDC digest.
+        include_ldc: Add the complete Load-Duration-Curve (8760 sorted points per series).
+        include_hourly: Add the complete chronological hourly generation (8760 h per generator).
+        include_inputs: Echo every resolved setting — the effective fleet, demand, all parameters,
+            and the full (custom-merged) country technology profile the model ran on.
+        full: Shorthand for include_dispatch = include_ldc = include_hourly = include_inputs = True
+            (returns everything: hourly, LDC, all metrics, and all inputs).
     """
+    include_dispatch = include_dispatch or full
+    include_ldc = include_ldc or full
+    include_hourly = include_hourly or full
+    include_inputs = include_inputs or full
     profile_caps = load_country_profile(country.upper()).get("capacities_gw")
     caps = capacities_gw if capacities_gw is not None else (None if shares else profile_caps)
     result = calculate_system_lcoe(
@@ -227,7 +291,7 @@ def calculate_lcoe(
         dispatch_mode=dispatch_mode,
         weather_years=weather_years,
         ensemble=_ensemble(ensemble_method, ensemble_samples, ensemble_sigma, ensemble_seed),
-        include_ldc=include_dispatch,
+        include_ldc=(include_dispatch or include_ldc or include_hourly),
         generator_order=generator_order,
         min_cf=min_cf,
         max_cf=max_cf,
@@ -248,6 +312,28 @@ def calculate_lcoe(
     summary = _summarize_calculation(result)
     if include_dispatch:
         summary["dispatch"] = _dispatch_metrics(result)
+        summary["dispatch_metrics_full"] = _full_dispatch_metrics(result)
+    if include_ldc:
+        summary["load_duration_curve"] = _ldc(result)
+    if include_hourly:
+        summary["hourly_generation"] = _round(result.get("chronological"), 2)
+    if result.get("adequacy"):
+        summary["adequacy"] = _round(result["adequacy"])
+    if include_inputs:
+        summary["inputs"] = _resolved_inputs(country.upper(), result, {
+            "capacities_gw": capacities_gw, "shares": shares, "carbon_price": carbon_price,
+            "annual_demand_twh": annual_demand_twh, "ev_penetration": ev_penetration,
+            "min_cf": min_cf, "max_cf": max_cf, "generator_order": generator_order,
+            "ess_short_power_gw": ess_short_power_gw, "ess_short_duration_hr": ess_short_duration_hr,
+            "ess_long_power_gw": ess_long_power_gw, "ess_long_duration_hr": ess_long_duration_hr,
+            "expandable": expandable, "meet_full_load": meet_full_load,
+            "rps_target_share": rps_target_share, "rps_penalty_usd_mwh": rps_penalty_usd_mwh,
+            "subsidy_itc_pct": subsidy_itc_pct, "subsidy_ptc_usd_mwh": subsidy_ptc_usd_mwh,
+            "fuel_import_tariff_pct": fuel_import_tariff_pct, "demand_pattern": demand_pattern,
+            "demand_peak_ratio": demand_peak_ratio, "dispatch_mode": dispatch_mode,
+            "ensemble_method": ensemble_method, "weather_years": weather_years,
+            "custom_params": custom_params,
+        })
     return summary
 
 
@@ -262,10 +348,14 @@ def run_dispatch(
     dispatch_mode: str = "data",
     ensemble_method: str = "single",
     ensemble_samples: int = 5,
+    include_hourly: bool = True,
+    include_ldc: bool = True,
 ) -> dict[str, Any]:
-    """Run the 8760-hour dispatch and return a compact summary: per-generator capacity factor,
-    energy (TWh), generation share, the scalar metrics (curtailment rate, unserved energy), and a
-    Load-Duration-Curve digest (net-load peak/min). The raw hourly arrays are never returned.
+    """Run the 8760-hour dispatch and return the FULL result: per-generator metrics with
+    p10/median/p90 bands (capacity factor, energy, generation/capacity share, per-generator
+    curtailment), the scalar metrics, the complete Load-Duration-Curve (8760 sorted points per
+    series) and the complete chronological hourly generation (8760 h per generator, plus demand
+    and storage), and the resource order.
 
     Args:
         country: ISO-2 code.
@@ -276,6 +366,8 @@ def run_dispatch(
         dispatch_mode: "data" or "parametric".
         ensemble_method: "single", "jitter", "multiyear" or "block_bootstrap".
         ensemble_samples: Ensemble sample count.
+        include_hourly: Include the 8760-hour chronological generation (large). Default True.
+        include_ldc: Include the full 8760-point Load-Duration-Curve. Default True.
     """
     caps = capacities_gw or load_country_profile(country.upper()).get("capacities_gw")
     result = calculate_system_lcoe(
@@ -285,12 +377,20 @@ def run_dispatch(
         ensemble=_ensemble(ensemble_method, ensemble_samples, 0.04, 42),
         ess_short_power_gw=ess_short_power_gw, ess_long_power_gw=ess_long_power_gw,
     )
-    return {
+    out: dict[str, Any] = {
         "country": result["country"],
         "system_lcoe_usd_mwh": round(result["system_lcoe"], 2),
         "emission_intensity_gco2_kwh": round(result["emission_intensity"] * 1000, 1),
-        **_dispatch_metrics(result),
+        "annual_demand_twh": round(result["annual_demand_twh"], 2),
+        "capacities_gw": {k: round(v, 3) for k, v in (result.get("capacities_gw") or {}).items()},
+        "metrics": _full_dispatch_metrics(result),
+        "digest": _dispatch_metrics(result),
     }
+    if include_ldc:
+        out["load_duration_curve"] = _ldc(result)
+    if include_hourly:
+        out["hourly_generation"] = _round(result.get("chronological"), 2)
+    return out
 
 
 @mcp.tool()

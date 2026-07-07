@@ -6,6 +6,14 @@
     {
       "source": "/api/(.*)",
       "destination": "/api/index.py"
+    },
+    {
+      "source": "/mcp",
+      "destination": "/api/index.py"
+    },
+    {
+      "source": "/mcp/(.*)",
+      "destination": "/api/index.py"
     }
   ],
   "functions": {

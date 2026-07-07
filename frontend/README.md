@@ -14,7 +14,11 @@ pnpm dev
 bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3100](http://localhost:3100) with your browser to see the result.
+
+> Ports are offset +100 from Ragnarok (pypsa_gui) so both apps can run at once:
+> PowerROM uses **3100** (frontend) and **8100** (backend); Ragnarok uses 3000/8000.
+> The `run.command` launcher wires the frontend to the backend automatically.
 
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 

@@ -18,6 +18,18 @@ def test_expansion_meets_full_load_and_prices_it() -> None:
     assert set(added).issubset({"gas_ccgt", "nuclear"})  # only the checked generators grew
 
 
+def test_expansion_holds_across_weather_ensemble() -> None:
+    # Sized against the worst weather sample, so 100% load holds across the whole ensemble.
+    caps = {"solar": 120, "wind_onshore": 60, "gas_ccgt": 15, "coal": 8, "nuclear": 15, "other": 4}
+    result = calculate_system_lcoe(
+        country="KR", shares=caps, carbon_price=50.0, capacities_gw=caps,
+        ensemble={"method": "jitter", "n_samples": 6, "sigma": 0.06, "seed": 42},
+        expandable=["gas_ccgt", "nuclear"], meet_full_load=True,
+    )
+    band = result["dispatch"]["metrics"]["scalars"]["unserved_twh"]
+    assert band["p90"] < 0.1  # ~zero unserved even in the worst sampled weather year
+
+
 def test_expansion_can_grow_storage() -> None:
     # VRE-heavy fleet with a recoverable evening deficit; storage + gas should firm it.
     caps = {"solar": 160, "wind_onshore": 70, "gas_ccgt": 18, "coal": 4, "nuclear": 10, "other": 3}

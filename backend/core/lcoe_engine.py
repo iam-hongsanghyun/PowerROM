@@ -14,7 +14,7 @@ from backend.core.dispatch_engine import (
     run_dispatch_ensemble,
 )
 from backend.core.function_catalog import evaluate_function
-from backend.core.hourly_profiles import EnsembleSettings, load_hourly_profiles
+from backend.core.hourly_profiles import EnsembleSettings, load_hourly_profiles, sample_ensemble
 
 PROFILE_DIR = Path(__file__).resolve().parents[1] / "data" / "country_profiles"
 VRE_GENERATORS = {"solar", "wind_onshore"}
@@ -295,6 +295,23 @@ def _lcoe_at_cf(generator_config: dict[str, Any], cf: float, carbon_price: float
     fuel = float(generator_config.get("fuel_usd_mmbtu", 0.0)) * float(generator_config.get("heat_rate_mmbtu_mwh", 0.0))
     carbon = carbon_price * float(generator_config.get("emission_factor_tco2_mwh", 0.0))
     return capex + fixed + variable + fuel + carbon
+
+
+def _worst_case_profile(profile: dict[str, Any], sampled_profiles: list[Any], capacities: dict[str, float]) -> Any:
+    """The sampled weather year with the highest net-load peak (demand − VRE).
+
+    Sizing the expansion against this member so firm capacity covers the worst peak
+    guarantees ~zero unserved across the whole ensemble, not just a representative year.
+    """
+    avg_load_gw = profile["annual_generation_twh"] * 1000 / _HOURS_PER_YEAR
+    solar_cap = capacities.get("solar", 0.0)
+    wind_cap = capacities.get("wind_onshore", 0.0)
+
+    def net_load_peak(year_profile: Any) -> float:
+        residual = year_profile.demand_norm * avg_load_gw - solar_cap * year_profile.solar_cf - wind_cap * year_profile.wind_cf
+        return float(np.max(residual))
+
+    return max(sampled_profiles, key=net_load_peak)
 
 
 def _expand_to_meet_load(
@@ -595,9 +612,13 @@ def _calculate_system_lcoe_dispatch(
     # Capacity expansion: grow the checked generators to meet 100% of load, cheapest-first.
     expansion: dict[str, Any] | None = None
     if meet_full_load and expandable and normalized_capacities:
+        # Size against the worst-case weather sample so 100% load holds across the ensemble.
+        worst_profile = _worst_case_profile(
+            profile, sample_ensemble(year_profiles, settings), normalized_capacities
+        )
         added, storage_tiers, note = _expand_to_meet_load(
             profile=profile,
-            year_profile=year_profiles[0],
+            year_profile=worst_profile,
             base_capacities=normalized_capacities,
             expandable=expandable,
             carbon_price=carbon_price,

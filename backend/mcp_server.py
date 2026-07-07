@@ -26,7 +26,10 @@ from backend.core.lcoe_engine import (
     size_mix_for_adequacy,
 )
 
-mcp = FastMCP("powerrom")
+# stateless_http lets the Streamable-HTTP transport run without persistent sessions, which suits
+# serverless (each request is independent). streamable_http_path="/" so the app can be mounted at
+# /mcp in the FastAPI server without the path doubling to /mcp/mcp. Neither affects stdio.
+mcp = FastMCP("powerrom", stateless_http=True, streamable_http_path="/")
 
 GENERATORS = ["solar", "wind_onshore", "gas_ccgt", "coal", "nuclear", "other"]
 

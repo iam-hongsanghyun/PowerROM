@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -11,7 +13,28 @@ from backend.api.pathway import router as pathway_router
 from backend.api.profile import router as profile_router
 from backend.api.validate import router as validate_router
 
-app = FastAPI(title="PowerROM API", version="0.1.0")
+# Optional remote MCP endpoint: exposes the PowerROM tools over MCP's Streamable-HTTP transport at
+# /mcp. Guarded so the API still runs if the `mcp` SDK isn't installed (it lives in
+# requirements-mcp.txt for local stdio use; add it to requirements.txt to enable /mcp on Vercel).
+try:
+    from backend.mcp_server import mcp as _mcp
+
+    _mcp_app = _mcp.streamable_http_app()
+except Exception:  # noqa: BLE001 — MCP is optional
+    _mcp = None
+    _mcp_app = None
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    if _mcp_app is not None:
+        async with _mcp.session_manager.run():
+            yield
+    else:
+        yield
+
+
+app = FastAPI(title="PowerROM API", version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -38,6 +61,10 @@ app.include_router(profile_router, prefix="/api", tags=["profile"])
 app.include_router(pathway_router, prefix="/api", tags=["pathway"])
 
 
+if _mcp_app is not None:
+    app.mount("/mcp", _mcp_app)
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "ok"}
+    return {"status": "ok", "mcp": "enabled" if _mcp_app is not None else "disabled"}

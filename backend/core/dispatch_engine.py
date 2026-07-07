@@ -582,7 +582,11 @@ def _ldc_series(result: DispatchResult, generator_names: list[str]) -> dict[str,
     vre_dispatch = sum((result.dispatch_gw.get(gen, np.zeros(hours)) for gen in VRE_GENERATORS), np.zeros(hours))
     net_load = np.maximum(result.demand_gw - vre_dispatch, 0.0)
     order = np.argsort(-result.demand_gw)
-    served_load = sum((result.dispatch_gw.get(gen, np.zeros(hours)) for gen in generator_names), np.zeros(hours))
+    # True served load = demand − unserved. By the dispatch energy balance this equals the sum of
+    # generation PLUS storage discharge, so storage discharge stacks on top of generation to reach
+    # this line. (Storage discharge that displaces thermal already reduced that thermal's dispatch.)
+    served_load = np.maximum(result.demand_gw - result.unserved_gw, 0.0)
+    storage_net = result.storage_net_gw if result.storage_net_gw is not None else np.zeros(hours)
 
     series: dict[str, np.ndarray] = {
         "demand": result.demand_gw[order],
@@ -593,6 +597,9 @@ def _ldc_series(result: DispatchResult, generator_names: list[str]) -> dict[str,
             np.zeros(hours),
         )[order],
         "unserved": result.unserved_gw[order],
+        # Net storage flow (+ discharging serves load, − charging), sorted by the same gross-load
+        # order as every other series so it stacks position-for-position.
+        "storage": storage_net[order],
     }
     for gen in generator_names:
         series[gen] = result.dispatch_gw.get(gen, np.zeros(hours))[order]

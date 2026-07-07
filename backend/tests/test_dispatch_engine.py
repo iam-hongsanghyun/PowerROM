@@ -225,3 +225,23 @@ def test_storage_in_dispatch_reduces_curtailment_and_unserved() -> None:
     assert float(np.sum(without.unserved_gw)) > 0.0
     assert float(np.sum(with_storage.curtailed_gw["solar"])) < float(np.sum(without.curtailed_gw["solar"]))
     assert float(np.sum(with_storage.unserved_gw)) < float(np.sum(without.unserved_gw))
+
+
+def test_ldc_carries_storage_discharge_and_charge() -> None:
+    # The load-duration curve must expose a storage series so the chart can stack discharge and
+    # draw charge below zero, like the chronological view.
+    solar_cf = np.zeros(HOURS_PER_YEAR)
+    solar_cf[::2] = 1.0
+    year = YearProfile("TT", 2024, np.ones(HOURS_PER_YEAR), solar_cf, np.zeros(HOURS_PER_YEAR), "test")
+    result = dispatch_hourly(
+        profile={"generators": {"solar": {"cf_base": 0.5}}},
+        year_profile=year, shares={"solar": 1.0}, annual_demand_twh=8.76,
+        capacities_gw={"solar": 2.0},
+        storage_tiers=[{"name": "short", "power_gw": 1.0, "duration_hr": 8.0, "efficiency": 1.0}],
+    )
+    summary = aggregate_dispatch_results([result], include_ldc=True)
+    storage = np.asarray(summary["ldc"]["series"]["storage"]["median"])
+
+    assert "storage" in summary["ldc"]["series"]
+    assert storage.max() > 0.0   # discharge (serves load) — stacks on generation
+    assert storage.min() < 0.0   # charge (absorbs surplus) — drawn below zero

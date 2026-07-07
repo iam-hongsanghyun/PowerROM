@@ -113,6 +113,14 @@ export function LoadDurationCurveChart({ ldc, dispatch, loading = false }: Props
   const unserved = displayLdc.series.unserved;
   const stackKeys = displayLdc.resource_order.filter((key) => displayLdc.series[key]);
 
+  // Net storage flow, sorted by gross load like every other series: + discharge stacks on top of
+  // generation (fills toward served load), − charge is drawn below zero (absorbing surplus).
+  const storage = displayLdc.series.storage;
+  const dischargeMedian = storage ? storage.median.map((value) => Math.max(value, 0)) : [];
+  const chargeMedian = storage ? storage.median.map((value) => Math.min(value, 0)) : [];
+  const hasDischarge = dischargeMedian.some((value) => value > 0.001);
+  const hasCharge = chargeMedian.some((value) => value < -0.001);
+
   const traces: Plotly.Data[] = [
     ...bandTrace(x, demand.p10, demand.p90, "Load band", "rgba(14,165,233,0.16)"),
     ...stackKeys.map((key) => ({
@@ -126,6 +134,21 @@ export function LoadDurationCurveChart({ ldc, dispatch, loading = false }: Props
       line: { color: GENERATOR_COLORS[key] ?? "#64748b", width: 0.6 },
       hovertemplate: `${GENERATOR_LABELS[key] ?? key}: %{y:.2f} GW<br>%{x:.1f}% of hours<extra></extra>`,
     })),
+    ...(hasDischarge
+      ? [
+          {
+            type: "scatter" as const,
+            mode: "lines" as const,
+            name: "Storage (discharge)",
+            x,
+            y: dischargeMedian,
+            stackgroup: "dispatch",
+            fillcolor: "#ec4899cc",
+            line: { color: "#ec4899", width: 0.6 },
+            hovertemplate: "Storage discharge: %{y:.2f} GW<br>%{x:.1f}% of hours<extra></extra>",
+          },
+        ]
+      : []),
     {
       type: "scatter" as const,
       mode: "lines" as const,
@@ -176,6 +199,20 @@ export function LoadDurationCurveChart({ ldc, dispatch, loading = false }: Props
     });
   }
 
+  if (hasCharge) {
+    traces.push({
+      type: "scatter" as const,
+      mode: "lines" as const,
+      name: "Storage (charge)",
+      x,
+      y: chargeMedian,
+      fill: "tozeroy" as const,
+      fillcolor: "#ec489955",
+      line: { color: "#ec4899", width: 0 },
+      hovertemplate: "Storage charge: %{y:.2f} GW<br>%{x:.1f}% of hours<extra></extra>",
+    });
+  }
+
   const curtailment = scalarMedian(dispatch, "curtailment_rate");
   const unservedTwh = scalarMedian(dispatch, "unserved_twh");
   const peakLoad = scalarMedian(dispatch, "peak_load_gw");
@@ -203,7 +240,8 @@ export function LoadDurationCurveChart({ ldc, dispatch, loading = false }: Props
     yaxis: {
       title: { text: "Dispatch / Load (GW)" },
       gridcolor: "#e2e8f0",
-      rangemode: "tozero",
+      // Allow the axis below zero when storage charging is shown; otherwise anchor at zero.
+      rangemode: hasCharge ? "normal" : "tozero",
       fixedrange: true,
     },
   };

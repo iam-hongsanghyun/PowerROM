@@ -11,6 +11,11 @@ VRE_GENERATORS = ("solar", "wind_onshore")
 DISPLAY_ORDER = ("solar", "wind_onshore", "nuclear", "coal", "gas_ccgt", "other")
 QUANTILES = (0.1, 0.5, 0.9)
 
+# Short-duration storage arbitrages only in the priciest hours (top 1−percentile of the marginal
+# thermal cost), so its discharge aligns with the demand/price peak — where the reliability need
+# also is — instead of depleting itself in cheaper pre-peak hours and under-firming the peak.
+_ARBITRAGE_PRICE_PERCENTILE: float = 75.0
+
 
 @dataclass(frozen=True)
 class DispatchResult:
@@ -95,6 +100,97 @@ def _simulate_storage_soc(
     return np.asarray(charge, dtype=float), np.asarray(discharge, dtype=float)
 
 
+def _simulate_storage_economic(
+    surplus_gw: np.ndarray,
+    unserved_gw: np.ndarray,
+    displaceable_gw: np.ndarray,
+    power_gw: float,
+    energy_gwh: float,
+    efficiency: float,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Chronological SoC dispatch of one storage device, dispatched *economically*.
+
+    Generalises :func:`_simulate_storage_soc` from reliability-only to reliability + arbitrage.
+    Each hour, in order: charge from free ``surplus`` (curtailed VRE); otherwise discharge first
+    to any ``unserved`` demand (reliability, top priority), then — with any remaining power and
+    charge — to displace the most-expensive running thermal (``displaceable``), cutting that
+    generator's fuel and carbon. Charging stays free-surplus only, so displacing thermal is
+    always profitable; its *value* (the displaced fuel + carbon) rises with the carbon price,
+    which is how storage now responds to carbon rather than only to shortfalls. Passing
+    ``displaceable_gw = 0`` recovers pure reliability behaviour (used for the long/seasonal tier,
+    whose charge is held as a drought reserve rather than cycled for daily arbitrage).
+
+    Args:
+        surplus_gw: Hourly chargeable surplus (curtailed generation), GW.
+        unserved_gw: Hourly unserved demand — reliability discharge target, GW.
+        displaceable_gw: Hourly output of the marginal (priciest running) thermal, GW.
+        power_gw: Rated charge/discharge power, GW.
+        energy_gwh: Usable energy capacity (= power × duration), GWh.
+        efficiency: Round-trip efficiency (energy delivered ÷ energy stored), 0–1.
+
+    Returns:
+        ``(charge_gw, discharge_to_unserved_gw, discharge_to_thermal_gw)`` hourly arrays.
+
+    Algorithm:
+        Greedy causal loop with state of charge ``soc``; a discharging hour serves unserved
+        before displacing thermal:
+        charge ``c = min(surplus, power, energy − soc)`` → ``soc += c``; else
+        ``d_u = min(unserved, power, soc·η)`` then ``d_t = min(displaceable, power − d_u, soc·η)``,
+        ``soc −= (d_u + d_t)/η``.
+    """
+    hours = len(surplus_gw)
+    if power_gw <= 0.0 or energy_gwh <= 0.0:
+        z = np.zeros(hours, dtype=float)
+        return z, z.copy(), z.copy()
+
+    surplus = surplus_gw.tolist()
+    unserved = unserved_gw.tolist()
+    displaceable = displaceable_gw.tolist()
+    charge = [0.0] * hours
+    discharge_unserved = [0.0] * hours
+    discharge_thermal = [0.0] * hours
+    soc = 0.0
+    eff = max(1e-6, float(efficiency))
+    power = float(power_gw)
+    energy = float(energy_gwh)
+    for h in range(hours):
+        s = surplus[h]
+        if s > 1e-9 and soc < energy:
+            c = s if s < power else power
+            room = energy - soc
+            if room < c:
+                c = room
+            charge[h] = c
+            soc += c
+            continue
+        if soc <= 1e-9:
+            continue
+        headroom = power
+        u = unserved[h]
+        if u > 1e-9:  # reliability first
+            cap = soc * eff
+            d = u if u < headroom else headroom
+            if cap < d:
+                d = cap
+            discharge_unserved[h] = d
+            soc -= d / eff
+            headroom -= d
+        if headroom > 1e-9 and soc > 1e-9:  # then displace the priciest thermal
+            m = displaceable[h]
+            if m > 1e-9:
+                cap = soc * eff
+                d = m if m < headroom else headroom
+                if cap < d:
+                    d = cap
+                discharge_thermal[h] = d
+                soc -= d / eff
+    return (
+        np.asarray(charge, dtype=float),
+        np.asarray(discharge_unserved, dtype=float),
+        np.asarray(discharge_thermal, dtype=float),
+    )
+
+
 def _marginal_cost_usd_mwh(generator_config: dict[str, Any], carbon_price: float) -> float:
     """Short-run (dispatch) marginal cost of a flexible generator, $/MWh.
 
@@ -124,6 +220,7 @@ def dispatch_hourly(
     capacities_gw: dict[str, float] | None = None,
     generator_order: list[str] | None = None,
     storage_tiers: list[dict[str, float]] | None = None,
+    economic_storage: bool = True,
 ) -> DispatchResult:
     """Screening merit-order dispatch over the hourly (net-load) pattern.
 
@@ -226,22 +323,61 @@ def dispatch_hourly(
 
     unserved_gw = residual_gw
 
-    # 4. Endogenous storage (user-set tiers): charge from curtailment, discharge to
-    #    unserved demand, in tier order (short/intraday first, then long/seasonal).
+    # 4. Endogenous storage (user-set tiers). Charge from curtailed surplus, discharge to unserved.
+    #    When ``economic_storage`` (reporting mode), the short/intraday tier also discharges to
+    #    displace the priciest running thermal in the top-price hours (arbitrage), cutting its fuel
+    #    + carbon; the long/seasonal tier holds its charge as a drought reserve (no arbitrage).
+    #    Reliability-only mode (``economic_storage=False``, used for expansion sizing) skips the
+    #    arbitrage so a storage device's firm contribution is measured without depleting it.
     storage_net_gw = np.zeros(hours, dtype=float)  # + = discharging, − = charging
     if storage_tiers:
         curtailed_total = sum(curtailed_gw.values(), np.zeros(hours, dtype=float))
         surplus_gw = curtailed_total.copy()
         deficit_gw = unserved_gw.copy()
+
+        # Per-hour marginal (priciest running) thermal + its price, for arbitrage displacement.
+        marginal_gw = np.zeros(hours, dtype=float)
+        marginal_idx = np.full(hours, -1, dtype=int)
+        displaceable_peak = np.zeros(hours, dtype=float)
+        if economic_storage and flexible_names:
+            flex_by_cost = sorted(
+                flexible_names,
+                key=lambda gen: _marginal_cost_usd_mwh(profile["generators"][gen], carbon_price),
+            )
+            price = np.zeros(hours, dtype=float)
+            for i, gen in enumerate(flex_by_cost):  # ascending SRMC → last running one is priciest
+                running = dispatch_gw[gen] > 1e-9
+                srmc = _marginal_cost_usd_mwh(profile["generators"][gen], carbon_price)
+                marginal_idx = np.where(running, i, marginal_idx)
+                marginal_gw = np.where(running, dispatch_gw[gen], marginal_gw)
+                price = np.where(running, srmc, price)
+            positive = price[price > 1e-9]
+            if positive.size:
+                threshold = float(np.percentile(positive, _ARBITRAGE_PRICE_PERCENTILE))
+                displaceable_peak = np.where(price >= threshold, marginal_gw, 0.0)
+                # Reserve storage for reliability: on any day with a pre-storage shortfall, hold the
+                # charge for the peak instead of arbitraging it away (which would re-open the gap the
+                # expansion sized storage to close). Arbitrage runs only on days with no firmness need.
+                if hours % 24 == 0:
+                    critical_day = (deficit_gw.reshape(-1, 24).max(axis=1) > 1e-9)
+                    displaceable_peak = np.where(np.repeat(critical_day, 24), 0.0, displaceable_peak)
+
         for tier in storage_tiers:
             power = float(tier.get("power_gw", 0.0))
             energy = power * float(tier.get("duration_hr", 0.0))
-            charge, discharge = _simulate_storage_soc(
-                surplus_gw, deficit_gw, power, energy, float(tier.get("efficiency", 0.85))
+            displaceable = displaceable_peak if tier.get("name") == "short" else np.zeros(hours, dtype=float)
+            charge, discharge_unserved, discharge_thermal = _simulate_storage_economic(
+                surplus_gw, deficit_gw, displaceable, power, energy, float(tier.get("efficiency", 0.85))
             )
             surplus_gw = surplus_gw - charge
-            deficit_gw = deficit_gw - discharge
-            storage_net_gw += discharge - charge
+            deficit_gw = deficit_gw - discharge_unserved
+            if discharge_thermal.any():
+                # Reduce the displaced marginal thermal's output (and expose the next tier to the
+                # now-lower margin), so its fuel + carbon fall in the reported LCOE.
+                for i, gen in enumerate(flex_by_cost):
+                    dispatch_gw[gen] = dispatch_gw[gen] - np.where(marginal_idx == i, discharge_thermal, 0.0)
+                displaceable_peak = np.maximum(displaceable_peak - discharge_thermal, 0.0)
+            storage_net_gw += discharge_unserved + discharge_thermal - charge
         # Attribute the absorbed surplus back to each generator's curtailment pro-rata.
         with np.errstate(divide="ignore", invalid="ignore"):
             remaining_fraction = np.where(curtailed_total > 0.0, surplus_gw / curtailed_total, 0.0)

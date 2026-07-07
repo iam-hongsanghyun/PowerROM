@@ -18,6 +18,21 @@ def test_expansion_meets_full_load_and_prices_it() -> None:
     assert set(added).issubset({"gas_ccgt", "nuclear"})  # only the checked generators grew
 
 
+def test_short_storage_displaces_thermal_and_cuts_emissions() -> None:
+    # Economic dispatch: short storage charges free surplus and discharges to displace the priciest
+    # running thermal, so adding it cuts emissions even where there is little unserved to serve —
+    # the old reliability-only dispatch could not (storage sat below thermals in the merit stack).
+    caps = {"solar": 180, "wind_onshore": 50, "gas_ccgt": 40, "coal": 10, "nuclear": 15, "other": 3}
+    base = dict(
+        country="KR", shares=caps, carbon_price=80.0, capacities_gw=caps, ensemble=_SINGLE,
+        annual_demand_twh=595.0, ess_short_duration_hr=6.0, ess_long_power_gw=0.0,
+    )
+    without = calculate_system_lcoe(**base, ess_short_power_gw=0.0)
+    with_storage = calculate_system_lcoe(**base, ess_short_power_gw=25.0)
+
+    assert with_storage["annual_emissions_mtco2"] < without["annual_emissions_mtco2"] - 1.0
+
+
 def test_clean_energy_subsidy_targets_clean_only() -> None:
     caps = {"solar": 120, "wind_onshore": 60, "gas_ccgt": 30, "coal": 15, "nuclear": 18, "other": 6}
     base = dict(country="KR", shares=caps, carbon_price=50.0, capacities_gw=caps, ensemble=_SINGLE)

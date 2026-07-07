@@ -386,11 +386,15 @@ def _expand_to_meet_load(
         return {}, tiers, "Select a generator or storage to expand to meet 100% load."
 
     def _unserved(caps: dict[str, float], trs: list[dict[str, float]]) -> tuple[float, float]:
-        """Return (unserved energy TWh, residual peak GW) for a candidate build."""
+        """Return (unserved energy TWh, residual peak GW) for a candidate build.
+
+        Sizing measures a device's *firm* contribution, so storage is dispatched reliability-only
+        here (``economic_storage=False``) — its charge is held for the peak, not spent on arbitrage.
+        """
         result = dispatch_hourly(
             profile=profile, year_profile=year_profile, shares=caps,
             annual_demand_twh=annual_demand_twh, carbon_price=carbon_price,
-            capacities_gw=caps, storage_tiers=trs,
+            capacities_gw=caps, storage_tiers=trs, economic_storage=False,
         )
         return float(np.sum(result.unserved_gw)) / 1000, float(np.max(result.unserved_gw))
 

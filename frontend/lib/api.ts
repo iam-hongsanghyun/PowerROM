@@ -238,6 +238,8 @@ export async function calculateSystem(payload: {
   shares?: Shares;
   capacities_gw?: Capacities;
   generator_order?: GeneratorKey[];
+  min_cf?: Partial<Record<GeneratorKey, number>>;
+  max_cf?: Partial<Record<GeneratorKey, number>>;
   carbon_price: number;
   ev_penetration?: number;
   annual_demand_twh?: number;
@@ -272,6 +274,8 @@ export async function dispatchSystem(payload: {
   shares?: Shares;
   capacities_gw?: Capacities;
   generator_order?: GeneratorKey[];
+  min_cf?: Partial<Record<GeneratorKey, number>>;
+  max_cf?: Partial<Record<GeneratorKey, number>>;
   carbon_price: number;
   ev_penetration?: number;
   annual_demand_twh?: number;

@@ -221,6 +221,8 @@ def dispatch_hourly(
     generator_order: list[str] | None = None,
     storage_tiers: list[dict[str, float]] | None = None,
     economic_storage: bool = True,
+    min_cf: dict[str, float] | None = None,
+    max_cf: dict[str, float] | None = None,
 ) -> DispatchResult:
     """Screening merit-order dispatch over the hourly (net-load) pattern.
 
@@ -237,10 +239,26 @@ def dispatch_hourly(
 
     This replaces a fixed hand-ordered greedy stack; the annual energy per generator is
     the area under its slice of the net-load duration curve.
+
+    Per-generator capacity-factor limits (``min_cf`` / ``max_cf``, each a ``{generator: cf}``
+    mapping in [0, 1]) refine the stack:
+
+    * ``max_cf`` — availability ceiling. A generator can never dispatch above
+      ``capacity × max_cf`` (planned outages, fuel/water limits, grid-connection caps). For VRE
+      it clips the resource; the excess is curtailed.
+    * ``min_cf`` — must-run floor. A generator runs at **at least** ``capacity × min_cf`` every
+      hour, dispatched ahead of the merit order; any floor output above the residual load is
+      spilled (curtailed). This is the general take-or-pay / must-run rule the nuclear baseload
+      is a special case of. When ``min_cf`` for nuclear is given it overrides the profile
+      ``cf_base`` baseload level.
+
+    Both default to no effect when absent, so a call without them dispatches exactly as before.
     """
     generator_names = _ordered_generators(profile, generator_order)
     normalized_shares = _normalize_shares(shares)
     fixed_capacities = _normalize_capacities(capacities_gw or {})
+    min_cf = {k: max(0.0, min(1.0, float(v))) for k, v in (min_cf or {}).items()}
+    max_cf = {k: max(0.0, min(1.0, float(v))) for k, v in (max_cf or {}).items()}
     hours = len(year_profile.demand_norm)
     if hours != HOURS_PER_YEAR:
         raise ValueError("Dispatch requires an 8760-hour profile.")
@@ -266,7 +284,10 @@ def dispatch_hourly(
             continue
 
         if gen == "nuclear":
-            nuclear_cf = _base_capacity_factor(profile["generators"][gen], fallback=0.85)
+            # min_cf overrides the profile baseload level; nuclear runs flat at this CF.
+            nuclear_cf = min_cf.get(
+                "nuclear", _base_capacity_factor(profile["generators"][gen], fallback=0.85)
+            )
             if gen in fixed_capacities:
                 capacities_gw[gen] = fixed_capacities[gen]
             else:
@@ -284,6 +305,12 @@ def dispatch_hourly(
             target_gwh = annual_demand_twh * 1000 * gen_share
             capacities_gw[gen] = target_gwh / (gen_cf * hours) if target_gwh > 0 else 0.0
         available_gw[gen] = np.full(hours, capacities_gw[gen], dtype=float)
+
+    # Availability ceiling: no generator may dispatch above capacity × max_cf. For VRE this
+    # clips the resource (surplus curtailed downstream); for thermals it caps the fleet.
+    for gen in generator_names:
+        if gen in max_cf:
+            available_gw[gen] = np.minimum(available_gw[gen], capacities_gw[gen] * max_cf[gen])
 
     vre_names = [gen for gen in generator_names if gen in VRE_GENERATORS]
     flexible_names = [gen for gen in generator_names if gen not in VRE_GENERATORS and gen != "nuclear"]
@@ -316,10 +343,25 @@ def dispatch_hourly(
         curtailed_gw[gen] = available_gw[gen] - dispatch_gw[gen]
     residual_gw = np.maximum(residual_gw - served_vre_gw, 0.0)
 
-    # 3. Flexible thermals fill the residual in merit order.
+    # 2.5 Must-run floors (min_cf): each flexible thermal runs at least capacity × min_cf every
+    #     hour, ahead of the merit order. Floor output above the residual is spilled (curtailed).
     for gen in flexible_names:
-        dispatch_gw[gen] = np.minimum(residual_gw, available_gw[gen])
-        residual_gw = np.maximum(residual_gw - dispatch_gw[gen], 0.0)
+        floor_cf = min_cf.get(gen, 0.0)
+        if floor_cf <= 0.0:
+            continue
+        floor_gw = np.minimum(np.full(hours, capacities_gw[gen] * floor_cf), available_gw[gen])
+        served = np.minimum(floor_gw, residual_gw)
+        dispatch_gw[gen] = floor_gw
+        curtailed_gw[gen] = floor_gw - served
+        residual_gw = np.maximum(residual_gw - served, 0.0)
+
+    # 3. Flexible thermals fill the remaining residual in merit order, using the headroom above
+    #    any must-run floor already dispatched. With no floors this is the plain merit fill.
+    for gen in flexible_names:
+        headroom = np.maximum(available_gw[gen] - dispatch_gw[gen], 0.0)
+        added = np.minimum(residual_gw, headroom)
+        dispatch_gw[gen] = dispatch_gw[gen] + added
+        residual_gw = np.maximum(residual_gw - added, 0.0)
 
     unserved_gw = residual_gw
 
@@ -412,6 +454,8 @@ def run_dispatch_ensemble(
     carbon_price: float = 0.0,
     storage_tiers: list[dict[str, float]] | None = None,
     return_members: bool = False,
+    min_cf: dict[str, float] | None = None,
+    max_cf: dict[str, float] | None = None,
 ) -> dict[str, Any]:
     from backend.core.hourly_profiles import sample_ensemble
 
@@ -426,6 +470,8 @@ def run_dispatch_ensemble(
             capacities_gw=capacities_gw,
             generator_order=generator_order,
             storage_tiers=storage_tiers,
+            min_cf=min_cf,
+            max_cf=max_cf,
         )
         for year_profile in sampled_profiles
     ]

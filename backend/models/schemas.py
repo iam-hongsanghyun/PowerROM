@@ -40,6 +40,10 @@ class CalculateRequest(BaseModel):
     shares: dict[str, float] = Field(default_factory=dict)
     capacities_gw: dict[str, float] | None = None
     generator_order: list[str] | None = None
+    # Per-generator capacity-factor limits (0–1): min_cf = must-run floor, max_cf = availability
+    # ceiling. Absent generators are unconstrained.
+    min_cf: dict[str, float] | None = None
+    max_cf: dict[str, float] | None = None
     carbon_price: float = Field(ge=0, le=500)
     ev_penetration: float = Field(default=0.0, ge=0.0, le=0.5)
     annual_demand_twh: float | None = Field(default=None, gt=0)
@@ -88,6 +92,17 @@ class CalculateRequest(BaseModel):
             raise ValueError("Shares must sum to a positive value.")
         if any(value < 0 for value in self.shares.values()):
             raise ValueError("Shares cannot be negative.")
+        return self
+
+    @model_validator(mode="after")
+    def validate_cf_limits(self) -> "CalculateRequest":
+        for name, limits in (("min_cf", self.min_cf), ("max_cf", self.max_cf)):
+            if limits and any(not (0.0 <= value <= 1.0) for value in limits.values()):
+                raise ValueError(f"{name} values must be between 0 and 1.")
+        if self.min_cf and self.max_cf:
+            for gen in set(self.min_cf) & set(self.max_cf):
+                if self.min_cf[gen] > self.max_cf[gen]:
+                    raise ValueError(f"min_cf[{gen}] cannot exceed max_cf[{gen}].")
         return self
 
 

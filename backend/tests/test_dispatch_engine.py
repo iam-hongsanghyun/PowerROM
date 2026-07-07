@@ -1,4 +1,6 @@
 import numpy as np
+import pytest
+from pydantic import ValidationError
 
 from backend.core.dispatch_engine import (
     _simulate_storage_soc,
@@ -6,6 +8,7 @@ from backend.core.dispatch_engine import (
     dispatch_hourly,
 )
 from backend.core.hourly_profiles import HOURS_PER_YEAR, YearProfile
+from backend.models.schemas import CalculateRequest
 
 
 def _minimal_profile() -> dict:
@@ -178,6 +181,69 @@ def test_nuclear_must_run_displaces_free_vre() -> None:
     np.testing.assert_allclose(result.dispatch_gw["solar"], np.full(HOURS_PER_YEAR, 0.2))
     assert float(np.sum(result.curtailed_gw["solar"])) > 0.0
     assert float(np.sum(result.unserved_gw)) == 0.0
+
+
+def test_max_cf_caps_thermal_availability() -> None:
+    # A hard availability ceiling: coal may never dispatch above capacity × max_cf. Demand
+    # (8 GW flat) exceeds the 5 GW ceiling on a 10 GW fleet, so 3 GW/h goes unserved.
+    year = _flat_year()  # demand = 1.0 flat
+    kwargs = dict(
+        profile={"generators": {"coal": {"cf_base": 1.0}}},
+        year_profile=year,
+        shares={"coal": 1.0},
+        annual_demand_twh=8.0 * HOURS_PER_YEAR / 1000,  # 8 GW flat
+        capacities_gw={"coal": 10.0},
+    )
+    base = dispatch_hourly(**kwargs)
+    capped = dispatch_hourly(**kwargs, max_cf={"coal": 0.5})
+    assert float(np.max(base.dispatch_gw["coal"])) == 8.0  # unconstrained serves the load
+    np.testing.assert_allclose(capped.dispatch_gw["coal"], np.full(HOURS_PER_YEAR, 5.0))
+    np.testing.assert_allclose(capped.unserved_gw, np.full(HOURS_PER_YEAR, 3.0))
+
+
+def test_min_cf_forces_must_run_floor_and_spills() -> None:
+    # A must-run floor: coal runs at least capacity × min_cf every hour even when demand (3 GW)
+    # is below the 5 GW floor on a 10 GW fleet — the 2 GW/h surplus is spilled (curtailed).
+    year = _flat_year()
+    kwargs = dict(
+        profile={"generators": {"coal": {"cf_base": 1.0}}},
+        year_profile=year,
+        shares={"coal": 1.0},
+        annual_demand_twh=3.0 * HOURS_PER_YEAR / 1000,  # 3 GW flat
+        capacities_gw={"coal": 10.0},
+    )
+    base = dispatch_hourly(**kwargs)
+    floored = dispatch_hourly(**kwargs, min_cf={"coal": 0.5})
+    np.testing.assert_allclose(base.dispatch_gw["coal"], np.full(HOURS_PER_YEAR, 3.0))  # merit only
+    assert float(np.sum(base.curtailed_gw["coal"])) == 0.0
+    np.testing.assert_allclose(floored.dispatch_gw["coal"], np.full(HOURS_PER_YEAR, 5.0))  # floor binds
+    np.testing.assert_allclose(floored.curtailed_gw["coal"], np.full(HOURS_PER_YEAR, 2.0))  # spilled
+
+
+def test_cf_limits_validation_rejects_min_above_max() -> None:
+    common = dict(country="KR", shares={"coal": 1.0}, carbon_price=50.0)
+    with pytest.raises(ValidationError):
+        CalculateRequest(**common, min_cf={"coal": 0.9}, max_cf={"coal": 0.4})
+    with pytest.raises(ValidationError):
+        CalculateRequest(**common, max_cf={"coal": 1.5})  # out of [0, 1]
+    # A valid, consistent pair is accepted.
+    CalculateRequest(**common, min_cf={"coal": 0.3}, max_cf={"coal": 0.8})
+
+
+def test_min_max_cf_absent_is_a_noop() -> None:
+    # Empty/None limits must dispatch identically to the unconstrained call (backward compatible).
+    year = _flat_year()
+    kwargs = dict(
+        profile={"generators": {"solar": {"cf_base": 1.0}, "coal": {"cf_base": 1.0}}},
+        year_profile=year,
+        shares={"solar": 0.5, "coal": 0.5},
+        annual_demand_twh=8.76,
+        capacities_gw={"solar": 1.0, "coal": 1.0},
+    )
+    base = dispatch_hourly(**kwargs)
+    same = dispatch_hourly(**kwargs, min_cf={}, max_cf={})
+    for gen in ("solar", "coal"):
+        np.testing.assert_array_equal(base.dispatch_gw[gen], same.dispatch_gw[gen])
 
 
 def test_storage_soc_shifts_energy_within_limits() -> None:

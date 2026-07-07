@@ -23,6 +23,8 @@ def dispatch(payload: CalculateRequest) -> DispatchResponse:
         include_ldc=True,
         capacities_gw=payload.capacities_gw,
         generator_order=payload.generator_order,
+        min_cf=payload.min_cf,
+        max_cf=payload.max_cf,
         ess_short_power_gw=payload.ess_short_power_gw,
         ess_short_duration_hr=payload.ess_short_duration_hr,
         ess_long_power_gw=payload.ess_long_power_gw,

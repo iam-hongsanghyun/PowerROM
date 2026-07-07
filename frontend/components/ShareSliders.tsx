@@ -35,6 +35,8 @@ function reorder(order: GeneratorKey[], draggedKey: GeneratorKey, targetKey: Gen
 
 export function ShareSliders({
   capacityInputs,
+  minCfInputs,
+  maxCfInputs,
   generatorOrder,
   calculatedShares,
   expandable,
@@ -42,11 +44,17 @@ export function ShareSliders({
   addedCapacities,
   expansionNote,
   onChange,
+  onMinCfChange,
+  onMaxCfChange,
   onOrderChange,
   onExpandableToggle,
   onMeetFullLoadChange,
 }: {
   capacityInputs: Record<GeneratorKey, string>;
+  /** Per-generator must-run floor CF (0–1), as text; blank = unconstrained. */
+  minCfInputs: Record<GeneratorKey, string>;
+  /** Per-generator availability-ceiling CF (0–1), as text; blank = unconstrained. */
+  maxCfInputs: Record<GeneratorKey, string>;
   generatorOrder: GeneratorKey[];
   /** Model-calculated generation share per generator (0–1) from the last run. */
   calculatedShares?: Record<string, number>;
@@ -57,6 +65,8 @@ export function ShareSliders({
   addedCapacities?: Record<string, number>;
   expansionNote?: string;
   onChange: (key: GeneratorKey, value: string) => void;
+  onMinCfChange: (key: GeneratorKey, value: string) => void;
+  onMaxCfChange: (key: GeneratorKey, value: string) => void;
   onOrderChange: (order: GeneratorKey[]) => void;
   onExpandableToggle: (key: GeneratorKey) => void;
   onMeetFullLoadChange: (value: boolean) => void;
@@ -139,13 +149,14 @@ export function ShareSliders({
               rowRefs.current.set(key, el);
             }}
             className={[
-              "flex items-center gap-2 rounded-lg border bg-white px-2 py-1.5 transition",
+              "flex flex-col gap-1.5 rounded-lg border bg-white px-2 py-1.5 transition",
               draggingKey === key
                 ? "border-slate-400 shadow-md ring-1 ring-slate-300"
                 : "border-slate-200",
               draggingKey && draggingKey !== key ? "opacity-60" : "",
             ].join(" ")}
           >
+            <div className="flex items-center gap-2">
             <div
               onPointerDown={(event) => {
                 event.preventDefault();
@@ -199,6 +210,33 @@ export function ShareSliders({
             >
               {(share * 100).toFixed(1)}%
             </span>
+            </div>
+
+            <div className="flex items-center gap-1.5 pl-6 text-[10px] text-slate-400">
+              <span className="uppercase tracking-[0.1em]">CF</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={minCfInputs[key] ?? ""}
+                onChange={(event) => onMinCfChange(key, event.target.value)}
+                placeholder="min"
+                aria-label={`${label} minimum capacity factor`}
+                title="Must-run floor: this generator runs at least capacity × min CF every hour (0–1). Blank = off."
+                className="w-14 rounded border border-slate-200 bg-white px-1.5 py-0.5 text-right text-[11px] tabular-nums text-slate-700 outline-none transition placeholder:text-slate-300 focus:border-slate-400"
+              />
+              <span className="text-slate-300">–</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={maxCfInputs[key] ?? ""}
+                onChange={(event) => onMaxCfChange(key, event.target.value)}
+                placeholder="max"
+                aria-label={`${label} maximum capacity factor`}
+                title="Availability ceiling: this generator never dispatches above capacity × max CF (0–1). Blank = off."
+                className="w-14 rounded border border-slate-200 bg-white px-1.5 py-0.5 text-right text-[11px] tabular-nums text-slate-700 outline-none transition placeholder:text-slate-300 focus:border-slate-400"
+              />
+              <span className="text-slate-300">min/max CF</span>
+            </div>
           </div>
         );
       })}

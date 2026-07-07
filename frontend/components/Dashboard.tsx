@@ -137,6 +137,25 @@ const INITIAL_CAPACITIES = capacitiesFromSummary(
   FALLBACK_COUNTRIES.find((c) => c.code === INITIAL_COUNTRY) ?? FALLBACK_COUNTRIES[0],
 );
 
+function emptyCfInputs(): Record<(typeof GENERATOR_KEYS)[number], string> {
+  return { solar: "", wind_onshore: "", gas_ccgt: "", coal: "", nuclear: "", other: "" };
+}
+
+// Parse the per-generator CF text inputs into a {generator: cf} map, keeping only entries with a
+// valid fraction in [0, 1]; blank/invalid inputs leave that generator unconstrained.
+function parseCfLimits(
+  inputs: Record<(typeof GENERATOR_KEYS)[number], string>,
+): Partial<Record<GeneratorKey, number>> {
+  const out: Partial<Record<GeneratorKey, number>> = {};
+  for (const key of GENERATOR_KEYS) {
+    const raw = inputs[key]?.trim();
+    if (!raw) continue;
+    const value = Number(raw);
+    if (Number.isFinite(value) && value >= 0 && value <= 1) out[key] = value;
+  }
+  return out;
+}
+
 function parseCapacityInputs(
   capacityInputs: Record<(typeof GENERATOR_KEYS)[number], string>,
 ): Capacities | null {
@@ -161,6 +180,10 @@ export function Dashboard() {
   const [capacityInputs, setCapacityInputs] = useState<Record<(typeof GENERATOR_KEYS)[number], string>>(
     capacityInputDefaults(INITIAL_CAPACITIES),
   );
+  // Per-generator capacity-factor limits (0–1). Blank = unconstrained. min = must-run floor,
+  // max = availability ceiling. Applied in the backend dispatch.
+  const [minCfInputs, setMinCfInputs] = useState<Record<(typeof GENERATOR_KEYS)[number], string>>(emptyCfInputs());
+  const [maxCfInputs, setMaxCfInputs] = useState<Record<(typeof GENERATOR_KEYS)[number], string>>(emptyCfInputs());
   const [generatorOrder, setGeneratorOrder] = useState<GeneratorKey[]>([...GENERATOR_KEYS]);
   // Capacity expansion: which generators (or "storage") the solver may grow to meet 100% load.
   const [expandable, setExpandable] = useState<Set<string>>(new Set());
@@ -310,6 +333,8 @@ export function Dashboard() {
     setIsAnalyzing(true);
     setIsDispatchLoading(true);
     const custom_params = buildCustomParams();
+    const minCf = parseCfLimits(minCfInputs);
+    const maxCf = parseCfLimits(maxCfInputs);
     const essPayload = {
       // Duration comes from the profile (Parameters -> ESS); only power is set here.
       ess_short_power_gw: storage.shortPowerGw,
@@ -323,6 +348,8 @@ export function Dashboard() {
       subsidy_itc_pct: subsidyItc > 0 ? subsidyItc : null,
       subsidy_ptc_usd_mwh: subsidyPtc > 0 ? subsidyPtc : null,
       fuel_import_tariff_pct: fuelImportTariff > 0 ? fuelImportTariff : null,
+      min_cf: Object.keys(minCf).length ? minCf : undefined,
+      max_cf: Object.keys(maxCf).length ? maxCf : undefined,
     };
 
     try {
@@ -364,6 +391,14 @@ export function Dashboard() {
 
   function handleCapacityInputChange(key: (typeof GENERATOR_KEYS)[number], value: string) {
     setCapacityInputs((prev) => ({ ...prev, [key]: value }));
+  }
+
+  function handleMinCfChange(key: (typeof GENERATOR_KEYS)[number], value: string) {
+    setMinCfInputs((prev) => ({ ...prev, [key]: value }));
+  }
+
+  function handleMaxCfChange(key: (typeof GENERATOR_KEYS)[number], value: string) {
+    setMaxCfInputs((prev) => ({ ...prev, [key]: value }));
   }
 
   function toggleExpandable(key: string) {
@@ -419,6 +454,8 @@ export function Dashboard() {
               />
               <ShareSliders
                 capacityInputs={capacityInputs}
+                minCfInputs={minCfInputs}
+                maxCfInputs={maxCfInputs}
                 generatorOrder={generatorOrder}
                 calculatedShares={calculatedShares}
                 expandable={expandable}
@@ -426,6 +463,8 @@ export function Dashboard() {
                 addedCapacities={result?.expansion?.added_capacities_gw}
                 expansionNote={result?.expansion?.note || undefined}
                 onChange={handleCapacityInputChange}
+                onMinCfChange={handleMinCfChange}
+                onMaxCfChange={handleMaxCfChange}
                 onOrderChange={setGeneratorOrder}
                 onExpandableToggle={toggleExpandable}
                 onMeetFullLoadChange={setMeetFullLoad}

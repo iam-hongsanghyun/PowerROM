@@ -172,7 +172,10 @@ def synthesize_parametric(
 
     daylight = np.sin(np.pi * (hour_of_day - 6) / 12)
     daylight = np.clip(daylight, 0.0, None) ** 1.45
-    solar_seasonal = 1.0 + season_sign * 0.24 * np.cos(2 * np.pi * (day_of_year - 15) / 365)
+    # Solar peaks at the summer solstice (~day 172 N / flipped by season_sign for the S hemisphere)
+    # and bottoms in winter — NOT the reverse. A winter peak here would overstate winter solar and
+    # mask exactly the cold-season low-VRE adequacy risk this model is built to measure.
+    solar_seasonal = 1.0 + season_sign * 0.24 * np.cos(2 * np.pi * (day_of_year - 172) / 365)
     solar_noise = np.clip(rng.normal(1.0, 0.10, HOURS_PER_YEAR), 0.55, 1.25)
     solar_shape = np.clip(daylight * solar_seasonal * solar_noise, 0.0, None) * solar_drought_mask
     solar_cf = _scale_to_mean(solar_shape, solar_base, upper=0.96)

@@ -152,11 +152,11 @@ def test_expansion_prefers_short_storage_for_diurnal_peak() -> None:
     assert added.get("storage_long", 0.0) == 0.0    # the dear long tier is not built for it
 
 
-def test_expansion_grows_long_storage_for_multiday_drought() -> None:
-    # A near-100%-renewable fleet must ride through a multi-day winter Dunkelflaute that 12h
-    # short storage cannot bridge. With both storage tiers expandable, the solver grows
-    # long-duration storage (dear per GW, but the only thing that can hold multi-day energy)
-    # to actually close the gap — expensive, but valid and honest.
+def test_expansion_grows_storage_for_multiday_drought() -> None:
+    # A near-100%-renewable fleet must ride through a multi-day winter Dunkelflaute. With both
+    # storage tiers expandable the solver grows storage (short-duration wins on cost for droughts
+    # up to ~9 days — it over-provisions power to buy energy more cheaply than the long tier; long
+    # only wins for still-longer events) alongside a VRE overbuild to close the gap.
     caps = {"solar": 80, "wind_onshore": 40, "nuclear": 2, "coal": 1, "gas_ccgt": 3, "other": 1}
     r = calculate_system_lcoe(
         country="KR", shares=caps, carbon_price=50.0, capacities_gw=caps, ensemble=_SINGLE,
@@ -166,7 +166,8 @@ def test_expansion_grows_long_storage_for_multiday_drought() -> None:
     )
     added = r["expansion"]["added_capacities_gw"]
     assert r["unserved_twh"] < 0.1  # the multi-day drought is firmed
-    assert added.get("storage_long", 0.0) > 0.0  # ...by growing long-duration storage
+    assert added.get("storage", 0.0) + added.get("storage_long", 0.0) > 0.0  # ...by growing storage
+    assert any(added.get(key, 0.0) > 0.0 for key in ("solar", "wind_onshore"))  # + a VRE overbuild
 
 
 def test_expansion_storage_only_built_when_it_firms_the_peak() -> None:

@@ -38,7 +38,25 @@ Run it directly over stdio:
 python -m backend.mcp_server
 ```
 
-## Register with Claude Code
+## Remote (hosted on Vercel)
+
+The server is also exposed over MCP's **Streamable-HTTP** transport at:
+
+```
+https://power-rom.vercel.app/mcp/
+```
+
+Any MCP client can connect by URL — no local install. With Claude Code:
+
+```bash
+claude mcp add --transport http powerrom https://power-rom.vercel.app/mcp/
+```
+
+It runs stateless inside the same Vercel Python function that serves the API, wired into the app
+lifespan (`backend/main.py`), and routed via `vercel.json`. DNS-rebinding host protection is
+disabled because it is a hosted public endpoint.
+
+## Register with Claude Code (local stdio)
 
 The repo ships a project-scoped [`.mcp.json`](../.mcp.json):
 

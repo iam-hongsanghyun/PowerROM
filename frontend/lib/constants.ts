@@ -12,17 +12,18 @@
 export const VRE_GENERATOR_KEYS = new Set(["solar", "wind_onshore"]);
 
 /**
- * All generator keys in merit-order sequence: cheapest marginal cost first
- * (dispatched first / top of the list), most expensive peaker last.
- * Must match backend DISPLAY_ORDER in backend/core/dispatch_engine.py.
+ * All generator keys in the merit-order panel's display order (top → bottom).
+ * Reversed so the peaking/most-expensive end sits at the top. This is display only —
+ * the actual dispatch order is computed from marginal cost in the backend
+ * (backend/core/dispatch_engine.py), independent of this list.
  */
 export const ALL_GENERATOR_KEYS = [
-  "solar",
-  "wind_onshore",
-  "nuclear",
-  "coal",
-  "gas_ccgt",
   "other",
+  "gas_ccgt",
+  "coal",
+  "nuclear",
+  "wind_onshore",
+  "solar",
 ] as const;
 
 /** Human-readable labels for each generator type. */

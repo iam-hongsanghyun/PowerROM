@@ -60,9 +60,10 @@ const FALLBACK_COUNTRIES: CountrySummary[] = [
 ];
 
 const INITIAL_COUNTRY = "KR";
-// Merit order: cheapest marginal cost dispatched first. Must match ALL_GENERATOR_KEYS
-// in @/lib/constants and DISPLAY_ORDER in backend/core/dispatch_engine.py.
-const GENERATOR_KEYS = ["solar", "wind_onshore", "nuclear", "coal", "gas_ccgt", "other"] as const;
+// Merit-order panel display order (top → bottom), reversed to peaker-first.
+// Display only — dispatch order is computed from marginal cost in the backend.
+// Must match ALL_GENERATOR_KEYS in @/lib/constants.
+const GENERATOR_KEYS = ["other", "gas_ccgt", "coal", "nuclear", "wind_onshore", "solar"] as const;
 
 function capacityShares(capacities: Capacities): Shares {
   const total = Object.values(capacities).reduce((sum, value) => sum + Math.max(0, value), 0);

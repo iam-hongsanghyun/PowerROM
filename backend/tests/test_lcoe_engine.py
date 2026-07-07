@@ -95,15 +95,31 @@ def test_expansion_storage_only_built_when_it_firms_the_peak() -> None:
     assert with_both["expansion"]["note"]                  # and the UI is told why
 
 
-def test_expansion_requires_a_dispatchable() -> None:
+def test_expansion_vre_plus_storage_can_firm() -> None:
+    # Renewables + storage CAN reach 100% load by overbuilding VRE to charge the storage —
+    # the capability the firm-only metric used to forbid. VRE has a *threshold* response (a
+    # small overbuild shaves no peak), so the solver must escalate the step to find the
+    # overbuild that firms it — here a large (winter-lull-sized) capacity addition.
+    caps = {"solar": 70, "wind_onshore": 31, "gas_ccgt": 27, "coal": 24, "nuclear": 14, "other": 5}
+    vre = calculate_system_lcoe(
+        country="KR", shares=caps, carbon_price=50.0, capacities_gw=caps, ensemble=_SINGLE,
+        annual_demand_twh=595.0, ess_short_power_gw=20.0, ess_short_duration_hr=12.0,
+        ess_long_power_gw=5.0, expandable=["solar", "wind_onshore", "storage"], meet_full_load=True,
+    )
+    assert vre["unserved_twh"] < 0.1  # renewables firm the load
+    added = vre["expansion"]["added_capacities_gw"]
+    assert any(added.get(k, 0.0) > 0.0 for k in ("solar", "wind_onshore"))  # VRE was grown to firm it
+    assert sum(added.values()) > 20.0  # firming a winter lull with VRE takes a large overbuild
+
+
+def test_expansion_noop_without_a_selection() -> None:
     caps = {"solar": 100, "wind_onshore": 50, "gas_ccgt": 10, "coal": 5, "nuclear": 10, "other": 3}
     result = calculate_system_lcoe(
         country="KR", shares=caps, carbon_price=50.0, capacities_gw=caps, ensemble=_SINGLE,
-        expandable=["solar", "wind_onshore"], meet_full_load=True,
+        expandable=[], meet_full_load=True,
     )
-    # VRE alone cannot firm the peak -> nothing added, explanatory note returned.
-    assert not result["expansion"]["added_capacities_gw"]
-    assert result["expansion"]["note"]
+    # Nothing checked to expand -> no expansion is attempted at all.
+    assert result.get("expansion") is None
 
 
 def test_korean_default_lcoe_range() -> None:

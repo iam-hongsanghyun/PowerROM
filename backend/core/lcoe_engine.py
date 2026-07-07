@@ -280,9 +280,11 @@ def _ess_metrics(profile: dict[str, Any], storage_tiers: list[dict[str, float]])
 
 
 # ── Capacity expansion (least firm-cost, to meet 100% load) ─────────────────────
-_EXPANSION_UNSERVED_TOL_TWH: float = 0.02  # treat as "no unserved hour"
-_EXPANSION_MAX_STEPS: int = 60             # greedy increments before giving up
-_EXPANSION_STEP_DIVISOR: float = 12.0      # increment size = initial unserved peak ÷ this
+_EXPANSION_UNSERVED_TOL_TWH: float = 0.02   # treat as "no unserved hour"
+_EXPANSION_MAX_STEPS: int = 90              # greedy increments before giving up
+_EXPANSION_STEP_DIVISOR: float = 12.0       # base increment size = initial unserved peak ÷ this
+_EXPANSION_MAX_STEP_DOUBLINGS: int = 12     # escalate the step this many times to cross VRE thresholds
+_EXPANSION_TRIM_ITERS: int = 8             # bisection sweeps to shave overshoot off the last move
 _DEFAULT_STORAGE_LIFETIME_YR: float = 15.0
 _HOURS_PER_YEAR: int = 8760
 
@@ -339,7 +341,7 @@ def _expand_to_meet_load(
     The binding constraint for "no unserved hour" is **reliability**: firm capacity must cover
     the residual net-load *peak* — the largest unserved hour, a low-renewable lull (a VRE
     drought). So every candidate is priced **per GW of that peak it actually shaves**, measured
-    by re-dispatching. But the numerator is the increment's *full* cost — annualised fixed cost
+    by re-dispatching. The numerator is the increment's *full* cost — annualised fixed cost
     **plus** the fuel + carbon it burns over the energy it serves — so the ranking is a
     screening curve:
 
@@ -349,31 +351,31 @@ def _expand_to_meet_load(
       (gas) wins.
 
     Dividing by GW-of-peak (not MWh-of-energy) is what keeps **storage** honest: it is built
-    only to the extent it lowers the firm-capacity requirement. Short storage usually shaves
-    *no* drought peak — it cannot have charged for a multi-hour lull — so it scores ∞ and a
-    generator firms the lull instead; where it *can* flatten a sharp, recoverable ramp more
-    cheaply, it wins and displaces that firm capacity. Storage has no arbitrage role in this
-    dispatch model (it sits below thermals in the merit stack, serving only what they leave
-    unserved), so it carries no running term — it firms, or it is not built.
+    only to the extent it lowers the firm-capacity requirement.
 
-    VRE cannot firm the peak and is never grown. Returns ``(added_by_key, grown_storage_tiers,
-    note)`` where ``added_by_key`` may include a ``"storage"`` entry (added short-duration
-    power, GW).
+    **Renewables can firm too — but only through storage.** Solar and wind are valid candidates
+    when checked: overbuilding VRE raises the surplus that charges storage, which then discharges
+    into the shortfall and shaves the peak. Because the metric is measured *through* the storage
+    dispatch, a VRE increment is credited only for the peak it lets storage cover — so VRE alone
+    (no storage, or storage already saturated) shaves ~0 and scores ∞, while VRE + enough storage
+    can reach 100% at a (high) cost the tool then makes visible. Whether it fully closes depends
+    on storage energy vs the longest drought: a multi-day lull needs storage deeper than any
+    single-cycle can bridge, so some residual may remain and is reported.
+
+    Returns ``(added_by_key, grown_storage_tiers, note)`` where ``added_by_key`` may include a
+    ``"storage"`` entry (added short-duration power, GW).
     """
     gens = profile["generators"]
     discount = profile["discount_rate"]
-    expandable_disp = [g for g in expandable if g in gens and g not in _DISPATCH_VRE]
+    expandable_gens = [g for g in expandable if g in gens]  # VRE included: it firms via storage
     tiers = [dict(tier) for tier in storage_tiers]
     short_tier = next((tier for tier in tiers if tier.get("name") == "short"), None)
     can_storage = "storage" in expandable and short_tier is not None
-    added: dict[str, float] = {g: 0.0 for g in expandable_disp}
+    added: dict[str, float] = {g: 0.0 for g in expandable_gens}
     capacities = {key: max(0.0, float(value)) for key, value in base_capacities.items()}
 
-    if not expandable_disp and not can_storage:
-        return {}, tiers, (
-            "Select a dispatchable generator or storage to expand — variable renewables "
-            "alone cannot guarantee zero unserved hours."
-        )
+    if not expandable_gens and not can_storage:
+        return {}, tiers, "Select a generator or storage to expand to meet 100% load."
 
     def _unserved(caps: dict[str, float], trs: list[dict[str, float]]) -> tuple[float, float]:
         """Return (unserved energy TWh, residual peak GW) for a candidate build."""
@@ -388,7 +390,19 @@ def _expand_to_meet_load(
     if unserved_twh <= _EXPANSION_UNSERVED_TOL_TWH:
         return {}, tiers, ""
 
-    step = max(1.0, peak_gw / _EXPANSION_STEP_DIVISOR)
+    def _apply(key: str, amount: float) -> None:
+        """Add ``amount`` GW to a candidate (generator capacity or short-storage power) in place."""
+        if key == "storage":
+            short_tier["power_gw"] = float(short_tier.get("power_gw", 0.0)) + amount  # type: ignore[union-attr]
+        else:
+            capacities[key] = capacities.get(key, 0.0) + amount
+        added[key] = added.get(key, 0.0) + amount
+
+    base_step = max(1.0, peak_gw / _EXPANSION_STEP_DIVISOR)
+    max_step = base_step * (2.0**_EXPANSION_MAX_STEP_DOUBLINGS)
+    step = base_step
+    last_key: str | None = None
+    last_amount = 0.0
 
     for _ in range(_EXPANSION_MAX_STEPS):
         if unserved_twh <= _EXPANSION_UNSERVED_TOL_TWH:
@@ -396,13 +410,13 @@ def _expand_to_meet_load(
         best_key: str | None = None
         best_metric = float("inf")
 
-        # Dispatchable candidates: (fixed + fuel/carbon on the energy served) per GW of peak shaved.
-        for g in expandable_disp:
+        # Generator candidates (VRE too): (fixed + fuel/carbon on energy served) per GW of peak shaved.
+        for g in expandable_gens:
             trial = dict(capacities)
             trial[g] = trial.get(g, 0.0) + step
             trial_twh, trial_peak = _unserved(trial, tiers)
             shaved = peak_gw - trial_peak
-            if shaved <= 1e-6:  # does not relax the firm-capacity constraint
+            if shaved <= 1e-6:  # this increment does not relax the firm-capacity constraint
                 continue
             served_mwh = max(unserved_twh - trial_twh, 0.0) * 1e6
             running = _marginal_cost_usd_mwh(gens[g], carbon_price) * served_mwh
@@ -422,24 +436,58 @@ def _expand_to_meet_load(
                 if metric < best_metric:
                     best_key, best_metric = "storage", metric
 
-        if best_key is None:  # nothing left can shave the peak
+        if best_key is None:
+            # No candidate shaves the peak at this granularity. VRE + storage has a *threshold*
+            # response — a small overbuild does nothing, a large one firms — so escalate the step
+            # to cross it before concluding the peak cannot be closed.
+            if step < max_step:
+                step *= 2.0
+                continue
             break
-        if best_key == "storage":
-            short_tier["power_gw"] = float(short_tier.get("power_gw", 0.0)) + step  # type: ignore[union-attr]
-            added["storage"] = added.get("storage", 0.0) + step
-        else:
-            capacities[best_key] = capacities.get(best_key, 0.0) + step
-            added[best_key] += step
-        unserved_twh, peak_gw = _unserved(capacities, tiers)
 
-    added = {key: value for key, value in added.items() if value > 0.0}
+        _apply(best_key, step)
+        last_key, last_amount = best_key, step
+        unserved_twh, peak_gw = _unserved(capacities, tiers)
+        step = max(base_step, step / 2.0)  # regain fine control after a successful commit
+
+    # Trim overshoot: the move that finally closed the gap is often a large escalated VRE step.
+    # Bisect it down to the smallest amount that still holds 100% load.
+    if last_key is not None and unserved_twh <= _EXPANSION_UNSERVED_TOL_TWH and last_amount > base_step:
+        keep_lo, keep_hi = 0.0, last_amount  # how much of the last move we can give back
+        for _ in range(_EXPANSION_TRIM_ITERS):
+            give_back = (keep_lo + keep_hi) / 2.0
+            _apply(last_key, -give_back)
+            twh, _ = _unserved(capacities, tiers)
+            _apply(last_key, give_back)
+            if twh <= _EXPANSION_UNSERVED_TOL_TWH:
+                keep_lo = give_back  # still feasible after removing this much
+            else:
+                keep_hi = give_back
+        if keep_lo > 0.0:
+            _apply(last_key, -keep_lo)
+            unserved_twh, peak_gw = _unserved(capacities, tiers)
+
+    added = {key: value for key, value in added.items() if value > 1e-6}
+    only_vre_expandable = bool(expandable_gens) and all(g in _DISPATCH_VRE for g in expandable_gens)
     note = ""
     if unserved_twh > _EXPANSION_UNSERVED_TOL_TWH:
-        note = (
-            "Could not fully close the gap with the selected options — add another "
-            "dispatchable generator or more storage."
-        )
-    elif can_storage and "storage" not in added and expandable_disp:
+        if only_vre_expandable and not can_storage:
+            note = (
+                "Renewables cannot firm the load on their own — also make storage expandable "
+                "(or add a firm generator) so surplus can be shifted into the shortfall."
+            )
+        elif only_vre_expandable:
+            note = (
+                "Renewables + this storage narrowed the gap but a multi-day lull remains — the "
+                "storage cannot hold enough energy to bridge it. Add more/longer-duration storage "
+                "or a firm generator to reach 100%."
+            )
+        else:
+            note = (
+                "Could not fully close the gap with the selected options — add another "
+                "dispatchable generator or more storage."
+            )
+    elif can_storage and "storage" not in added and not only_vre_expandable and expandable_gens:
         note = (
             "Storage was not built: short-duration storage cannot cover the binding peak "
             "(a low-renewable lull), so firm generation is the cheaper way to reach 100%."

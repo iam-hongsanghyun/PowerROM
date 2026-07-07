@@ -230,7 +230,7 @@ export function ScenarioSettings({
         <div className="flex items-center justify-between text-sm font-medium text-slate-800">
           <span className="flex items-center gap-1.5">
             Ensemble
-            <InfoTip text="Runs several perturbed weather profiles and reports a p10-p90 band instead of a single point estimate." />
+            <InfoTip text="Runs several jointly-sampled weather years and reports a band + resource-adequacy (LOLE/EUE). Block-bootstrap resamples contiguous ~2-week blocks, preserving multi-day droughts — the correct sampler for adequacy; Jitter only perturbs one base year." />
           </span>
           <span>{ensemble.n_samples} profiles</span>
         </div>
@@ -242,7 +242,24 @@ export function ScenarioSettings({
           <option value="single">Single</option>
           <option value="jitter">Jitter</option>
           <option value="multiyear">Multi-year</option>
+          <option value="block_bootstrap">Block bootstrap (adequacy)</option>
         </select>
+        {ensemble.method === "block_bootstrap" ? (
+          <label className="flex items-center justify-between gap-2 text-[11px] text-slate-500">
+            <span className="flex items-center gap-1.5">
+              Block length (days)
+              <InfoTip text="Resampled block length. Must exceed the synoptic weather timescale (~3-7 days) or multi-day droughts get chopped at block seams and LOLE is under-stated. Two weeks is a safe default." />
+            </span>
+            <input
+              type="number"
+              min={1}
+              max={60}
+              value={ensemble.block_days ?? 14}
+              onChange={(event) => updateEnsemble({ block_days: Math.max(1, Number(event.target.value)) })}
+              className="w-20 rounded-lg border border-slate-200 bg-white px-2 py-1 text-right text-sm tabular-nums text-slate-900 outline-none transition focus:border-slate-400"
+            />
+          </label>
+        ) : null}
         <div className="grid grid-cols-2 gap-3">
           <label className="space-y-1 text-xs font-medium text-slate-600">
             Samples

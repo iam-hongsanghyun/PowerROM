@@ -115,10 +115,11 @@ class CurveDataPoint(BaseModel):
 class EnsembleConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    method: Literal["single", "jitter", "multiyear"] = "jitter"
+    method: Literal["single", "jitter", "multiyear", "block_bootstrap"] = "jitter"
     n_samples: int = Field(default=5, ge=1, le=50)
     sigma: float = Field(default=0.04, ge=0.0, le=0.5)
     seed: int = 42
+    block_days: int = Field(default=14, ge=1, le=60)
 
 
 class MetricBand(BaseModel):
@@ -201,6 +202,7 @@ class CalculateResponse(BaseModel):
     chronological: ChronologicalPayload | None = None
     expansion: dict[str, Any] | None = None
     rps: dict[str, Any] | None = None
+    adequacy: dict[str, Any] | None = None
     data_quality: DataQuality
 
 

@@ -437,6 +437,8 @@ def run_dispatch_ensemble(
             aggregate_dispatch_results([result], settings=settings, include_ldc=False)
             for result in results
         ]
+        # Raw hourly unserved per scenario, for resource-adequacy metrics (LOLE / EUE).
+        summary["member_unserved_gw"] = [result.unserved_gw for result in results]
     return summary
 
 

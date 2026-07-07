@@ -9,13 +9,33 @@ export type GeneratorKey =
 export type Shares = Record<GeneratorKey, number>;
 export type Capacities = Record<GeneratorKey, number>;
 export type DispatchMode = "parametric" | "data";
-export type EnsembleMethod = "single" | "jitter" | "multiyear";
+export type EnsembleMethod = "single" | "jitter" | "multiyear" | "block_bootstrap";
 
 export interface EnsembleConfig {
   method: EnsembleMethod;
   n_samples: number;
   sigma: number;
   seed: number;
+  block_days?: number;
+}
+
+export interface Adequacy {
+  n_scenarios: number;
+  lole_hours: number;
+  lolp: number;
+  loss_of_load_prob_annual: number;
+  eue_mwh: number;
+  eue_fraction: number;
+  unserved_mwh_p50: number;
+  unserved_mwh_p90: number;
+  unserved_mwh_p95: number;
+  unserved_mwh_p99: number;
+  unserved_mwh_max: number;
+  lole_hours_p50: number;
+  lole_hours_p95: number;
+  peak_shortfall_gw_p50: number;
+  peak_shortfall_gw_p95: number;
+  ensemble_method: EnsembleMethod;
 }
 
 export interface CurvePoint {
@@ -87,6 +107,7 @@ export interface CalculateResponse {
   dispatch?: DispatchSummary | null;
   ldc?: LdcPayload | null;
   chronological?: ChronologicalPayload | null;
+  adequacy?: Adequacy | null;
   expansion?: {
     requested: string[];
     added_capacities_gw: Record<string, number>;

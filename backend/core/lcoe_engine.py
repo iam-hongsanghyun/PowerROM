@@ -7,6 +7,7 @@ from typing import Any
 
 import numpy as np
 
+from backend.core.adequacy import estimate_adequacy
 from backend.core.dispatch_engine import (
     VRE_GENERATORS as _DISPATCH_VRE,
     _marginal_cost_usd_mwh,
@@ -579,12 +580,14 @@ def _coerce_ensemble_settings(ensemble: Any | None) -> EnsembleSettings:
             n_samples=int(ensemble.get("n_samples", 5)),
             sigma=float(ensemble.get("sigma", 0.04)),
             seed=int(ensemble.get("seed", 42)),
+            block_days=int(ensemble.get("block_days", 14)),
         )
     return EnsembleSettings(
         method=getattr(ensemble, "method", "jitter"),
         n_samples=int(getattr(ensemble, "n_samples", 5)),
         sigma=float(getattr(ensemble, "sigma", 0.04)),
         seed=int(getattr(ensemble, "seed", 42)),
+        block_days=int(getattr(ensemble, "block_days", 14)),
     )
 
 
@@ -891,6 +894,18 @@ def _calculate_system_lcoe_dispatch(
         current["emission_intensity_p10"] = emis_p10
         current["emission_intensity_p90"] = emis_p90
 
+    # Resource adequacy: LOLE / LOLP / EUE and their distribution across the ensemble's
+    # jointly-sampled weather scenarios. Only meaningful with a real spread — most so under the
+    # block-bootstrap sampler, which preserves the multi-day droughts that dominate the tail.
+    member_unserved = dispatch_summary.get("member_unserved_gw", [])
+    adequacy = (
+        estimate_adequacy(member_unserved, profile["annual_generation_twh"])
+        if member_unserved
+        else None
+    )
+    if adequacy is not None:
+        adequacy["ensemble_method"] = settings.method
+
     # Renewable-target (RPS) policy lever: compare achieved VRE generation share to the
     # target; optionally charge a shortfall (REC / alternative-compliance) penalty.
     rps: dict[str, Any] | None = None
@@ -965,6 +980,8 @@ def _calculate_system_lcoe_dispatch(
         result["expansion"] = expansion
     if rps is not None:
         result["rps"] = rps
+    if adequacy is not None:
+        result["adequacy"] = adequacy
     return result
 
 

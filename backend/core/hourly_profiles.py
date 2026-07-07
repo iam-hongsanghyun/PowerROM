@@ -11,7 +11,7 @@ HOURS_PER_YEAR = 8760
 HOURLY_DATA_DIR = Path(__file__).resolve().parents[1] / "data" / "hourly"
 
 ProfileMode = Literal["parametric", "data"]
-EnsembleMethod = Literal["single", "jitter", "multiyear"]
+EnsembleMethod = Literal["single", "jitter", "multiyear", "block_bootstrap"]
 
 
 @dataclass(frozen=True)
@@ -30,6 +30,9 @@ class EnsembleSettings:
     n_samples: int = 1
     sigma: float = 0.04
     seed: int = 42
+    # Block length (days) for the coherent block-bootstrap sampler; must exceed the synoptic
+    # weather timescale (~3–7 days) so multi-day droughts are not chopped in half.
+    block_days: int = 14
 
 
 def normalize_hourly_profile(
@@ -264,6 +267,10 @@ def sample_ensemble(
     if cfg.method == "multiyear":
         return [base_profiles[index % len(base_profiles)] for index in range(n_samples)]
 
+    if cfg.method == "block_bootstrap":
+        block_hours = max(24, int(cfg.block_days) * 24)
+        return [_block_bootstrap_profile(base_profiles, rng, block_hours, index) for index in range(n_samples)]
+
     samples: list[YearProfile] = []
     for index in range(n_samples):
         base = base_profiles[index % len(base_profiles)]
@@ -308,6 +315,53 @@ def _load_data_profiles(country: str, years: list[int] | None) -> list[YearProfi
             )
         )
     return profiles
+
+
+def _block_bootstrap_profile(
+    pool: list[YearProfile],
+    rng: np.random.Generator,
+    block_hours: int,
+    index: int,
+) -> YearProfile:
+    """Assemble one synthetic year by **calendar-aligned** coherent block bootstrap.
+
+    Each contiguous block of the synthetic year is copied from the *same calendar position* of a
+    randomly chosen source year in ``pool``. This is the correlation-correct sampler for adequacy:
+
+    * **Seasonality** is preserved — a block at week *k* is only ever drawn from week *k* of some
+      year, so the winter demand peak never lands on a summer VRE block.
+    * **Temporal + cross-variable dependence** inside a block is preserved for free, because the
+      block is a real contiguous slice with demand, solar and wind moving together.
+    * A **new year** is manufactured by varying which weather year supplies each block, so
+      low-renewable blocks recombine into multi-day droughts at a realistic frequency — which
+      independent hourly/annual sampling would factorise away, badly under-stating LOLE.
+
+    The block length must exceed the synoptic weather timescale (~3–7 days) or droughts get chopped
+    at block seams; ``block_hours`` defaults to two weeks. Seam discontinuities between blocks are
+    left un-blended — for an energy-balance adequacy metric they are immaterial.
+    """
+    demand = np.empty(HOURS_PER_YEAR, dtype=float)
+    solar = np.empty(HOURS_PER_YEAR, dtype=float)
+    wind = np.empty(HOURS_PER_YEAR, dtype=float)
+    n_years = len(pool)
+    position = 0
+    while position < HOURS_PER_YEAR:
+        take = min(block_hours, HOURS_PER_YEAR - position)
+        source = pool[int(rng.integers(n_years))]
+        window = slice(position, position + take)
+        demand[window] = source.demand_norm[window]
+        solar[window] = source.solar_cf[window]
+        wind[window] = source.wind_cf[window]
+        position += take
+    demand, solar, wind = normalize_hourly_profile(demand, solar, wind)
+    return YearProfile(
+        country=pool[0].country,
+        year=pool[0].year,
+        demand_norm=demand,
+        solar_cf=solar,
+        wind_cf=wind,
+        source=f"block_bootstrap:{index}",
+    )
 
 
 def _jitter_profile(

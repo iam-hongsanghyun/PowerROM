@@ -2,7 +2,53 @@
 
 import { HourlyMixChart } from "@/components/charts/HourlyMixChart";
 import { LoadDurationCurveChart } from "@/components/charts/LoadDurationCurveChart";
-import type { CalculateResponse, Capacities, DispatchResponse, Shares } from "@/lib/api";
+import type { Adequacy, CalculateResponse, Capacities, DispatchResponse, Shares } from "@/lib/api";
+
+// Reference reliability standard (LOLE, hours/year) — "1 day in 10 years" ≈ 2.4 h/yr.
+const LOLE_STANDARD_HOURS = 2.4;
+
+/** Resource-adequacy readout: LOLE / LOLP / EUE with the shortfall tail across the ensemble. */
+function AdequacyPanel({ adequacy }: { adequacy: Adequacy }) {
+  const meets = adequacy.lole_hours <= LOLE_STANDARD_HOURS;
+  const isBlock = adequacy.ensemble_method === "block_bootstrap";
+  return (
+    <div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold text-slate-800">Resource Adequacy</h3>
+        <span
+          className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
+            meets ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"
+          }`}
+        >
+          <span className={`h-2 w-2 rounded-full ${meets ? "bg-emerald-500" : "bg-rose-500"}`} />
+          {meets ? "Meets" : "Below"} 1-day-in-10-yr standard (LOLE ≤ {LOLE_STANDARD_HOURS} h/yr)
+        </span>
+      </div>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <Metric label="LOLE" value={`${adequacy.lole_hours.toFixed(1)} h/yr`} sub={`LOLP ${(adequacy.lolp * 100).toFixed(2)}%`} />
+        <Metric label="Expected unserved" value={`${(adequacy.eue_mwh / 1000).toFixed(1)} GWh/yr`} sub={`${(adequacy.eue_fraction * 1e6).toFixed(0)} ppm of demand`} />
+        <Metric label="Shortfall years" value={`${(adequacy.loss_of_load_prob_annual * 100).toFixed(0)}%`} sub={`of ${adequacy.n_scenarios} sampled years`} />
+        <Metric label="Worst-year unserved" value={`${(adequacy.unserved_mwh_max / 1000).toFixed(1)} GWh`} sub={`p99 ${(adequacy.unserved_mwh_p99 / 1000).toFixed(1)} GWh`} />
+      </div>
+      <p className="text-[11px] text-slate-400">
+        From {adequacy.n_scenarios} jointly-sampled weather years ({adequacy.ensemble_method.replace("_", " ")}).
+        {isBlock
+          ? " Block bootstrap preserves multi-day droughts, so this tail is trustworthy."
+          : " For a trustworthy adequacy tail, use the block-bootstrap sampler (Parameters → Ensemble)."}
+      </p>
+    </div>
+  );
+}
+
+function Metric({ label, value, sub }: { label: string; value: string; sub: string }) {
+  return (
+    <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
+      <div className="text-[11px] font-medium uppercase tracking-wide text-slate-400">{label}</div>
+      <div className="text-lg font-semibold tabular-nums text-slate-900">{value}</div>
+      <div className="text-[11px] text-slate-500">{sub}</div>
+    </div>
+  );
+}
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -121,6 +167,10 @@ export function ProfileAnalysis({
           sub="Generation from imported fuel"
         />
       </div>
+
+      {result.adequacy && result.adequacy.n_scenarios > 1 ? (
+        <AdequacyPanel adequacy={result.adequacy} />
+      ) : null}
 
       <HourlyMixChart
         chronological={dispatchResult?.chronological ?? result.chronological ?? null}

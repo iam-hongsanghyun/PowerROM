@@ -132,6 +132,14 @@ class LdcPayload(BaseModel):
     resource_order: list[str]
 
 
+class ChronologicalPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    hours: list[int]
+    series: dict[str, list[float]]
+    resource_order: list[str]
+
+
 class DataQuality(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -175,6 +183,7 @@ class CalculateResponse(BaseModel):
     stack_components: dict[str, float]
     dispatch: dict[str, Any] | None = None
     ldc: LdcPayload | None = None
+    chronological: ChronologicalPayload | None = None
     data_quality: DataQuality
 
 
@@ -188,6 +197,7 @@ class DispatchResponse(BaseModel):
     annual_demand_twh: float
     dispatch: dict[str, Any]
     ldc: LdcPayload
+    chronological: ChronologicalPayload | None = None
     data_quality: DataQuality
 
 

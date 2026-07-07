@@ -38,5 +38,6 @@ def dispatch(payload: CalculateRequest) -> DispatchResponse:
         annual_demand_twh=result["annual_demand_twh"],
         dispatch=result["dispatch"],
         ldc=result["ldc"],
+        chronological=result.get("chronological"),
         data_quality=result["data_quality"],
     )

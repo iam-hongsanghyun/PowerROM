@@ -341,6 +341,7 @@ def aggregate_dispatch_results(
 
     if include_ldc:
         output["ldc"] = _aggregate_ldc(results, generator_names)
+        output["chronological"] = _chronological_series(results[0], generator_names)
 
     return output
 
@@ -458,8 +459,31 @@ def _quantile_summary(values: list[float]) -> dict[str, float]:
     }
 
 
-def _round_list(values: np.ndarray) -> list[float]:
-    return [float(value) for value in np.round(values.astype(float), 6)]
+def _round_list(values: np.ndarray, decimals: int = 6) -> list[float]:
+    return [float(value) for value in np.round(values.astype(float), decimals)]
+
+
+def _chronological_series(result: DispatchResult, generator_names: list[str]) -> dict[str, Any]:
+    """Hour-by-hour (chronological, not sorted) dispatch of one representative member.
+
+    Unlike the load-duration curve this preserves the time axis, so the frontend can
+    show the actual 8760-hour generation mix (day/night and seasonal cycles). Values
+    are GW, rounded to 0.01 GW to keep the payload compact.
+    """
+    hours = len(result.demand_gw)
+    series: dict[str, list[float]] = {
+        gen: _round_list(result.dispatch_gw.get(gen, np.zeros(hours)), 2) for gen in generator_names
+    }
+    series["demand"] = _round_list(result.demand_gw, 2)
+    series["curtailed"] = _round_list(
+        sum((result.curtailed_gw.get(gen, np.zeros(hours)) for gen in generator_names), np.zeros(hours)), 2
+    )
+    series["unserved"] = _round_list(result.unserved_gw, 2)
+    return {
+        "hours": list(range(hours)),
+        "series": series,
+        "resource_order": generator_names,
+    }
 
 
 def _ordered_generators(profile: dict[str, Any], generator_order: list[str] | None = None) -> list[str]:

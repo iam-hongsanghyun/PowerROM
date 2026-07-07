@@ -85,6 +85,7 @@ export interface CalculateResponse {
   stack_components: Record<string, number>;
   dispatch?: DispatchSummary | null;
   ldc?: LdcPayload | null;
+  chronological?: ChronologicalPayload | null;
   data_quality: DataQuality;
 }
 
@@ -104,6 +105,12 @@ export interface LdcPayload {
   x_hours: number[];
   x_percent: number[];
   series: Record<string, LdcSeriesBand>;
+  resource_order: string[];
+}
+
+export interface ChronologicalPayload {
+  hours: number[];
+  series: Record<string, number[]>;
   resource_order: string[];
 }
 
@@ -136,6 +143,7 @@ export interface DispatchResponse {
   annual_demand_twh: number;
   dispatch: DispatchSummary;
   ldc: LdcPayload;
+  chronological?: ChronologicalPayload | null;
   data_quality: DataQuality;
 }
 

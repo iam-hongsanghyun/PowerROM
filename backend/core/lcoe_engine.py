@@ -545,6 +545,8 @@ def _calculate_system_lcoe_dispatch(
     }
     if include_ldc and "ldc" in dispatch_summary:
         result["ldc"] = dispatch_summary["ldc"]
+    if include_ldc and "chronological" in dispatch_summary:
+        result["chronological"] = dispatch_summary["chronological"]
     return result
 
 

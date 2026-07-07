@@ -1,5 +1,6 @@
 "use client";
 
+import { HourlyMixChart } from "@/components/charts/HourlyMixChart";
 import { LoadDurationCurveChart } from "@/components/charts/LoadDurationCurveChart";
 import type { CalculateResponse, Capacities, DispatchResponse, Shares } from "@/lib/api";
 
@@ -98,6 +99,11 @@ export function ProfileAnalysis({
           sub={`${result.ess_requirement_gw.toFixed(1)} GW · $${essCostUsdKwh}/kWh`}
         />
       </div>
+
+      <HourlyMixChart
+        chronological={dispatchResult?.chronological ?? result.chronological ?? null}
+        loading={isDispatchLoading}
+      />
 
       <LoadDurationCurveChart
         ldc={dispatchResult?.ldc ?? result.ldc ?? null}

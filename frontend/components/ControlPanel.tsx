@@ -3,12 +3,10 @@
 import type { CountrySummary } from "@/lib/api";
 import { InfoTip } from "@/components/InfoTip";
 
-/** User-set storage: rated power (GW) and duration (h) per tier. Energy = power × duration. */
+/** User-set storage rated power (GW) per tier. Duration is set in the Parameters ESS section. */
 export interface StorageInput {
   shortPowerGw: number;
-  shortDurationHr: number;
   longPowerGw: number;
-  longDurationHr: number;
 }
 
 export function ControlPanel({
@@ -68,19 +66,17 @@ export function ControlPanel({
         <div className="flex items-center justify-between text-sm font-medium text-slate-800">
           <span className="flex items-center gap-1.5">
             Storage
-            <InfoTip text="Rated power and duration for short- and long-duration storage tiers. Energy = power x duration." />
+            <InfoTip text="Rated power (GW) of short- and long-duration storage. Duration (hours) is set in Parameters → ESS; energy = power x duration." />
           </span>
-          <span className="text-[10px] text-slate-400">power × duration</span>
+          <span className="text-[10px] text-slate-400">GW</span>
         </div>
         <div className="grid grid-cols-2 gap-2">
           {([
-            ["Short power", "shortPowerGw", "GW"],
-            ["Short duration", "shortDurationHr", "h"],
-            ["Long power", "longPowerGw", "GW"],
-            ["Long duration", "longDurationHr", "h"],
-          ] as const).map(([label, key, unit]) => (
+            ["Short power", "shortPowerGw"],
+            ["Long power", "longPowerGw"],
+          ] as const).map(([label, key]) => (
             <label key={key} className="flex flex-col gap-1 text-[10px] text-slate-400">
-              {label} ({unit})
+              {label} (GW)
               <input
                 type="number"
                 min={0}
@@ -94,7 +90,7 @@ export function ControlPanel({
           ))}
         </div>
         <p className="text-[10px] text-slate-400">
-          Endogenous: charges from surplus, discharges to shortfall. Energy = power × duration.
+          Endogenous: charges from surplus, discharges to shortfall. Duration set in Parameters → ESS.
         </p>
       </div>
     </div>

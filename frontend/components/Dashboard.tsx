@@ -131,9 +131,7 @@ export function Dashboard() {
   // User-set storage, dispatched endogenously (energy = power × duration). Illustrative defaults.
   const [storage, setStorage] = useState<StorageInput>({
     shortPowerGw: 20,
-    shortDurationHr: 4,
     longPowerGw: 5,
-    longDurationHr: 100,
   });
   // Visual demand profile (12 monthly + 24 hourly), always sent as demand_monthly/demand_daily.
   const [demandProfile, setDemandProfile] = useState<DemandProfile>({
@@ -211,10 +209,9 @@ export function Dashboard() {
     setIsDispatchLoading(true);
     const custom_params = buildCustomParams();
     const essPayload = {
+      // Duration comes from the profile (Parameters -> ESS); only power is set here.
       ess_short_power_gw: storage.shortPowerGw,
-      ess_short_duration_hr: storage.shortDurationHr,
       ess_long_power_gw: storage.longPowerGw,
-      ess_long_duration_hr: storage.longDurationHr,
       demand_monthly: demandProfile.monthly,
       demand_daily: demandProfile.daily,
     };

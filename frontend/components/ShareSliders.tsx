@@ -131,7 +131,9 @@ export function ShareSliders({
               ].join(" ")}
             >
               <GripVertical size={13} className="shrink-0 text-slate-300" />
-              <span className="w-3.5 shrink-0 text-[11px] tabular-nums text-slate-400">{index + 1}</span>
+              <span className="w-3.5 shrink-0 text-[11px] tabular-nums text-slate-400">
+                {generators.length - index}
+              </span>
               <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: color }} />
               <span className="truncate text-sm text-slate-800">{label}</span>
             </div>

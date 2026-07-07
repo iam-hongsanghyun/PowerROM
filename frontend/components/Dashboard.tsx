@@ -210,7 +210,9 @@ export function Dashboard() {
     monthly: [...DEFAULT_DEMAND_PROFILE.monthly],
     daily: [...DEFAULT_DEMAND_PROFILE.daily],
   });
-  const [dispatchMode, setDispatchMode] = useState<DispatchMode>("parametric");
+  // Default to real weather-year data (falls back to the parametric synthesizer per country
+  // when no hourly file exists for the selected country).
+  const [dispatchMode, setDispatchMode] = useState<DispatchMode>("data");
   const [weatherYears, setWeatherYears] = useState<number[]>([]);
   const [ensemble, setEnsemble] = useState<EnsembleConfig>({
     method: "jitter",

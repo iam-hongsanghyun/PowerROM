@@ -3,7 +3,8 @@
 import type { DispatchMode, EnsembleConfig, EnsembleMethod } from "@/lib/api";
 import { InfoTip } from "@/components/InfoTip";
 
-const WEATHER_YEAR_OPTIONS = [2020, 2021, 2022, 2023, 2024];
+// Weather years shipped as real hourly data (backend/data/hourly/<CC>/<year>.csv.gz).
+const WEATHER_YEAR_OPTIONS = [2018, 2019, 2022];
 
 /**
  * Scenario-level modelling assumptions. These used to live under the left rail's
@@ -182,7 +183,7 @@ export function ScenarioSettings({
       <div className="space-y-2">
         <div className="flex items-center gap-1.5 text-sm font-medium text-slate-800">
           <span>Dispatch Profile</span>
-          <InfoTip text="Parametric uses smooth analytical curves; Data replays actual historical weather-year hourly profiles." />
+          <InfoTip text="Data replays real historical weather-year profiles (hourly solar from PVGIS reanalysis, scaled to the country's actual capacity factor). Parametric uses smooth analytical curves." />
         </div>
         <div className="grid grid-cols-2 gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-1">
           {(["parametric", "data"] as const).map((mode) => (

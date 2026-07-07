@@ -286,16 +286,20 @@ def _load_data_profiles(country: str, years: list[int] | None) -> list[YearProfi
     if not data_dir.exists():
         return []
 
+    def _year_paths(year: int) -> list[Path]:
+        # Accept either plain or gzipped CSV (the builder writes .csv.gz to keep the repo small).
+        return [p for p in (data_dir / f"{year}.csv", data_dir / f"{year}.csv.gz") if p.exists()]
+
     if years:
-        paths = [data_dir / f"{year}.csv" for year in years]
+        paths = [p for year in years for p in _year_paths(year)]
     else:
-        paths = sorted(data_dir.glob("*.csv"))
+        paths = sorted(data_dir.glob("*.csv")) + sorted(data_dir.glob("*.csv.gz"))
 
     profiles: list[YearProfile] = []
     for path in paths:
         if not path.exists():
             continue
-        frame = pd.read_csv(path)
+        frame = pd.read_csv(path)  # pandas reads .gz transparently by extension
         required = {"demand_norm", "solar_cf", "wind_cf"}
         missing = required.difference(frame.columns)
         if missing:
@@ -306,7 +310,9 @@ def _load_data_profiles(country: str, years: list[int] | None) -> list[YearProfi
             frame["solar_cf"].to_numpy(),
             frame["wind_cf"].to_numpy(),
         )
-        year = int(path.stem) if path.stem.isdigit() else 0
+        # Filename stem is like "2019" or "2019.csv" (compound suffix) — take the leading digits.
+        stem = path.name.split(".")[0]
+        year = int(stem) if stem.isdigit() else 0
         profiles.append(
             YearProfile(
                 country=country,

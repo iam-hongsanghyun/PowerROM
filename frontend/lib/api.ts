@@ -333,6 +333,38 @@ export async function simulatePathway(payload: {
   });
 }
 
+export interface SizeForAdequacyResult {
+  firm_key: string;
+  required_gw: number;
+  added_gw: number;
+  baseline_lole_hours: number;
+  lole_hours: number;
+  lole_target_hours: number;
+  met: boolean;
+  system_lcoe: number;
+  annual_system_cost_usd_billion: number;
+}
+
+export async function sizeForAdequacy(payload: {
+  country: string;
+  capacities_gw: Capacities;
+  firm_key: string;
+  lole_target_hours: number;
+  carbon_price: number;
+  annual_demand_twh?: number | null;
+  ensemble?: EnsembleConfig | null;
+  ess_short_power_gw?: number | null;
+  ess_short_duration_hr?: number | null;
+  ess_long_power_gw?: number | null;
+  ess_long_duration_hr?: number | null;
+  max_gw?: number | null;
+}): Promise<SizeForAdequacyResult> {
+  return request<SizeForAdequacyResult>("/size-for-adequacy", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function calculateBatch(
   payloads: Array<{
     country: string;

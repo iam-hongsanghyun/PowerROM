@@ -1,14 +1,113 @@
 "use client";
 
+import { useState } from "react";
+
 import { HourlyMixChart } from "@/components/charts/HourlyMixChart";
 import { LoadDurationCurveChart } from "@/components/charts/LoadDurationCurveChart";
-import type { Adequacy, CalculateResponse, Capacities, DispatchResponse, Shares } from "@/lib/api";
+import type {
+  Adequacy,
+  CalculateResponse,
+  Capacities,
+  DispatchResponse,
+  Shares,
+  SizeForAdequacyResult,
+} from "@/lib/api";
 
 // Reference reliability standard (LOLE, hours/year) — "1 day in 10 years" ≈ 2.4 h/yr.
 const LOLE_STANDARD_HOURS = 2.4;
 
+const FIRM_OPTIONS: { key: string; label: string }[] = [
+  { key: "gas_ccgt", label: "Gas CCGT" },
+  { key: "nuclear", label: "Nuclear" },
+  { key: "coal", label: "Coal" },
+];
+
+/** Grow a firm resource to a reliability standard, then show the required capacity. */
+function SizeToStandard({
+  onSize,
+}: {
+  onSize: (firmKey: string, targetHours: number) => Promise<SizeForAdequacyResult>;
+}) {
+  const [firmKey, setFirmKey] = useState("gas_ccgt");
+  const [target, setTarget] = useState(LOLE_STANDARD_HOURS);
+  const [running, setRunning] = useState(false);
+  const [result, setResult] = useState<SizeForAdequacyResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function run() {
+    setRunning(true);
+    setError(null);
+    try {
+      setResult(await onSize(firmKey, target));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Sizing failed");
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  const firmLabel = FIRM_OPTIONS.find((option) => option.key === firmKey)?.label ?? firmKey;
+  return (
+    <div className="space-y-2 rounded-xl border border-slate-100 bg-slate-50 p-3">
+      <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
+        <span>Size</span>
+        <select
+          value={firmKey}
+          onChange={(event) => setFirmKey(event.target.value)}
+          className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-slate-900 outline-none focus:border-slate-400"
+        >
+          {FIRM_OPTIONS.map((option) => (
+            <option key={option.key} value={option.key}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+        <span>to LOLE ≤</span>
+        <input
+          type="number"
+          min={0}
+          step={0.1}
+          value={target}
+          onChange={(event) => setTarget(Math.max(0, Number(event.target.value)))}
+          className="w-16 rounded-lg border border-slate-200 bg-white px-2 py-1 text-right tabular-nums text-slate-900 outline-none focus:border-slate-400"
+        />
+        <span>h/yr</span>
+        <button
+          type="button"
+          onClick={run}
+          disabled={running}
+          className="rounded-lg bg-slate-900 px-3 py-1 font-medium text-white transition hover:bg-slate-800 disabled:opacity-50"
+        >
+          {running ? "Sizing…" : "Size"}
+        </button>
+      </div>
+      {error ? <p className="text-[11px] text-rose-600">{error}</p> : null}
+      {result ? (
+        <p className="text-[11px] text-slate-600">
+          {result.added_gw > 0 ? (
+            <>
+              Need <strong className="text-slate-900">{result.required_gw.toFixed(1)} GW</strong> {firmLabel}{" "}
+              (<span className="text-emerald-600">+{result.added_gw.toFixed(1)}</span>) — LOLE{" "}
+              {result.baseline_lole_hours.toFixed(1)} → {result.lole_hours.toFixed(1)} h/yr, system LCOE $
+              {result.system_lcoe.toFixed(1)}/MWh{result.met ? "" : " (standard not reached at the ceiling)"}.
+            </>
+          ) : (
+            <>Already meets the standard — no added {firmLabel} needed (LOLE {result.lole_hours.toFixed(1)} h/yr).</>
+          )}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 /** Resource-adequacy readout: LOLE / LOLP / EUE with the shortfall tail across the ensemble. */
-function AdequacyPanel({ adequacy }: { adequacy: Adequacy }) {
+function AdequacyPanel({
+  adequacy,
+  onSize,
+}: {
+  adequacy: Adequacy;
+  onSize?: (firmKey: string, targetHours: number) => Promise<SizeForAdequacyResult>;
+}) {
   const meets = adequacy.lole_hours <= LOLE_STANDARD_HOURS;
   const isBlock = adequacy.ensemble_method === "block_bootstrap";
   return (
@@ -30,6 +129,7 @@ function AdequacyPanel({ adequacy }: { adequacy: Adequacy }) {
         <Metric label="Shortfall years" value={`${(adequacy.loss_of_load_prob_annual * 100).toFixed(0)}%`} sub={`of ${adequacy.n_scenarios} sampled years`} />
         <Metric label="Worst-year unserved" value={`${(adequacy.unserved_mwh_max / 1000).toFixed(1)} GWh`} sub={`p99 ${(adequacy.unserved_mwh_p99 / 1000).toFixed(1)} GWh`} />
       </div>
+      {onSize ? <SizeToStandard onSize={onSize} /> : null}
       <p className="text-[11px] text-slate-400">
         From {adequacy.n_scenarios} jointly-sampled weather years ({adequacy.ensemble_method.replace("_", " ")}).
         {isBlock
@@ -58,6 +158,7 @@ interface Props {
   isDispatchLoading: boolean;
   shares: Shares;
   capacities: Capacities;
+  onSizeForAdequacy?: (firmKey: string, targetHours: number) => Promise<SizeForAdequacyResult>;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -91,6 +192,7 @@ export function ProfileAnalysis({
   isDispatchLoading,
   shares,
   capacities,
+  onSizeForAdequacy,
 }: Props) {
   if (!result) {
     return (
@@ -169,7 +271,7 @@ export function ProfileAnalysis({
       </div>
 
       {result.adequacy && result.adequacy.n_scenarios > 1 ? (
-        <AdequacyPanel adequacy={result.adequacy} />
+        <AdequacyPanel adequacy={result.adequacy} onSize={onSizeForAdequacy} />
       ) : null}
 
       <HourlyMixChart

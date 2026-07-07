@@ -15,6 +15,8 @@ import {
   calculateSystem,
   dispatchSystem,
   fetchCountries,
+  sizeForAdequacy,
+  type SizeForAdequacyResult,
   type CalculateResponse,
   type Capacities,
   type CountryProfile,
@@ -201,6 +203,27 @@ export function Dashboard() {
 
   function buildCustomParams(): Record<string, unknown> {
     return (customProfile ?? {}) as Record<string, unknown>;
+  }
+
+  function handleSizeForAdequacy(firmKey: string, targetHours: number): Promise<SizeForAdequacyResult> {
+    // Sizing needs a real weather spread; force the correct sampler (block bootstrap) regardless
+    // of the display ensemble so the LOLE reflects multi-day droughts.
+    return sizeForAdequacy({
+      country,
+      capacities_gw: capacities,
+      firm_key: firmKey,
+      lole_target_hours: targetHours,
+      carbon_price: carbonPrice,
+      annual_demand_twh: annualDemandTwh,
+      ensemble: {
+        ...ensemble,
+        method: "block_bootstrap",
+        n_samples: Math.max(12, ensemble.n_samples),
+        block_days: ensemble.block_days ?? 14,
+      },
+      ess_short_power_gw: storage.shortPowerGw || null,
+      ess_long_power_gw: storage.longPowerGw || null,
+    });
   }
 
   async function runAnalysis() {
@@ -458,6 +481,7 @@ export function Dashboard() {
                   isDispatchLoading={isDispatchLoading}
                   shares={shares}
                   capacities={capacities}
+                  onSizeForAdequacy={handleSizeForAdequacy}
                 />
               </Tabs.Content>
 

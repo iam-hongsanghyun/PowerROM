@@ -1131,3 +1131,107 @@ def simulate_pathway(
             "capacities_gw": {key: round(value, 3) for key, value in capacities.items()},
         })
     return {"country": country.upper(), "years": list(years), "steps": steps}
+
+
+# ── Size-to-adequacy (grow a firm resource until LOLE ≤ target) ──────────────────
+_SIZE_ADEQUACY_MAX_DOUBLINGS: int = 10  # upper-bound search before giving up
+_SIZE_ADEQUACY_BISECT_ITERS: int = 12   # bisection refinement of the minimal firm capacity
+
+
+def size_for_adequacy(
+    country: str,
+    capacities: dict[str, float],
+    firm_key: str,
+    lole_target_hours: float,
+    carbon_price: float = 0.0,
+    annual_demand_twh: float | None = None,
+    ensemble: Any | None = None,
+    ess_short_power_gw: float | None = None,
+    ess_short_duration_hr: float | None = None,
+    ess_long_power_gw: float | None = None,
+    ess_long_duration_hr: float | None = None,
+    max_gw: float | None = None,
+) -> dict[str, Any]:
+    """Least firm capacity of ``firm_key`` that holds resource adequacy to ``lole_target_hours``.
+
+    The probabilistic analogue of "meet 100% load": rather than zero unserved on the single worst
+    weather sample, grow one firm resource until the **ensemble** LOLE (loss-of-load expectation,
+    h/yr) drops to a reliability standard (e.g. 2.4 h/yr ≈ "1 day in 10 years"). LOLE is monotone
+    decreasing in firm capacity and, with a fixed ensemble seed, deterministic — the same weather
+    scenarios are dispatched at every trial capacity — so the minimal capacity is found by an
+    upper-bound search followed by bisection. Use a block-bootstrap ensemble so the LOLE reflects
+    the multi-day droughts that set the standard.
+
+    Args:
+        country: Country code.
+        capacities: Installed capacity by generator (GW); ``firm_key`` is the one grown.
+        firm_key: Generator whose capacity is sized (a dispatchable, e.g. ``"gas_ccgt"``).
+        lole_target_hours: Target LOLE (h/yr) — the reliability standard to meet.
+        carbon_price, annual_demand_twh, ensemble, ess_*: Passed to each adequacy evaluation.
+        max_gw: Optional ceiling on ``firm_key`` capacity; the search stops there.
+
+    Returns:
+        Dict with ``firm_key``, ``required_gw`` (sized capacity), ``added_gw`` (vs the start),
+        ``baseline_lole_hours``, ``lole_hours`` (achieved), ``lole_target_hours``, ``met``,
+        ``system_lcoe`` and ``annual_system_cost_usd_billion`` at the sized point.
+    """
+    base = {key: max(0.0, float(value)) for key, value in capacities.items()}
+    base.setdefault(firm_key, 0.0)
+    start = base[firm_key]
+    target = max(0.0, float(lole_target_hours))
+    cache: dict[float, tuple[float, dict[str, Any]]] = {}
+
+    def evaluate(gw: float) -> tuple[float, dict[str, Any]]:
+        key = round(gw, 4)
+        if key not in cache:
+            caps = dict(base)
+            caps[firm_key] = gw
+            result = calculate_system_lcoe(
+                country=country, shares=caps, capacities_gw=caps, carbon_price=carbon_price,
+                annual_demand_twh=annual_demand_twh, ensemble=ensemble,
+                ess_short_power_gw=ess_short_power_gw, ess_short_duration_hr=ess_short_duration_hr,
+                ess_long_power_gw=ess_long_power_gw, ess_long_duration_hr=ess_long_duration_hr,
+            )
+            adequacy = result.get("adequacy")
+            lole = float(adequacy["lole_hours"]) if adequacy else 0.0
+            cache[key] = (lole, result)
+        return cache[key]
+
+    baseline_lole, baseline_result = evaluate(start)
+
+    def _report(gw: float, met: bool) -> dict[str, Any]:
+        lole, result = evaluate(gw)
+        return {
+            "firm_key": firm_key,
+            "required_gw": round(gw, 2),
+            "added_gw": round(gw - start, 2),
+            "baseline_lole_hours": round(baseline_lole, 2),
+            "lole_hours": round(lole, 2),
+            "lole_target_hours": target,
+            "met": met,
+            "system_lcoe": result["system_lcoe"],
+            "annual_system_cost_usd_billion": result["annual_system_cost_usd_billion"],
+        }
+
+    if baseline_lole <= target:
+        return _report(start, met=True)  # already adequate — no build needed
+
+    # Upper-bound search: double firm capacity until the target is met (or the ceiling is hit).
+    ceiling = max_gw if max_gw is not None else max(start, 1.0) * (2.0**_SIZE_ADEQUACY_MAX_DOUBLINGS)
+    hi = max(start, 1.0)
+    for _ in range(_SIZE_ADEQUACY_MAX_DOUBLINGS):
+        if evaluate(min(hi, ceiling))[0] <= target or hi >= ceiling:
+            break
+        hi = min(hi * 2.0, ceiling)
+    if evaluate(min(hi, ceiling))[0] > target:
+        return _report(min(hi, ceiling), met=False)  # standard unreachable within the ceiling
+
+    # Bisect [start, hi] for the minimal firm capacity that still meets the target.
+    lo, hi = start, min(hi, ceiling)
+    for _ in range(_SIZE_ADEQUACY_BISECT_ITERS):
+        mid = (lo + hi) / 2.0
+        if evaluate(mid)[0] <= target:
+            hi = mid
+        else:
+            lo = mid
+    return _report(hi, met=True)

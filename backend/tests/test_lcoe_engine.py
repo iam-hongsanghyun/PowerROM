@@ -1,6 +1,37 @@
 import pytest
 
-from backend.core.lcoe_engine import calculate_system_lcoe, simulate_pathway
+from backend.core.lcoe_engine import calculate_system_lcoe, simulate_pathway, size_for_adequacy
+
+_BLOCK8 = {"method": "block_bootstrap", "n_samples": 8, "sigma": 0.05, "seed": 42, "block_days": 14}
+
+
+def test_size_for_adequacy_grows_firm_capacity_to_meet_lole() -> None:
+    # The probabilistic analogue of meet-100%-load: grow a firm resource until the ensemble LOLE
+    # reaches a reliability standard. An under-built fleet must add gas; the achieved LOLE lands
+    # on the target and the required capacity exceeds the start.
+    caps = {"solar": 120, "wind_onshore": 70, "gas_ccgt": 15, "coal": 6, "nuclear": 12, "other": 3}
+    result = size_for_adequacy(
+        country="KR", capacities=caps, firm_key="gas_ccgt", lole_target_hours=5.0,
+        carbon_price=50.0, annual_demand_twh=595.0, ensemble=_BLOCK8,
+        ess_short_power_gw=12.0, ess_short_duration_hr=8.0,
+    )
+    assert result["baseline_lole_hours"] > 5.0        # under-built to start
+    assert result["required_gw"] > caps["gas_ccgt"]   # had to grow gas
+    assert result["added_gw"] > 0.0
+    assert result["lole_hours"] <= 5.0 + 0.1          # ...to meet the standard
+    assert result["met"] is True
+
+
+def test_size_for_adequacy_no_build_when_already_adequate() -> None:
+    # A fleet already inside the standard needs no firm build.
+    caps = {"solar": 40, "wind_onshore": 20, "gas_ccgt": 90, "coal": 20, "nuclear": 30, "other": 5}
+    result = size_for_adequacy(
+        country="KR", capacities=caps, firm_key="gas_ccgt", lole_target_hours=8.0,
+        carbon_price=50.0, annual_demand_twh=595.0, ensemble=_BLOCK8,
+    )
+    assert result["baseline_lole_hours"] <= 8.0
+    assert result["added_gw"] == 0.0
+    assert result["met"] is True
 
 _SINGLE = {"method": "single", "n_samples": 1, "sigma": 0.0, "seed": 42}
 

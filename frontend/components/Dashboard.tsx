@@ -60,7 +60,9 @@ const FALLBACK_COUNTRIES: CountrySummary[] = [
 ];
 
 const INITIAL_COUNTRY = "KR";
-const GENERATOR_KEYS = ["solar", "wind_onshore", "gas_ccgt", "coal", "nuclear", "other"] as const;
+// Merit order: cheapest marginal cost dispatched first. Must match ALL_GENERATOR_KEYS
+// in @/lib/constants and DISPLAY_ORDER in backend/core/dispatch_engine.py.
+const GENERATOR_KEYS = ["solar", "wind_onshore", "nuclear", "coal", "gas_ccgt", "other"] as const;
 
 function capacityShares(capacities: Capacities): Shares {
   const total = Object.values(capacities).reduce((sum, value) => sum + Math.max(0, value), 0);
@@ -147,6 +149,13 @@ export function Dashboard() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const shares = capacityShares(capacities);
+  // Model-calculated generation share (energy share) per generator from the last run,
+  // distinct from the capacity share the user types in. Undefined until first run.
+  const calculatedShares = result?.dispatch
+    ? Object.fromEntries(
+        Object.entries(result.dispatch.metrics.realized_share).map(([key, band]) => [key, band.median]),
+      )
+    : undefined;
 
   function handleCountryChange(nextCountry: string) {
     setCountry(nextCountry);
@@ -297,6 +306,7 @@ export function Dashboard() {
               <ShareSliders
                 capacityInputs={capacityInputs}
                 generatorOrder={generatorOrder}
+                calculatedShares={calculatedShares}
                 onChange={handleCapacityInputChange}
                 onOrderChange={setGeneratorOrder}
               />

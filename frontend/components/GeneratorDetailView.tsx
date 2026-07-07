@@ -18,7 +18,6 @@ const COST_COMPONENTS = [
   { key: "variable_opex", label: "Variable O&M" },
   { key: "fuel", label: "Fuel" },
   { key: "carbon", label: "Carbon" },
-  { key: "integration", label: "Integration" },
   { key: "ess", label: "ESS" },
 ] as const;
 

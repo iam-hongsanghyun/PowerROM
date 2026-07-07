@@ -225,9 +225,9 @@ export function ProfileAnalysis({
   const minVrePct = vrePct[minIdx]!;
 
   // ─── Chart 1: Cost composition stacked area ─────────────────────────────────
-  // Derive O&M = system_lcoe - (capex + fuel + carbon + integration + ess)
+  // Derive O&M = system_lcoe - (capex + fuel + carbon + ess)
   const omValues = curve.map(
-    (p) => Math.max(0, p.system_lcoe - p.capex - p.fuel - p.carbon - p.integration - p.ess),
+    (p) => Math.max(0, p.system_lcoe - p.capex - p.fuel - p.carbon - p.ess),
   );
 
   const stackLayers: Array<{ label: string; color: string; values: number[] }> = [
@@ -235,7 +235,6 @@ export function ProfileAnalysis({
     { label: "O&M", color: "#64748b", values: omValues },
     { label: "Fuel", color: "#f59e0b", values: curve.map((p) => p.fuel) },
     { label: "Carbon", color: "#ef4444", values: curve.map((p) => p.carbon) },
-    { label: "Integration", color: "#f97316", values: curve.map((p) => p.integration) },
     { label: "Storage", color: "#8b5cf6", values: curve.map((p) => p.ess) },
   ];
 
@@ -596,7 +595,7 @@ export function ProfileAnalysis({
       <div className="grid gap-6 lg:grid-cols-2">
         <ChartCard
           title="Cost Composition vs VRE Share"
-          subtitle="How CAPEX, fuel, carbon, integration and storage costs evolve as renewables grow (dashed = curtailment %)"
+          subtitle="How CAPEX, fuel, carbon and storage costs evolve as renewables grow (dashed = curtailment %)"
         >
           <Plot
             data={[...stackTraces, curtailmentTrace]}

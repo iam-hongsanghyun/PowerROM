@@ -275,11 +275,10 @@ export interface GeneratorConfig {
   fuel_usd_mmbtu?: number;
   heat_rate_mmbtu_mwh?: number;
   cf_base?: number;
-  cf_eff_func?: FuncConfig;
+  // Capacity factor, curtailment, and integration cost are derived from the country's
+  // hourly dispatch pattern — the only fitted curve is thermal part-load efficiency.
   eta_func?: FuncConfig;
-  integration_cost_func?: FuncConfig;
   variability_factor?: number;
-  curtailment_func?: FuncConfig;
 }
 
 export interface EssShortDurConfig {

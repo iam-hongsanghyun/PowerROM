@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, ChevronUp, GripVertical } from "lucide-react";
+import { GripVertical } from "lucide-react";
 
 import type { Capacities, GeneratorKey } from "@/lib/api";
 import { ALL_GENERATOR_KEYS, GENERATOR_COLORS, GENERATOR_LABELS } from "@/lib/constants";
@@ -33,24 +33,17 @@ function reorder(order: GeneratorKey[], draggedKey: GeneratorKey, targetKey: Gen
   return next;
 }
 
-function move(order: GeneratorKey[], key: GeneratorKey, delta: -1 | 1): GeneratorKey[] {
-  const from = order.indexOf(key);
-  const to = from + delta;
-  if (from < 0 || to < 0 || to >= order.length) return order;
-  const next = [...order];
-  const [item] = next.splice(from, 1);
-  next.splice(to, 0, item!);
-  return next;
-}
-
 export function ShareSliders({
   capacityInputs,
   generatorOrder,
+  calculatedShares,
   onChange,
   onOrderChange,
 }: {
   capacityInputs: Record<GeneratorKey, string>;
   generatorOrder: GeneratorKey[];
+  /** Model-calculated generation share per generator (0–1) from the last run. */
+  calculatedShares?: Record<string, number>;
   onChange: (key: GeneratorKey, value: string) => void;
   onOrderChange: (order: GeneratorKey[]) => void;
 }) {
@@ -58,9 +51,8 @@ export function ShareSliders({
   const rowRefs = useRef(new Map<GeneratorKey, HTMLDivElement | null>());
   const generators = completeOrder(generatorOrder);
 
-  // Pointer-based drag reordering: grab a row's handle and move it up/down,
-  // reordering live as the pointer crosses into a neighbouring row. This replaces
-  // native HTML5 drag-and-drop, which only fired from a tiny handle and felt janky.
+  // Pointer-based drag reordering: grab a row and move it up/down, reordering live
+  // as the pointer crosses into a neighbouring row.
   useEffect(() => {
     if (!draggingKey) return;
 
@@ -87,6 +79,7 @@ export function ShareSliders({
       window.removeEventListener("pointercancel", stop);
     };
   }, [draggingKey, generatorOrder, onOrderChange]);
+
   const parsedCapacities = Object.fromEntries(
     Object.entries(capacityInputs).map(([key, value]) => {
       const parsed = Number(value);
@@ -94,19 +87,21 @@ export function ShareSliders({
     }),
   ) as Capacities;
   const totalCapacity = Object.values(parsedCapacities).reduce((sum, value) => sum + Math.max(0, value), 0);
-  const maxCapacity = Math.max(...Object.values(parsedCapacities).map((value) => Math.max(0, value)), 1);
+  const hasCalculated = calculatedShares !== undefined;
 
   return (
-    <div className="space-y-5">
-      <div className="flex items-center justify-between">
+    <div className="space-y-2">
+      <div className="flex items-baseline justify-between">
         <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Merit Order</h3>
-        <span className="text-xs text-slate-400">GW</span>
+        <span className="text-[10px] text-slate-400">
+          {hasCalculated ? "GW · gen share" : "GW · cap share"}
+        </span>
       </div>
+
       {generators.map((key, index) => {
-        const value = parsedCapacities[key];
-        const displayValue = Math.max(0, value);
+        const displayValue = Math.max(0, parsedCapacities[key]);
         const capacityShare = totalCapacity > 0 ? displayValue / totalCapacity : 0;
-        const visualPct = maxCapacity > 0 ? (displayValue / maxCapacity) * 100 : 0;
+        const share = hasCalculated ? calculatedShares[key] ?? 0 : capacityShare;
         const label = GENERATOR_LABELS[key] ?? key;
         const color = GENERATOR_COLORS[key] ?? "#64748b";
         return (
@@ -116,9 +111,9 @@ export function ShareSliders({
               rowRefs.current.set(key, el);
             }}
             className={[
-              "space-y-2 rounded-2xl border bg-white p-3 transition",
+              "flex items-center gap-2 rounded-lg border bg-white px-2 py-1.5 transition",
               draggingKey === key
-                ? "border-slate-400 shadow-lg ring-2 ring-slate-300"
+                ? "border-slate-400 shadow-md ring-1 ring-slate-300"
                 : "border-slate-200",
               draggingKey && draggingKey !== key ? "opacity-60" : "",
             ].join(" ")}
@@ -128,76 +123,41 @@ export function ShareSliders({
                 event.preventDefault();
                 setDraggingKey(key);
               }}
-              title="Drag to reorder"
+              title="Drag to reorder merit position"
               aria-label={`Drag ${label} to reorder`}
               className={[
-                "flex touch-none select-none items-center justify-between text-sm font-medium text-slate-800",
+                "flex min-w-0 flex-1 touch-none select-none items-center gap-1.5",
                 draggingKey === key ? "cursor-grabbing" : "cursor-grab",
               ].join(" ")}
             >
-              <span className="flex min-w-0 items-center gap-2">
-                <GripVertical size={16} className="shrink-0 text-slate-400" />
-                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-xs font-semibold text-slate-500">
-                  {index + 1}
-                </span>
-                <span
-                  className="h-2.5 w-2.5 shrink-0 rounded-full"
-                  style={{ backgroundColor: color }}
-                />
-                <span className="truncate">{label}</span>
-              </span>
-              <span className="shrink-0">{capacityShare > 0 ? `${(capacityShare * 100).toFixed(1)}% cap` : "0% cap"}</span>
+              <GripVertical size={13} className="shrink-0 text-slate-300" />
+              <span className="w-3.5 shrink-0 text-[11px] tabular-nums text-slate-400">{index + 1}</span>
+              <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: color }} />
+              <span className="truncate text-sm text-slate-800">{label}</span>
             </div>
-            <div className="flex gap-2">
-              <div className="flex flex-col gap-1">
-                <button
-                  type="button"
-                  onClick={() => onOrderChange(move(generators, key, -1))}
-                  disabled={index === 0}
-                  title="Move up"
-                  aria-label={`Move ${label} up`}
-                  className="rounded-lg border border-slate-200 p-1 text-slate-500 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-35"
-                >
-                  <ChevronUp size={13} />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onOrderChange(move(generators, key, 1))}
-                  disabled={index === generators.length - 1}
-                  title="Move down"
-                  aria-label={`Move ${label} down`}
-                  className="rounded-lg border border-slate-200 p-1 text-slate-500 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-35"
-                >
-                  <ChevronDown size={13} />
-                </button>
-              </div>
-              <input
-                type="text"
-                inputMode="decimal"
-                value={capacityInputs[key]}
-                onChange={(event) => onChange(key, event.target.value)}
-                aria-label={`${label} capacity in GW`}
-                className="min-w-0 flex-1 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-slate-400"
-              />
-            </div>
-            <div className="h-2 overflow-hidden rounded-full bg-slate-200">
-              <div
-                className="h-full rounded-full"
-                style={{
-                  width: `${Math.min(100, visualPct)}%`,
-                  backgroundColor: color,
-                }}
-              />
-            </div>
+
+            <input
+              type="text"
+              inputMode="decimal"
+              value={capacityInputs[key]}
+              onChange={(event) => onChange(key, event.target.value)}
+              aria-label={`${label} capacity in GW`}
+              className="w-16 shrink-0 rounded-md border border-slate-200 bg-white px-2 py-1 text-right text-sm tabular-nums text-slate-900 outline-none transition focus:border-slate-400"
+            />
+
+            <span
+              className="w-11 shrink-0 text-right text-xs font-medium tabular-nums text-slate-500"
+              title={hasCalculated ? "Calculated generation share" : "Capacity share (run to see generation share)"}
+            >
+              {(share * 100).toFixed(1)}%
+            </span>
           </div>
         );
       })}
 
-      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
-        <div className="flex items-center justify-between">
-          <span>Total Installed Capacity</span>
-          <span className="font-semibold">{totalCapacity.toFixed(1)} GW</span>
-        </div>
+      <div className="flex items-center justify-between px-2 pt-1 text-[11px] text-slate-500">
+        <span>Total capacity</span>
+        <span className="font-semibold text-slate-600">{totalCapacity.toFixed(1)} GW</span>
       </div>
     </div>
   );

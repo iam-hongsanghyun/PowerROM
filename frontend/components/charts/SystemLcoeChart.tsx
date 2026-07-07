@@ -53,13 +53,6 @@ export function SystemLcoeChart({
               <Area type="monotone" dataKey="capex" stackId="1" stroke="#2563eb" fill="#93c5fd" />
               <Area type="monotone" dataKey="fuel" stackId="1" stroke="#ea580c" fill="#fdba74" />
               <Area type="monotone" dataKey="carbon" stackId="1" stroke="#dc2626" fill="#fca5a5" />
-              <Area
-                type="monotone"
-                dataKey="integration"
-                stackId="1"
-                stroke="#7c3aed"
-                fill="#c4b5fd"
-              />
               <Area type="monotone" dataKey="ess" stackId="1" stroke="#059669" fill="#6ee7b7" />
             </AreaChart>
           )}

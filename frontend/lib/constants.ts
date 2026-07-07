@@ -11,13 +11,17 @@
 /** Keys that identify intermittent (variable renewable) generators. */
 export const VRE_GENERATOR_KEYS = new Set(["solar", "wind_onshore"]);
 
-/** All generator keys in preferred display order. */
+/**
+ * All generator keys in merit-order sequence: cheapest marginal cost first
+ * (dispatched first / top of the list), most expensive peaker last.
+ * Must match backend DISPLAY_ORDER in backend/core/dispatch_engine.py.
+ */
 export const ALL_GENERATOR_KEYS = [
   "solar",
   "wind_onshore",
-  "gas_ccgt",
-  "coal",
   "nuclear",
+  "coal",
+  "gas_ccgt",
   "other",
 ] as const;
 

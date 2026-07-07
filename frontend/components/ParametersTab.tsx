@@ -29,7 +29,10 @@ import {
 // Types
 // ---------------------------------------------------------------------------
 
-type FuncKey = "cf_eff_func" | "eta_func" | "integration_cost_func" | "curtailment_func";
+// Capacity factor, curtailment, and integration cost are all derived from the
+// country's hourly dispatch pattern — not fitted here. Thermal part-load efficiency
+// is the only behavioural curve the pattern cannot supply, so it stays editable.
+type FuncKey = "eta_func";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -57,29 +60,10 @@ const FUNC_FIELDS: Array<{
   vreOnly?: boolean;
 }> = [
   {
-    key: "cf_eff_func",
-    label: "CF Efficiency",
-    xLabel: "VRE Share",
-    yLabel: "Effective CF",
-  },
-  {
     key: "eta_func",
     label: "Thermal Efficiency",
     xLabel: "CF_eff (own)",
     yLabel: "Efficiency η",
-  },
-  {
-    key: "integration_cost_func",
-    label: "Integration Cost",
-    xLabel: "Portfolio Share",
-    yLabel: "Cost ($/MWh)",
-  },
-  {
-    key: "curtailment_func",
-    label: "Curtailment",
-    xLabel: "VRE Share",
-    yLabel: "Curtailment Rate",
-    vreOnly: true,
   },
 ];
 
@@ -116,10 +100,7 @@ const X_VARIABLE_OPTIONS: Array<{ value: string; label: string }> = [
 ];
 
 const FUNC_DEFAULT_X: Record<string, string> = {
-  cf_eff_func: "vre_share",
   eta_func: "cf_eff",
-  integration_cost_func: "own_share",
-  curtailment_func: "vre_share",
 };
 
 /** Per-type slider definitions: key, human label, hint, default range. */
@@ -931,7 +912,7 @@ export function ParametersTab({ country, onProfileEdited }: Props) {
     ess: false,
   });
   // Function editor state
-  const [selectedFeature, setSelectedFeature] = useState<FuncKey>("cf_eff_func");
+  const [selectedFeature, setSelectedFeature] = useState<FuncKey>("eta_func");
   const [editingGen, setEditingGen] = useState<string | null>(null);
   const [popupFunc, setPopupFunc] = useState<FuncConfig | null>(null);
 

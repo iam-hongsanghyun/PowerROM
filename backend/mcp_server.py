@@ -16,6 +16,7 @@ from __future__ import annotations
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 
 from backend.api.countries import countries as _countries_route
 from backend.core.lcoe_engine import (
@@ -28,8 +29,15 @@ from backend.core.lcoe_engine import (
 
 # stateless_http lets the Streamable-HTTP transport run without persistent sessions, which suits
 # serverless (each request is independent). streamable_http_path="/" so the app can be mounted at
-# /mcp in the FastAPI server without the path doubling to /mcp/mcp. Neither affects stdio.
-mcp = FastMCP("powerrom", stateless_http=True, streamable_http_path="/")
+# /mcp in the FastAPI server without the path doubling to /mcp/mcp. DNS-rebinding host protection
+# is disabled because this is a hosted public endpoint (that guard is for local-only servers, and
+# it otherwise rejects the Vercel host with "Invalid Host header"). None of this affects stdio.
+mcp = FastMCP(
+    "powerrom",
+    stateless_http=True,
+    streamable_http_path="/",
+    transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
+)
 
 GENERATORS = ["solar", "wind_onshore", "gas_ccgt", "coal", "nuclear", "other"]
 

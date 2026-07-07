@@ -3,10 +3,10 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
-# Ports offset +100 from Ragnarok (pypsa_gui), which uses 8000 (backend) and
-# 3000 (frontend), so both apps can run side by side. Override via env if needed.
-BACKEND_PORT="${BACKEND_PORT:-8100}"
-FRONTEND_PORT="${FRONTEND_PORT:-3100}"
+# PowerROM's own dedicated ports, chosen to avoid collisions with common dev
+# servers (3000/5173/8000/8080) and Ragnarok (3000/8000). Override via env if needed.
+BACKEND_PORT="${BACKEND_PORT:-8611}"
+FRONTEND_PORT="${FRONTEND_PORT:-3611}"
 CONDA_ENV_NAME="${CONDA_ENV_NAME:-powerrom}"
 CONDA_BIN="${CONDA_BIN:-$(command -v conda 2>/dev/null || true)}"
 

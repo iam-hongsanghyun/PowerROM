@@ -16,7 +16,8 @@ app = FastAPI(title="PowerROM API", version="0.1.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:3100",  # PowerROM dev frontend (see run.command)
+        "http://localhost:3611",  # PowerROM dev frontend (see run.command)
+        "http://localhost:3100",  # previous PowerROM port, kept during transition
         "http://localhost:3000",  # legacy/default Next.js port, kept for flexibility
         "https://powerrom.vercel.app",
         "https://*.vercel.app",

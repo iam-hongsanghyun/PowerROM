@@ -1,368 +1,392 @@
-# ROM-Power — Development Roadmap
+# PowerROM — Development Roadmap
 
-*Organised by the two primary user perspectives the tool must serve.*  
-*Last updated: 2026-05-01 · PLANiT Institute*
+> **PowerROM** is a reduced-order (ROM) energy-system **screening** model — not a full
+> LP/MILP optimizer like PyPSA. It computes system LCOE, emissions, curtailment, and
+> storage need for a user-chosen generation mix, per country, from an hourly (8760h)
+> merit-order dispatch run as a jittered multi-year ensemble (p10/median/p90).
+>
+> *Last updated: 2026-07-07 · PLANiT Institute*
 
 ---
 
-## Product vision: two-layer architecture
+## Product vision
 
-The tool currently models **Layer 1** (policy layer). Commercial viability requires **Layer 2** (business impact layer) that translates policy outcomes into corporate and household consequences.
+A **simple GUI for policy stakeholders** to understand *"what happens based on different
+features"* — carbon prices, renewable targets, coal phase-outs, storage costs, electrification —
+without needing to run or interpret a full capacity-expansion model.
+
+The tool must stay **legible and defensible**: every number traceable, every lever shown as
+its own line in the cost stack, every model limitation disclosed.
+
+### Architectural trajectory
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│  LAYER 1 — Policy Layer (current)                               │
-│                                                                 │
-│  Current government policy → scenario space → uncertainty band  │
-│  VRE mix · carbon price · system LCOE · emissions · ESS need    │
-└────────────────────────────┬────────────────────────────────────┘
-                             │  system LCOE  ×  retail markup
-                             ↓
-┌─────────────────────────────────────────────────────────────────┐
-│  LAYER 2 — Business Impact Layer (to build)                     │
-│                                                                 │
-│  Electricity price range · Fuel cost exposure · Carbon cost     │
-│  Investment opportunity · Competitiveness vs. peer countries    │
-└─────────────────────────────────────────────────────────────────┘
+PROFILE-based   ──▶   PARAMETER-based   ──▶   POLICY LEVERS   ──▶   SECTOR COUPLING
+   (now)               (next)                  (overlay)             (demand-side)
 ```
 
-**Tags used below:**  
-Priority: `P1` must-have · `P2` high value · `P3` nice-to-have  
-Effort: `S` < 1 week · `M` 1–3 weeks · `L` > 1 month
+1. **PROFILE-based (now)** — behaviour is baked into 8760h country profiles + a fitted
+   `eta_func`. The user tunes capacities, carbon price, demand scale, battery cost.
+2. **PARAMETER-based (next)** — expose the levers currently locked in the profile JSON
+   (lifetimes, fuel prices, discount rate, resource quality, retirement) as first-class
+   user inputs, so scenarios are built from parameters rather than hand-edited profiles.
+3. **POLICY LEVERS** — a lever overlay (RPS, phase-out, ITC/PTC, FIT, import tariff, DSM)
+   layered on top of the parameter engine, each following the `carbon_price` precedent.
+4. **SECTOR COUPLING** — demand-side blocks (EV, heat, hydrogen, industry, power-to-gas)
+   added to the hourly demand profile before dispatch.
+
+### Legend
+
+- **Priority** — `P1` (do first, unblocks or high stakeholder value), `P2` (next), `P3` (later / nice-to-have).
+- **Effort** — `S` (< 1 day), `M` (1–3 days), `L` (> 3 days / multi-PR).
+
+### Design principle (applies to every lever & coupling task)
+
+Follow the `carbon_price` precedent exactly (`backend/core/lcoe_engine.py:151`):
+
+1. Add a **bounded scalar / small dict** on `CalculateRequest` (`backend/models/schemas.py`).
+2. Implement as a **pure function of existing per-generator fields** in
+   `_generator_breakdown` / `_ess_metrics` — a cost adder, a share check, or a pattern
+   multiplier. No new solver.
+3. Emit a **new line item in `stack_components`** so the UI shows the lever's cost/benefit transparently.
+4. Add a **`docs/ALGORITHM.md` entry** (LaTeX + ASCII) and a **regression test** against a
+   hand-computed baseline (per `CLAUDE.md` numerical-correctness convention).
 
 ---
 
----
+## Phase 0 — Hardening & current-state debt (foundation)
 
-# Perspective 1 — Policy Decision-Maker (정책결정자)
+Close the gaps that make the *current* tool untrustworthy or inconsistent before building on top.
 
-*Primary question: "Where is our current policy on this landscape, how uncertain is it, and can I defend these numbers in a committee room?"*
+### Epic 0.1 — Custom-parameter plumbing consistency
 
----
+- **`P1` / `M`** — Pass `customProfile` / `custom_params` through **`ProfileAnalysis.tsx`**
+  sensitivity calls (carbon-price and battery-cost scenario fetches). Today parameter
+  edits are invisible in the sensitivity charts (still-valid debt #2).
+- **`P1` / `S`** — Pass `custom_params` through **`GeneratorMixPlotter.tsx`** `generateGrid`
+  so the mix explorer respects user cost edits (still-valid debt #3).
+- **`P1` / `S`** — Validate that `shares` / `capacities_gw` keys match the profile's generator
+  list; fail loudly (not silently) on extra/missing keys (still-valid debt #6). Add to the
+  `CalculateRequest` validator alongside the existing `capacities_gw` checks
+  (`backend/models/schemas.py:53`).
 
-## A. Anchor current policy and show deviation range
+### Epic 0.2 — Surface hidden physics
 
-### A1 · Mark the current government policy scenario `P1 · S`
-The most natural starting question from any minister: *"Show me where we are now."* Every chart should have a clear reference marker for the current national energy plan.
+- **`P1` / `M`** — Display `backup_flexibility` (already computed at `lcoe_engine.py:168`,
+  returned but never rendered) in the UI so users see *why* nuclear-heavy portfolios curtail
+  VRE (still-valid debt #4).
+- **`P2` / `M`** — Break out **long-duration ESS** as its own bar in the cost-stack chart
+  (`CostBreakdownChart`), not just the status bar, so the cost penalty of 80%+ VRE
+  pathways is visible (still-valid debt #5).
 
-- Dedicated "Current Policy" scenario that loads the government's published generation mix and carbon price target
-- Vertical marker on the LCOE and emissions curves showing the policy's position
-- Label shows: policy name, reference year, source document
-- Separate from the user's exploration so it cannot be accidentally overwritten
+### Epic 0.3 — Test & governance baseline
 
-### A2 · Scenario save, label, and side-by-side compare `P1 · M`
-Policy analysis is inherently comparative. A decision-maker needs to see "Current Policy vs. Accelerated VRE vs. Nuclear Extension" on a single chart with a summary table.
+- **`P1` / `L`** — Backend **automated test suite** for the dispatch + LCOE engine.
+  `backend/tests/test_dispatch_engine.py` exists as a seed; extend to `_generator_breakdown`,
+  `_ess_metrics`, `_size_storage_from_pattern`, and the ensemble aggregation. Regression
+  tests against hand-computed baselines with explicit `rtol` / `atol` (roadmap I2 — currently
+  the single highest-risk item for policy / publication use).
+- **`P2` / `S`** — Profile **versioning + changelog** on country JSON (roadmap I1); stamp a
+  version + provenance block into `KR/AU/JP.json`.
 
-- Named scenario slots (up to 5) with user-defined labels
-- Overlay all saved scenarios on every chart with distinct colours
-- Summary comparison table: LCOE · emissions · ESS · curtailment · annual system cost
-- Highlight which scenario is cheapest, which meets the carbon target
+### Epic 0.4 — Dead-code cleanup
 
-### A3 · Policy deviation uncertainty bands `P1 · M`
-No energy plan is executed exactly as written. Decision-makers need the plausible range around the policy scenario, not just a central estimate.
-
-- ± slider for key uncertainties: CAPEX (±20%), fuel price (±30%), demand growth (±10%)
-- Shaded band on every chart showing the resulting output range
-- "Robust zone" highlight: the VRE share range where all uncertainty bounds still beat the status quo on cost or emissions
-- Tornado chart: which assumption moves the answer the most?
-
-### A4 · Carbon budget alignment indicator `P1 · S`
-The question "does this scenario get us to net-zero by 2050?" must be answerable in one glance.
-
-- User-configurable national emission target line on the emission intensity chart
-- Traffic-light badge: Red / Amber / Green vs. the selected target
-- Annual Mt CO₂ displayed alongside intensity (gCO₂/kWh)
-- Cumulative carbon budget tracker when a year-by-year pathway is defined
-
----
-
-## B. Enable credible, reportable outputs
-
-### B1 · Export to PDF / PowerPoint-ready image `P1 · M`
-Results that cannot leave the browser cannot appear in a cabinet memo.
-
-- One-click PDF of the current scenario: charts + key numbers in a clean fixed layout
-- High-resolution PNG / SVG export per chart
-- Auto-generated executive summary box: LCOE · emissions · ESS · curtailment · annual cost
-- Optional institution name / logo field in the report header
-
-### B2 · Shareable URL encoding the full scenario state `P1 · S`
-"Send me the scenario you were looking at" is the most common inter-office request.
-
-- All slider values encoded into the URL on every change
-- Paste the URL to restore the exact scenario in any browser
-- Short-link generation (`power-rom.vercel.app/s/abc123`)
-- Copy-to-clipboard share button
-
-### B3 · Data provenance visible on every number `P1 · S`
-Any unattributed assumption will be challenged in parliamentary questioning.
-
-- Source tooltip on every parameter row and chart: "IEA WEO 2024", "IRENA 2024"
-- Data vintage label always visible (not hidden in Parameters)
-- Prominent flag when the user's custom parameters differ from the peer-reviewed defaults
-- "Methodology" summary page reachable from the status bar, with citation format for publications
-
-### B4 · Model limitations disclosure `P2 · S`
-Disclosing what the model does *not* capture builds more trust than hiding it.
-
-- Prominent "Model scope and limitations" panel on the home page
-- Accuracy statement: "Reproduces Korean historical LCOE within ±N% for 2019–2023"
-- Explicit list of what is excluded: hourly dispatch, grid topology, ancillary services, network costs
-- Link to full methodology document
+- **`P3` / `S`** — Decide the fate of `cf_eff_func` / `curtailment_func` /
+  `integration_cost_func`: they are retained in profile JSON for backward compat but never
+  called under hourly dispatch. Either delete or explicitly quarantine behind a documented
+  "legacy" flag. (`integration` is hardwired to `0.0` at `lcoe_engine.py:162,328,345` —
+  see Epic 3.6 for the re-enable path.)
 
 ---
 
-## C. Enable comparative and forward-looking analysis
+## Phase 1 — Stakeholder-friendly GUI & feature understanding
 
-### C1 · Multi-country comparison `P2 · M`
-"How does Korea's planned mix compare to Japan or Germany?" is the first question in any multilateral climate dialogue.
+Make the *existing* model legible to non-technical policy staff. No new physics.
 
-- Select up to 3 countries and overlay their LCOE curves on one chart
-- Same-VRE-share comparison table across countries
-- Export the comparison as a single table or chart
-- Ability to upload a new country profile (JSON) without code changes
+### Epic 1.1 — Plain-language reframing
 
-### C2 · Time-horizon pathway (2030 / 2040 / 2050) `P2 · L`
-Policy targets are defined in years, not VRE shares.
+- **`P1` / `M`** — Plain-English labels + tooltips for jargon: "VRE share", `ess_requirement_gwh`,
+  `emission_intensity`, `cf_base`, `variability_factor`. One glossary source, reused across
+  `ControlPanel.tsx`, `ShareSliders.tsx`, `ProfileAnalysis.tsx`.
+- **`P2` / `S`** — Explain the **merit-order drag** (`ShareSliders.tsx`): help text on what
+  reordering means and when a policy maker would touch it. Flag the documented limitation
+  that merit order is user-set, not cost-optimized (so carbon price does not reshuffle dispatch).
+- **`P2` / `S`** — Contextualize **curtailment**: what drives it, when it's a problem, what
+  reduces it (ties to `backup_flexibility` from Epic 0.2).
 
-- Year slider that applies technology cost learning curves (CAPEX trajectories per generator)
-- For each target year: minimum-cost share, emissions, ESS requirement, total system cost
-- Highlight the year when the system becomes cost-competitive without a carbon price
-- Paris-aligned reference pathway pre-loaded as a comparison baseline
+### Epic 1.2 — Onboarding & progressive disclosure
 
-### C3 · Energy security metrics `P2 · M`
-LCOE alone does not reflect what keeps energy ministers awake at night.
+- **`P1` / `M`** — **Guided onboarding wizard** (roadmap D1) — a 3–4 step first-run flow that
+  sets country, a policy question, and a starting mix.
+- **`P2` / `M`** — Restructure the **Advanced** section of `ControlPanel.tsx` (dispatch mode,
+  weather years, ensemble config, EV): promote policy-relevant controls, keep true expert
+  knobs (jitter sigma, seed) collapsed. Add a one-line explainer for the p10/median/p90 bands.
 
-- Fuel import cost (USD/yr and % of system cost) as a function of the generation mix
-- Import dependency index: imported fuel energy / total system energy
-- Adequacy indicator: does the dispatchable capacity cover peak demand?
-- Supply security composite score (import dependency + curtailment risk + backup margin)
+### Epic 1.3 — Scenario management
 
-### C4 · Capacity mix output (GW, not just share) `P2 · S`
-Policy targets and infrastructure plans are stated in gigawatts. The tool only shows shares.
+- **`P1` / `L`** — **Scenario save / label / side-by-side compare** (roadmap A2). Scenario
+  slots holding the full `CalculateRequest` state; render two/three results side by side.
+- **`P1` / `M`** — **Shareable URL** encoding full scenario state (roadmap B2); foundation
+  for reproducible policy memos.
+- **`P2` / `M`** — **"Current government policy" baseline** marker (roadmap A1): pin a
+  reference scenario, show deltas against it.
 
-- GW installed capacity per generator derived from annual demand + capacity factor
-- Peak capacity check against user-editable peak demand (GW)
-- Land area estimate (km²) based on installed GW per technology
-- Annual investment flow (USD/yr) implied by the planned build-out
+### Epic 1.4 — Policy-communication outputs
 
-### C5 · Additional country profiles `P2 · M per country`
-Three countries (KR, AU, JP) is not enough for international policy benchmarking.
+- **`P2` / `M`** — **Export to PDF / PowerPoint-ready image** (roadmap B1) for cabinet memos.
+- **`P2` / `S`** — **Data provenance on every number** (roadmap B3) and a **model-limitations
+  disclosure** panel (roadmap B4) — carbon price does not reshuffle dispatch; single-country
+  islanded grids; screening not optimization.
+- **`P3` / `M`** — **Capacity mix output in GW** surfaced in the UI (roadmap C4; already
+  computed in dispatch via `capacities_gw`).
 
-Priority order by policy relevance:
-1. Germany (DE) — Energiewende benchmark, European carbon market
-2. United Kingdom (GB) — offshore wind leader, carbon pricing reference
-3. India (IN) — largest developing-country transition
-4. United States (US) — IRA policy context, regional grid diversity
-5. China (CN) — largest absolute emissions, fastest VRE scale-up
-6. France (FR) — nuclear-dominated system as contrast case
+### Epic 1.5 — Policy-impact dashboard
 
----
-
-## D. Accessibility and trust for diverse policy audiences
-
-### D1 · Guided onboarding for non-technical staff `P2 · M`
-A minister's policy officer may not know what LCOE or VRE share means.
-
-- 3-step wizard: "Pick a country → adjust your energy mix → see the cost and emissions"
-- Tooltip glossary on every technical term
-- "What does this mean for policy?" explainer card on each chart
-- Pre-loaded scenario buttons: "IEA Net Zero 2050", "Current national plan", "Coal phase-out by 2035"
-
-### D2 · Local currency display `P2 · S`
-Policy documents are written in local currency. USD figures create friction with Korean or Australian officials.
-
-- Currency selector (USD, KRW, AUD, JPY) with user-editable exchange rate
-- All cost outputs in selected currency
-- Rate source and date shown ("FX: 1 USD = 1,380 KRW · BOK 2025-05-01")
-
-### D3 · Historical calibration view `P3 · M`
-"How well does this model reproduce what actually happened?" is the first question from any serious analyst.
-
-- Upload historical data (year, VRE share, system LCOE, emission intensity)
-- Overlay model curve on historical actuals
-- Display model error (RMSE, MAPE)
-- Optional: auto-fit profile parameters to historical data
+- **`P2` / `L`** — A policy-framed results view: *"If you enact these policies, cost changes
+  by $X/MWh, emissions drop Y%, storage grows to Z GWh"* — reorganizing existing metrics
+  around the decision, not the technical breakdown.
 
 ---
 
----
+## Phase 2 — Profile → Parameter engine
 
-# Perspective 2 — Business User (비즈니스 사용자)
+Expose the levers currently locked inside the country profile JSON as first-class user inputs.
+This is the architectural pivot the vision calls for. Most items add fields to `custom_params`
+(already threaded via `CalculateRequest.custom_params`, `schemas.py:46`).
 
-*Primary question: "Given the policy scenario and its uncertainty, what happens to my electricity bill, my fuel costs, and where are the investment opportunities?"*
+### Epic 2.1 — Demand parameterization
 
-*All of Section 2 requires the new **Business Impact Layer** described in the architecture above.*
+- **`P1` / `M`** — `demand_growth_rate_pct_yr` + `annual_demand_twh` (already exposed) as a
+  trend, not just a single scalar. Hook in `_calculate_system_lcoe_dispatch` before dispatch.
+- **`P2` / `M`** — Load-shape parameters: `peak_load_ratio`, `industrial_load_fraction`
+  applied to `demand_norm` in `hourly_profiles.py` (currently a fixed synthesized shape).
 
----
+### Epic 2.2 — Resource-quality parameterization
 
-## A. Translate policy scenarios into electricity prices
+- **`P2` / `M`** — `solar_cf_base_override`, `wind_cf_base_override` as intuitive inputs
+  (editable today only via raw `custom_params`), plus
+  `renewable_resource_degradation_rate_pct_yr`.
 
-### A1 · System LCOE → retail electricity price converter `P1 · S`
-System LCOE is a wholesale planning metric. Businesses pay retail prices that include network charges, taxes, and retailer margins. This is the single most important translation step.
+### Epic 2.3 — Cost & finance parameterization
 
-- Country-specific retail markup coefficient: `retail_price = system_LCOE × markup_factor`
-- Markup factor is editable (default sourced from national regulator data)
-- Components shown separately: generation cost · network · taxes / levies · retail margin
-- Result: retail price in $/MWh and local currency / kWh
+- **`P1` / `M`** — Per-generator `lifetime_yr` and `discount_rate_override` (today a
+  country-wide scalar) exposed to model early retirement / lifetime extension and WACC changes.
+- **`P2` / `M`** — `fuel_price_override_usd_mmbtu` and `emission_factor_override_tco2_mwh`
+  (today profile-locked) to model fuel escalation / carbon-intensity shift.
+- **`P2` / `M`** — Storage overrides: `ess_capex_usd_kwh_override`, `ess_duration_hr_override`
+  (battery-cost slider exists; duration + others are profile-locked).
 
-### A2 · Company electricity cost calculator `P1 · S`
-Once retail price is known, the business impact is straightforward: consumption × price.
+### Epic 2.4 — Capacity feasibility bounds
 
-- User inputs: annual electricity consumption (MWh/yr), peak demand (kW)
-- Output: annual electricity bill under baseline, low, and high policy scenarios
-- Year-by-year bill projection from 2025 to 2050 (uses time-pathway from Policy Layer)
-- Delta from current: how much more or less per year vs. today?
+- **`P2` / `L`** — `capacity_min_gw` / `capacity_max_gw` per generator feeding the existing
+  `fixed_capacities` override path in `dispatch_engine.py:44,60,71,81`. Prerequisite for the
+  phase-out and build-out policy levers (Epic 3.2 / 3.9).
 
-### A3 · Electricity price uncertainty range `P1 · S`
-The most valuable output for a CFO is not a point estimate but a defensible range for budget planning.
+### Epic 2.5 — Time-horizon pathway
 
-- Derives directly from the policy uncertainty bands (Policy Layer A3)
-- Output: electricity price in $/MWh — pessimistic / central / optimistic
-- "Planning range" that a CFO can use for scenario budgeting
-- Probability framing: "70% confidence the price will be between X and Y by 2030"
+- **`P2` / `L`** — Wrapper loop that runs the existing single-year ROM at each milestone year
+  with interpolated inputs, charting LCOE / emissions / curtailment / ESS over time (roadmap C2).
+  Requires **CAPEX learning curves** (technology cost trajectories by year). Foundation for
+  multi-year retirement pathways (Epic 3.9), escalating carbon price (Epic 3.4), and cost-forecast controls.
 
----
+### Epic 2.6 — Country library expansion
 
-## B. Quantify risk exposure
-
-### B1 · Carbon cost exposure `P1 · M`
-Carbon pricing affects businesses both directly (own emissions) and indirectly (embedded in electricity).
-
-- User inputs: direct emission sources (tonnes CO₂/yr by fuel type), industry sector
-- Calculates: direct carbon cost at current and projected carbon prices
-- Calculates: embedded carbon cost in electricity consumption
-- Total carbon cost exposure under low / central / high carbon price scenarios
-- Sensitivity: "A $10/tonne carbon price increase costs this company $X/yr"
-
-### B2 · Fuel cost exposure `P1 · M`
-Many industrial users have direct fuel inputs (gas for process heat, coal for industrial heat) that are separately affected from electricity.
-
-- User inputs: annual fuel consumption by type (natural gas MMBtu, coal tonnes, oil barrels)
-- Links fuel prices to the policy scenario's assumptions (same data source)
-- Output: annual fuel cost under baseline vs. accelerated-VRE scenarios
-- Note: high VRE reduces gas demand system-wide → likely lower gas prices → fuel cost benefit
-
-### B3 · Business risk dashboard `P2 · M`
-Summarises all energy-related risk exposures in one view for C-suite use.
-
-- Total energy cost (electricity + direct fuel + carbon) by scenario
-- Energy cost as % of revenue / COGS (user inputs their revenue figure)
-- Year-on-year change trajectory to 2030 / 2040
-- Key risk drivers ranked: which factor (electricity, gas, carbon) drives the most uncertainty?
-- One-page PDF export for board reporting
+- **`P2` / `L`** — Additional country profiles, priority **DE, GB, IN, US, CN, FR** (roadmap
+  C5). ~1 week each to source + validate. Enables multi-country comparison (roadmap C1).
+- **`P3` / `M`** — **Energy-security metrics** (roadmap C3): import-dependency index, fuel cost
+  as % of system cost. Build *together* with the import-tariff lever (Epic 3.5) — shared
+  `import_dependency_fraction` field on the country JSON.
 
 ---
 
-## C. Identify investment opportunities
+## Phase 3 — Policy levers (overlay on the parameter engine)
 
-### C1 · Grid parity calculator `P1 · S`
-"When does it become cheaper for me to generate my own power than to buy from the grid?"
+Each lever = bounded scalar/dict → pure function of existing fields → new `stack_components`
+line → `ALGORITHM.md` entry + regression test. Sequenced per the research recommendation
+(highest value / lowest effort first).
 
-- Compares projected retail electricity price (from A1) vs. on-site solar LCOE
-- On-site solar LCOE uses profile capex/cf data for the user's country + roof / ground-mount factor
-- Outputs: current gap ($/MWh), year of grid parity, payback period
-- Sensitivity to discount rate, system size, self-consumption ratio
+### Epic 3.1 — RPS / renewable mandate  `P1` / `S`  *(ship first)*
 
-### C2 · On-site solar + storage investment sizing `P2 · M`
-Once grid parity is established, the user needs to know how much to build and what it costs.
+Share-floor **pass/fail badge** (traffic-light, matching roadmap A4) comparing chosen
+`vre_share` (already computed, `lcoe_engine.py:304`) against a `rps_target_share` +
+`rps_target_year`. Optional `rps_penalty_usd_mwh` (alternative-compliance / REC price) as a
+shortfall cost adder into `system_lcoe`. Config toggle for whether nuclear/hydro count toward
+the target (`VRE_GENERATORS` set exists at `lcoe_engine.py:13`; RPS definitions vary by jurisdiction).
 
-- User inputs: available roof / land area (m²) or target self-sufficiency (%)
-- Outputs: system size (kW), annual generation (MWh), upfront cost, annual savings, IRR
-- With storage: battery size recommendation to maximise self-consumption
-- Under different policy scenarios: IRR range (best case / worst case)
+### Epic 3.2 — Single-year capacity targets  `P1` / `S`  *(ship first)*
 
-### C3 · Market investment opportunity sizing `P2 · M`
-For energy companies, developers, and financial investors: where is the capital going in this transition?
+Floor/ceiling a generator's capacity via the **existing** `capacities_gw` override
+(`dispatch_engine.py:60`). `capacity_target_gw` + `target_year`; phase-out = linearly
+interpolate today→zero by the retirement year. Requires an **installed-GW baseline per
+country** added to the profile JSON (today stores shares/CF, not absolute GW). Delivers the
+one-glance *"does my mix meet RE3020 / the coal phase-out target?"* output.
 
-- By scenario: annual investment needed in solar, wind, storage, gas backup (USD/yr)
-- Cumulative investment to 2030 / 2040 / 2050 per technology
-- Implied project pipeline: number of projects, average project size
-- Revenue opportunity: merchant LCOE vs. contracted price gap
+### Epic 3.3 — ITC / PTC / FIT / subsidy (shared `policy_support` block)  `P1` / `S`
 
----
+One shared mechanism, structurally identical to `carbon_price`:
 
-## D. Benchmark competitiveness
+- **ITC** — multiplicative discount on `capex_usd_kw` before CRF (`effective_capex = capex × (1 − itc_rate)`).
+- **PTC / FIT** — additive **negative** `$/MWh` term in the generator breakdown (own
+  `policy_support` line so pre/post-subsidy cost are both visible).
+- **FIT/CfD de-risking** — optional per-generator `discount_rate` override (lower WACC) into CRF.
+- Inputs: `itc_rate` (0–1), `ptc_usd_mwh` (+ `eligibility_years`), eligible-generator set.
+- Document simplifications: one-way subsidy proxy only; CfD two-sided clawback needs a market
+  price series (out of scope); for single-year snapshot, assume all new-build is in the credit window.
 
-### D1 · International electricity price comparison `P2 · S`
-"Are my competitors in Germany or Japan paying less for electricity under their energy mix?"
+### Epic 3.4 — Carbon-price extensions  `P2` / `S`
 
-- Same-year retail price comparison across all available countries
-- Under the same carbon price assumption to isolate mix effect from policy effect
-- Export-oriented industry premium: domestic price − international benchmark
-- "Competitiveness risk": if domestic price rises above X, the industry faces import competition
+Extend the existing `carbon_price` (`schemas.py:43`): `carbon_price_escalation_pct_yr` (rising
+path, pairs with Epic 2.5 time-horizon), `carbon_intensity_cap_tco2_mwh` (hard ceiling → penalty
+on breach), `tax_credit_usd_mwh` (reverse subsidy for low-carbon).
 
-### D2 · Sector competitiveness impact `P2 · M`
-Energy-intensive industries (steel, chemicals, cement, aluminium) face structural competitiveness risk if domestic electricity costs diverge from global peers.
+### Epic 3.5 — Fuel import tariff  `P2` / `S`
 
-- User selects sector; model loads typical energy intensity (MWh per tonne of output)
-- Output: energy cost per unit of output by scenario and year
-- Comparison vs. same sector in peer countries
-- Carbon border adjustment (CBAM) cost if exporting to carbon-priced markets
+Surcharge on `fuel_usd_mmbtu` (`fuel_tariff_pct` or `tariff_usd_mmbtu`) before the fuel-cost
+multiplication in `_generator_breakdown`, gated by an `import_dependency_fraction` flag per
+generator (most relevant to KR/JP, ~100% fossil import). **Build with** the energy-security KPI
+(Epic 2.6) — shared field, more compelling together. (CBAM-style electricity border levy needs a
+cross-border term — defer to sector-coupling / interconnection work, Epic 3.9.)
 
-### D3 · Household electricity bill impact `P3 · S`
-The most politically visible metric — and the simplest to compute.
+### Epic 3.6 — Grid integration cost re-enable  `P2` / `M`
 
-- Average household consumption (kWh/yr) per country, editable
-- Monthly bill under each scenario in local currency
-- Delta from today framed as: "equivalent to X cups of coffee per month"
-- Makes the tool useful for public communication and journalism
+Re-enable the disabled integration feedback (hardwired `0.0`, `lcoe_engine.py:162`). Either
+(a) `integration_cost_policy_usd_mwh` fixed policy lever, or (b) dynamic
+`integration_cost_func(vre_share, ...)` via the existing function catalog. Closes the
+`integration_cost_func`-unused gap without reviving the full legacy parametric engine.
 
----
+### Epic 3.7 — Demand-side management / efficiency  `P1`–`P2` / `M`
 
----
+Two mechanisms:
 
-# Shared infrastructure (serves both perspectives)
+- **Efficiency (level shift)**  `P1` / `S` — `efficiency_rate` preset scaling
+  `annual_demand_twh × (1 − rate)`. Trivial, reuses existing plumbing. Ship early (rides on
+  Phase 2 demand params).
+- **Demand response (shape shift)**  `P2` / `M` — `dr_peak_shaving_fraction` sibling to the
+  existing `_EV_SHORT_STORAGE_RELIEF_PER_UNIT` mechanism (`lcoe_engine.py:21`): peak-shave /
+  valley-fill the `demand_norm` shape, reducing peak `demand_gw` and `storage_short_shift_gwh`.
+  Validate against the existing EV-relief regression tests as a template.
 
-### I1 · Profile versioning and changelog `P2 · S`
-Country profiles will be updated as IEA/IRENA publish new data. Users need to know which version they are using.
+### Epic 3.8 — Storage mandate & reserve margin  `P3` / `M`
 
-- Semantic version on each JSON profile (`"version": "2024.1"`)
-- Changelog entry per version: what changed, why, source
-- UI shows profile version in the Parameters toolbar
-- Notification when a newer profile version is available
+`ess_minimum_capacity_gw` (policy floor) and `reserve_margin_pct` check on
+`max(unserved_gw) / max(demand_gw)` in `dispatch_hourly`. The reserve-margin enforcement (grow
+backup capacity on breach) needs constraint propagation into greedy merit-order — heavier; defer.
 
-### I2 · Backend automated test suite `P2 · M`
-The calculation engine has no automated tests. A parameter change could silently break the numbers.
+### Epic 3.9 — Multi-year retirement pathways & CBAM  `P3` / `L`  *(defer last)*
 
-- Regression tests for KR, AU, JP with default profiles (expected LCOE / emissions / ESS values)
-- Property tests: LCOE must increase with carbon price; ESS must increase with VRE share
-- CI check on every pull request
-- Alert when any profile update shifts a key output by more than 5%
-
-### I3 · Public API and embeddable widget `P3 · M`
-Research institutions want to call the model from Python/R or embed it in their own reports.
-
-- Read-only REST API with rate limiting
-- Embeddable iframe for a single chart
-- Python client library (`pip install powerrom`)
-- OpenAPI documentation at `/api/docs`
-
-### I4 · Accessibility and internationalisation `P3 · L`
-Required for government procurement in most jurisdictions.
-
-- WCAG 2.1 AA compliance: contrast ratios, keyboard navigation, screen-reader labels
-- Korean (ko-KR) and Japanese (ja-JP) UI translations
-- Number formatting per locale (Korean: 억/조, Japanese: 万/億)
+Coal/nuclear multi-year phase-out **pathways** (vs. single-year targets in 3.2) via the Epic 2.5
+time-horizon loop. CfD clawback and CBAM cross-border electricity levy need new state (market
+price series, interconnection term) — defer to the parameter / sector-coupling phases.
 
 ---
 
+## Phase 4 — Sector coupling (demand-side blocks)
+
+Add controllable / curtailment-seeking loads to the hourly demand profile **before** dispatch.
+The pattern — *"add a stylized 8760h shape to `demand_norm`"* — is validated first by EV, then
+reused. Sequenced per the research recommendation.
+
+### Epic 4.1 — Power ↔ Transport / EV charging  `P1` / `M`  *(ship first)*
+
+Upgrade EV from the crude storage-relief proxy (`_EV_SHORT_STORAGE_RELIEF_PER_UNIT`) to an
+explicit load:
+
+- Add a stylized EV charging kernel (bimodal unmanaged evening peak vs. flat / midday-shifted
+  smart) to `demand_norm`, scaled by `ev_penetration × annual_demand_twh × kwh_per_ev_year`.
+- `managed_charging_fraction` slider blending unmanaged (worsens peak / storage) ↔ smart
+  (fills troughs, lowers intraday storage).
+- Optional V2G: small bidirectional battery fed into existing `_size_storage_from_pattern`.
+- Reuses ~100% of existing machinery (demand profile, dispatch, storage sizing). Highest value,
+  smallest self-contained PR.
+
+### Epic 4.2 — Power ↔ Heat / heat pumps  `P2` / `L`
+
+- `heat_pump_electrification_share` + a **new** temperature-driven winter-peaked heat-demand
+  shape (extend the `winter_component` term in `hourly_profiles.py:88`).
+- Temperature-dependent COP function (default When2Heat-style `COP(T) = a − b·T`); hourly elec
+  load `= heat_shape_th / COP`, added to `demand_norm`.
+- Thermal-storage / DH flexibility as a tunable N-hour rolling-average smoothing window (4–24h) —
+  avoids a full state-of-charge model.
+- New physics (temperature-dependent efficiency, seasonal peakiness) — needs country
+  heating-degree-day data not yet in profiles. Highest-value coupling after EV.
+
+### Epic 4.3 — Power ↔ Hydrogen / electrolysis  `P2` / `L`
+
+Electrolyzer as a **curtailment-seeking** load layered on the merit-order dispatch (not a new
+solve): a post-dispatch pass over the surplus series the engine already computes
+(`_size_storage_from_pattern`-style, `dispatch_engine.py:243`). `electrolyzer_capacity_gw`,
+efficiency (kWh/kg H2), min-utilization floor → LCOH side-metric. Optional H2-to-power as a third
+storage tier (low round-trip, high duration) sized off the same seasonal surplus pattern.
+
+### Epic 4.4 — Industry electrification  `P3` / `L`
+
+Mostly-flat / shift-scheduled new load block: `industry_electrification_twh` + a weekday/shift
+shape (extend `business_hours` / `weekend` terms in `hourly_profiles.py:91-92`). Small
+`flexible_load_fraction` with an intraday shift window. Data-hungry (sub-sector shapes,
+fossil-displacement factors) and less genuinely flexible — after the simpler couplings validate
+the pattern.
+
+### Epic 4.5 — Power ↔ Gas / power-to-gas  `P3` / `L`  *(defer last)*
+
+Reuse the existing seasonal (long-duration) storage tier in `_ess_metrics` with a power-to-gas
+capex + much-lower round-trip-efficiency overlay; discharge routes through the existing
+`gas_ccgt` slot via a `green_gas_blend_fraction` on its fuel cost + emission factor. Cheapest to
+code, but low round-trip efficiency / high cost make it speculative — position as a
+"long-horizon / high-VRE-share" toggle once the storage tab exists.
+
+### Epic 4.6 — Multi-layer demand & storage diversity  `P3` / `L`
+
+- **Unified demand layers** — refactor `dispatch_hourly` to accept a `demand_profile_layers`
+  dict (`electricity_base`, `heating`, `ev_charging`, `hydrogen`, `industrial`) with firm /
+  elastic / flexible tiers and price/carbon signals. The convergent endpoint of Epics 4.1–4.4.
+- **Storage diversity** — generalize `_ess_metrics` from two fixed tiers (4h / 168h) to an
+  `ess_techs` list (battery / H2 / pumped-hydro / thermal), each with duration, capex, RT
+  efficiency, location constraint; size a cost-optimal stack over the surplus/deficit pattern.
+
 ---
 
-# Known technical debt — fix before scaling
+## Cross-cutting (all phases)
 
-These are specific bugs in the current codebase that will cause silent errors as usage grows.
-
-| # | Issue | File | Risk |
-|---|-------|------|------|
-| 1 | `ev_offset_gwh_per_unit = 18,000` — implies 18 TWh offset per EV fleet "unit"; physical units need verification against the EV penetration fraction definition | `KR.json`, `AU.json`, `JP.json` | ESS sizing is wrong whenever EV penetration > 0 |
-| 2 | `ProfileAnalysis.tsx` does not pass `customProfile` to its `calculateSystem` calls — parameter edits (Apply button) do not update the sensitivity charts | `ProfileAnalysis.tsx` | Profile edits are invisible in the Profile tab |
-| 3 | `GeneratorMixPlotter.tsx` does not pass `customProfile` to `calculateBatch` — mix explorer ignores user's parameter changes | `GeneratorMixPlotter.tsx` | Mix explorer ignores profile edits |
-| 4 | `backup_flexibility` is computed in the backend and returned in the response but never displayed in the UI — users cannot see why curtailment is high in nuclear-heavy portfolios | `lcoe_engine.py`, `Dashboard.tsx` | Key model mechanism is invisible |
-| 5 | Long-duration ESS LCOE is not broken out in the cost breakdown stack chart — only shown in the status bar | `CostBreakdownChart.tsx` | Users can't see the cost penalty of high-VRE pathways |
-| 6 | No validation that `shares` keys in a request match the generator list in the profile — extra or missing keys fail silently | `backend/api/calculate.py` | Misattribution when custom profiles add or remove generators |
-| 7 | `DEFAULT_SHARES` in Dashboard sums to 1.0 but does not correspond to any real country's current mix — should either be the country's actual current mix or documented as illustrative | `constants.ts`, `Dashboard.tsx` | Users may interpret the starting point as a national baseline |
+- **`P2` / `M`** — **Uncertainty quantification** beyond weather jitter: user-configurable
+  ±CAPEX / ±fuel / ±demand bands (Monte Carlo / sensitivity sampling) driving the
+  p10/median/p90 display (roadmap A3). Extends the existing ensemble.
+- **`P3` / `M`** — **Public API + embeddable widget** for the research community (roadmap I3).
+- **`P3` / `L`** — **WCAG 2.1 AA + i18n** (ko-KR, ja-JP) — procurement requirement in many
+  jurisdictions (roadmap I4).
+- **`P3` / `S`** — **Local-currency display** (roadmap D2) and **historical calibration view**
+  against actuals (roadmap D3).
+- **Every math change** — `ALGORITHM.md` equation (LaTeX + ASCII) + `np.testing.assert_allclose`
+  regression test with explicit `rtol` / `atol` (`CLAUDE.md`).
 
 ---
 
-*Maintained by PLANiT Institute. Propose additions via GitHub Issues.*
+## Known technical debt (still valid)
+
+| # | Issue | Location | Risk | Addressed by |
+|---|-------|----------|------|--------------|
+| 2 | `customProfile` not passed to `calculateSystem` in sensitivity charts | `frontend/components/ProfileAnalysis.tsx` | Parameter edits invisible in carbon-price / ESS-cost curves | Epic 0.1 |
+| 3 | `custom_params` not passed to `generateGrid` in mix explorer | `frontend/components/GeneratorMixPlotter.tsx` | User cost edits ignored in the 3D sweep | Epic 0.1 |
+| 4 | `backup_flexibility` computed & returned but never displayed | `backend/core/lcoe_engine.py:168` | Users can't see why nuclear-heavy mixes curtail VRE | Epic 0.2 |
+| 5 | Long-duration ESS LCOE aggregated into one bar, not broken out | cost-stack chart / `CostBreakdownChart` | Obscures the cost penalty of 80%+ VRE pathways | Epic 0.2 |
+| 6 | No validation that `shares` / `capacities_gw` keys match the profile generator list | `backend/models/schemas.py` | Custom-profile gen add/remove misattributes silently | Epic 0.1 |
+| — | No backend automated test suite | `backend/tests/` | Zero regression coverage; high risk for policy / publication use | Epic 0.3 |
+| — | Grid integration cost hardwired to `0.0`; feedback loop disabled | `lcoe_engine.py:162,328,345` | VRE integration cost invisible; `integration_cost_func` unused | Epic 3.6 |
+
+## Open questions / decisions needed
+
+1. **Legacy function catalog** — delete `cf_eff_func` / `curtailment_func` /
+   `integration_cost_func` from profile JSON, or keep quarantined behind a "legacy" flag?
+   (`integration_cost_func` is the one candidate for revival via Epic 3.6.)
+2. **Installed-GW baseline** — country profiles store shares/CF, not absolute installed GW.
+   Capacity targets, phase-out pathways, and V2G fleet sizing all need it. Source now (blocks
+   Epics 3.2, 3.9, 4.1-V2G) or defer?
+3. **RPS eligibility definition** — does nuclear/hydro count toward the renewable target? Needs
+   a per-jurisdiction config toggle (varies KR vs AU vs JP vs future US/DE).
+4. **Time-horizon vs. single-year** — how much of Phase 3 should assume the Epic 2.5 multi-year
+   loop exists? Escalating carbon price, retirement pathways, and cost-forecast controls all
+   depend on it. Prioritize the time-horizon loop earlier?
+5. **Merit-order semantics** — merit order is user-set, not cost-optimized, so carbon price
+   changes cost/emissions but not the dispatch stack. Keep as a documented limitation, or add an
+   optional cost-minimizing dispatch mode (a real architectural change)?
+6. **CAPEX learning curves** — whose trajectories (IEA STEPS/APS/NZE, NREL ATB, Lazard)? Needed
+   for Epics 2.5 and cost-forecast controls; a licensing / provenance decision.

@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef } from "react";
+import { InfoTip } from "@/components/InfoTip";
 
 export interface DemandProfile {
   monthly: number[]; // 12 relative seasonal levels
@@ -98,7 +99,10 @@ export function DemandProfileEditor({
   return (
     <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-slate-800">Demand Profile</h3>
+        <h3 className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
+          Demand Profile
+          <InfoTip text="Draw the seasonal (monthly) and hour-of-day shape of demand. Annual energy stays fixed; only the shape changes." />
+        </h3>
         <button
           type="button"
           onClick={() => onChange({ monthly: [...DEFAULT_DEMAND_PROFILE.monthly], daily: [...DEFAULT_DEMAND_PROFILE.daily] })}

@@ -10,7 +10,6 @@ interface Props {
   result: CalculateResponse | null;
   dispatchResult: DispatchResponse | null;
   isDispatchLoading: boolean;
-  essCostUsdKwh: number;
   shares: Shares;
   capacities: Capacities;
 }
@@ -44,7 +43,6 @@ export function ProfileAnalysis({
   result,
   dispatchResult,
   isDispatchLoading,
-  essCostUsdKwh,
   shares,
   capacities,
 }: Props) {
@@ -96,7 +94,7 @@ export function ProfileAnalysis({
         <SummaryCard
           label="Storage"
           value={`${result.ess_requirement_gwh.toFixed(0)} GWh`}
-          sub={`${result.ess_requirement_gw.toFixed(1)} GW · $${essCostUsdKwh}/kWh`}
+          sub={`${result.ess_requirement_gw.toFixed(1)} GW`}
         />
       </div>
 

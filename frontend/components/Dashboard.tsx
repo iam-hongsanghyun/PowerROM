@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight, Play } from "lucide-react";
 import * as Tabs from "@radix-ui/react-tabs";
 
-import { ControlPanel, type DemandInput, type StorageInput } from "@/components/ControlPanel";
+import { ControlPanel, type StorageInput } from "@/components/ControlPanel";
+import { ScenarioSettings } from "@/components/ScenarioSettings";
 import { DemandProfileEditor, DEFAULT_DEMAND_PROFILE, type DemandProfile } from "@/components/DemandProfileEditor";
 import { ShareSliders } from "@/components/ShareSliders";
 import { ParametersTab } from "@/components/ParametersTab";
@@ -24,11 +25,9 @@ import {
   type Shares,
 } from "@/lib/api";
 import {
-  COUNTRY_ESS_CAPEX,
   DEFAULT_CAPACITIES_GW,
   DEFAULT_CARBON_PRICE_USD_TCO2,
   DEFAULT_EV_PENETRATION,
-  FALLBACK_ESS_CAPEX_USD_KWH,
 } from "@/lib/constants";
 
 // Fallback country list shown while the API is loading or unavailable.
@@ -129,9 +128,6 @@ export function Dashboard() {
   const [annualDemandTwh, setAnnualDemandTwh] = useState(
     FALLBACK_COUNTRIES.find((c) => c.code === INITIAL_COUNTRY)?.annual_generation_twh ?? 595,
   );
-  const [essCostUsdKwh, setEssCostUsdKwh] = useState(
-    COUNTRY_ESS_CAPEX[INITIAL_COUNTRY] ?? FALLBACK_ESS_CAPEX_USD_KWH,
-  );
   // User-set storage, dispatched endogenously (energy = power × duration). Illustrative defaults.
   const [storage, setStorage] = useState<StorageInput>({
     shortPowerGw: 20,
@@ -139,8 +135,7 @@ export function Dashboard() {
     longPowerGw: 5,
     longDurationHr: 100,
   });
-  const [demand, setDemand] = useState<DemandInput>({ pattern: "default", peakRatio: 1.4 });
-  // Visual demand profile (12 monthly + 24 hourly). When edited, overrides the archetype.
+  // Visual demand profile (12 monthly + 24 hourly), always sent as demand_monthly/demand_daily.
   const [demandProfile, setDemandProfile] = useState<DemandProfile>({
     monthly: [...DEFAULT_DEMAND_PROFILE.monthly],
     daily: [...DEFAULT_DEMAND_PROFILE.daily],
@@ -175,8 +170,6 @@ export function Dashboard() {
   function handleCountryChange(nextCountry: string) {
     setCountry(nextCountry);
     setCustomProfile(null); // clear edits when switching country
-    // Sync ESS capex slider default to the selected country's profile value.
-    setEssCostUsdKwh(COUNTRY_ESS_CAPEX[nextCountry] ?? FALLBACK_ESS_CAPEX_USD_KWH);
     const current = countries.find((item) => item.code === nextCountry);
     if (current) {
       setAnnualDemandTwh(current.annual_generation_twh);
@@ -198,21 +191,7 @@ export function Dashboard() {
   }, [country]);
 
   function buildCustomParams(): Record<string, unknown> {
-    // Merge the user's profile edits (if any) with the sidebar ESS-cost slider.
-    // The sidebar always wins for ESS capex.
-    const custom_params: Record<string, unknown> = customProfile
-      ? ({
-          ...customProfile,
-          ess: {
-            ...customProfile.ess,
-            short_dur: {
-              ...(customProfile.ess?.short_dur ?? {}),
-              capex_usd_kwh: essCostUsdKwh,
-            },
-          },
-        } as Record<string, unknown>)
-      : { ess: { short_dur: { capex_usd_kwh: essCostUsdKwh } } };
-    return custom_params;
+    return (customProfile ?? {}) as Record<string, unknown>;
   }
 
   async function runAnalysis() {
@@ -236,12 +215,8 @@ export function Dashboard() {
       ess_short_duration_hr: storage.shortDurationHr,
       ess_long_power_gw: storage.longPowerGw,
       ess_long_duration_hr: storage.longDurationHr,
-      demand_pattern: demand.pattern,
-      demand_peak_ratio: demand.peakRatio,
-      // Only override the archetype/peak controls once the visual profile is edited.
-      ...(JSON.stringify(demandProfile) === JSON.stringify(DEFAULT_DEMAND_PROFILE)
-        ? {}
-        : { demand_monthly: demandProfile.monthly, demand_daily: demandProfile.daily }),
+      demand_monthly: demandProfile.monthly,
+      demand_daily: demandProfile.daily,
     };
 
     try {
@@ -312,27 +287,11 @@ export function Dashboard() {
               <ControlPanel
                 countries={countries}
                 country={country}
-                carbonPrice={carbonPrice}
-                essCostUsdKwh={essCostUsdKwh}
                 storage={storage}
-                demand={demand}
-                evPenetration={evPenetration}
                 annualDemandTwh={annualDemandTwh}
-                dispatchMode={dispatchMode}
-                weatherYears={weatherYears}
-                ensemble={ensemble}
-                useCustomParameters={useCustomParameters}
                 onCountryChange={handleCountryChange}
-                onCarbonPriceChange={setCarbonPrice}
-                onEssCostChange={setEssCostUsdKwh}
                 onStorageChange={setStorage}
-                onDemandChange={setDemand}
-                onEvPenetrationChange={setEvPenetration}
                 onAnnualDemandChange={setAnnualDemandTwh}
-                onDispatchModeChange={setDispatchMode}
-                onWeatherYearsChange={setWeatherYears}
-                onEnsembleChange={setEnsemble}
-                onUseCustomParametersChange={setUseCustomParameters}
               />
               <ShareSliders
                 capacityInputs={capacityInputs}
@@ -462,7 +421,6 @@ export function Dashboard() {
                   result={result}
                   dispatchResult={dispatchResult}
                   isDispatchLoading={isDispatchLoading}
-                  essCostUsdKwh={essCostUsdKwh}
                   shares={shares}
                   capacities={capacities}
                 />
@@ -471,6 +429,20 @@ export function Dashboard() {
               {/* Parameters tab — forceMount keeps state alive across tab switches */}
               <Tabs.Content value="parameters" forceMount className="data-[state=inactive]:hidden">
                 <div className="space-y-4">
+                  <ScenarioSettings
+                    carbonPrice={carbonPrice}
+                    evPenetration={evPenetration}
+                    dispatchMode={dispatchMode}
+                    weatherYears={weatherYears}
+                    ensemble={ensemble}
+                    useCustomParameters={useCustomParameters}
+                    onCarbonPriceChange={setCarbonPrice}
+                    onEvPenetrationChange={setEvPenetration}
+                    onDispatchModeChange={setDispatchMode}
+                    onWeatherYearsChange={setWeatherYears}
+                    onEnsembleChange={setEnsemble}
+                    onUseCustomParametersChange={setUseCustomParameters}
+                  />
                   <DemandProfileEditor profile={demandProfile} onChange={setDemandProfile} />
                   <ParametersTab country={country} onProfileEdited={setCustomProfile} />
                 </div>

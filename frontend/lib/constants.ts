@@ -3,7 +3,6 @@
  *
  * Keep these in sync with:
  *   backend/core/lcoe_engine.py   — VRE_GENERATORS
- *   backend/data/country_profiles — ESS capex and country names
  */
 
 // ── Generator registry ────────────────────────────────────────────────────────
@@ -47,19 +46,6 @@ export const GENERATOR_COLORS: Record<string, string> = {
 };
 
 // ── Country defaults ──────────────────────────────────────────────────────────
-
-/**
- * Default short-duration ESS capex ($/kWh) per country.
- * Must stay in sync with `ess.short_dur.capex_usd_kwh` in each country JSON profile.
- */
-export const COUNTRY_ESS_CAPEX: Record<string, number> = {
-  KR: 280, // South Korea — backend/data/country_profiles/KR.json
-  AU: 260, // Australia   — backend/data/country_profiles/AU.json
-  JP: 290, // Japan       — backend/data/country_profiles/JP.json
-};
-
-/** Fallback ESS capex when no country-specific value is registered. */
-export const FALLBACK_ESS_CAPEX_USD_KWH = 280;
 
 /**
  * Default generation scenario starting shares (must sum to 1.0).

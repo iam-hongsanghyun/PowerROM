@@ -16,4 +16,5 @@ declare module "lucide-react" {
   export const Save: Icon;
   export const Play: Icon;
   export const FolderOpen: Icon;
+  export const Info: Icon;
 }

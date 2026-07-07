@@ -409,59 +409,110 @@ def _expand_to_meet_load(
 
     base_step = max(1.0, peak_gw / _EXPANSION_STEP_DIVISOR)
     max_step = base_step * (2.0**_EXPANSION_MAX_STEP_DOUBLINGS)
-    step = base_step
     last_key: str | None = None
     last_amount = 0.0
+
+    def _best_size(
+        probe: "Any", cost_at: "Any"
+    ) -> tuple[float | None, float]:
+        """Cheapest (size, $/GW-of-peak) for one candidate, scanning escalating increments.
+
+        A candidate's marginal peak-shaving is not monotonic in a single fixed step: a small
+        VRE overbuild shaves nothing until it crosses a threshold, and a fixed-duration battery
+        saturates its energy window so a small power bump shaves ~0 while a larger one firms the
+        peak. Scanning ``base_step`` upward (doubling) and taking the *minimum* $/GW-shaved lets
+        each candidate be priced at the size where it is actually effective — so cheap short
+        storage is not abandoned for the dear long tier just because one small step saturated.
+        """
+        best_sz: float | None = None
+        best_m = float("inf")
+        worse = 0
+        size = base_step
+        while size <= max_step:
+            trial_twh, trial_peak = probe(size)
+            shaved = peak_gw - trial_peak
+            if shaved > 1e-6:
+                metric = cost_at(size, max(unserved_twh - trial_twh, 0.0)) / shaved
+                if metric < best_m:
+                    best_m, best_sz, worse = metric, size, 0
+                else:
+                    worse += 1
+                    if worse >= 2:  # past this candidate's sweet spot
+                        break
+                if shaved >= 0.999 * peak_gw:  # fully shaves the peak; larger is pointless
+                    break
+            size *= 2.0
+        return best_sz, best_m
 
     for _ in range(_EXPANSION_MAX_STEPS):
         if unserved_twh <= _EXPANSION_UNSERVED_TOL_TWH:
             break
         best_key: str | None = None
+        best_size = 0.0
         best_metric = float("inf")
 
-        # Generator candidates (VRE too): (fixed + fuel/carbon on energy served) per GW of peak shaved.
+        # Firm dispatchables shave the peak monotonically (1 GW firm ≈ 1 GW less peak), so a single
+        # fine step is enough and keeps a baseload+peaker blend sharp: (fixed + fuel/carbon on the
+        # energy served) per GW of peak shaved.
         for g in expandable_gens:
-            trial = dict(capacities)
-            trial[g] = trial.get(g, 0.0) + step
-            trial_twh, trial_peak = _unserved(trial, tiers)
-            shaved = peak_gw - trial_peak
-            if shaved <= 1e-6:  # this increment does not relax the firm-capacity constraint
+            if g in _DISPATCH_VRE:
                 continue
-            served_mwh = max(unserved_twh - trial_twh, 0.0) * 1e6
-            running = _marginal_cost_usd_mwh(gens[g], carbon_price) * served_mwh
-            metric = (_annual_fixed_cost_gen(gens[g], discount, step) + running) / shaved
-            if metric < best_metric:
-                best_key, best_metric = g, metric
-
-        # Storage candidates: one +step GW of each tier's power — only wins if it shaves peak.
-        # Short firms diurnal peaks cheaply; long-duration is dear per GW but is the only thing
-        # that can bridge a multi-day drought, so it is picked only when nothing else shaves it.
-        for skey, stier in storage_candidates.items():
-            tier_name = stier.get("name")
-            trial_tiers = [dict(t) for t in tiers]
-            trial_tier = next(t for t in trial_tiers if t.get("name") == tier_name)
-            trial_tier["power_gw"] = float(trial_tier.get("power_gw", 0.0)) + step
-            _, trial_peak = _unserved(capacities, trial_tiers)
+            trial = dict(capacities)
+            trial[g] = trial.get(g, 0.0) + base_step
+            trial_twh, trial_peak = _unserved(trial, tiers)
             shaved = peak_gw - trial_peak
             if shaved <= 1e-6:
                 continue
-            metric = _annual_fixed_cost_storage(stier, discount, step) / shaved
+            served_mwh = max(unserved_twh - trial_twh, 0.0) * 1e6
+            running = _marginal_cost_usd_mwh(gens[g], carbon_price) * served_mwh
+            metric = (_annual_fixed_cost_gen(gens[g], discount, base_step) + running) / shaved
             if metric < best_metric:
-                best_key, best_metric = skey, metric
+                best_key, best_size, best_metric = g, base_step, metric
 
-        if best_key is None:
-            # No candidate shaves the peak at this granularity. VRE + storage has a *threshold*
-            # response — a small overbuild does nothing, a large one firms — so escalate the step
-            # to cross it before concluding the peak cannot be closed.
-            if step < max_step:
-                step *= 2.0
+        # VRE (threshold response) and storage (fixed-duration saturation) are non-monotonic in a
+        # single step, so each is priced at the escalated size where it is actually effective.
+        for g in expandable_gens:
+            if g not in _DISPATCH_VRE:
                 continue
+
+            def probe(size: float, g: str = g) -> tuple[float, float]:
+                trial = dict(capacities)
+                trial[g] = trial.get(g, 0.0) + size
+                return _unserved(trial, tiers)
+
+            def cost_at(size: float, served_twh: float, g: str = g) -> float:
+                running = _marginal_cost_usd_mwh(gens[g], carbon_price) * served_twh * 1e6
+                return _annual_fixed_cost_gen(gens[g], discount, size) + running
+
+            size, metric = _best_size(probe, cost_at)
+            if size is not None and metric < best_metric:
+                best_key, best_size, best_metric = g, size, metric
+
+        # Short firms diurnal peaks cheaply; long-duration is dear per GW but is the only thing that
+        # can bridge a multi-day drought. Priced at its efficient size, so long wins only where short
+        # genuinely cannot shave the peak more cheaply.
+        for skey, stier in storage_candidates.items():
+            tier_name = stier.get("name")
+
+            def probe(size: float, tier_name: "Any" = tier_name) -> tuple[float, float]:
+                trial_tiers = [dict(t) for t in tiers]
+                trial_tier = next(t for t in trial_tiers if t.get("name") == tier_name)
+                trial_tier["power_gw"] = float(trial_tier.get("power_gw", 0.0)) + size
+                return _unserved(capacities, trial_tiers)
+
+            def cost_at(size: float, served_twh: float, stier: dict[str, float] = stier) -> float:
+                return _annual_fixed_cost_storage(stier, discount, size)
+
+            size, metric = _best_size(probe, cost_at)
+            if size is not None and metric < best_metric:
+                best_key, best_size, best_metric = skey, size, metric
+
+        if best_key is None:  # nothing shaves the peak, even escalated to max_step
             break
 
-        _apply(best_key, step)
-        last_key, last_amount = best_key, step
+        _apply(best_key, best_size)
+        last_key, last_amount = best_key, best_size
         unserved_twh, peak_gw = _unserved(capacities, tiers)
-        step = max(base_step, step / 2.0)  # regain fine control after a successful commit
 
     # Trim overshoot: the move that finally closed the gap is often a large escalated VRE step.
     # Bisect it down to the smallest amount that still holds 100% load.

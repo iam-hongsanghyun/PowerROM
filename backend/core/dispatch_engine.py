@@ -60,23 +60,39 @@ def _simulate_storage_soc(
         discharge ``d = min(deficit, power, soc·η)`` → ``soc -= d/η``.
     """
     hours = len(surplus_gw)
-    charge = np.zeros(hours, dtype=float)
-    discharge = np.zeros(hours, dtype=float)
     if power_gw <= 0.0 or energy_gwh <= 0.0:
-        return charge, discharge
+        return np.zeros(hours, dtype=float), np.zeros(hours, dtype=float)
 
+    # Iterate over Python floats (lists), not numpy element indexing, which is ~5-10x faster
+    # for a scalar sequential loop of this length — this dispatch runs thousands of times per
+    # capacity-expansion solve, so it dominates runtime.
+    surplus = surplus_gw.tolist()
+    deficit = deficit_gw.tolist()
+    charge = [0.0] * hours
+    discharge = [0.0] * hours
     soc = 0.0
     eff = max(1e-6, float(efficiency))
+    power = float(power_gw)
+    energy = float(energy_gwh)
     for h in range(hours):
-        if surplus_gw[h] > 1e-9 and soc < energy_gwh:
-            c = min(float(surplus_gw[h]), power_gw, energy_gwh - soc)
+        s = surplus[h]
+        if s > 1e-9 and soc < energy:
+            c = s if s < power else power
+            room = energy - soc
+            if room < c:
+                c = room
             charge[h] = c
             soc += c
-        elif deficit_gw[h] > 1e-9 and soc > 1e-9:
-            d = min(float(deficit_gw[h]), power_gw, soc * eff)
-            discharge[h] = d
-            soc -= d / eff
-    return charge, discharge
+        else:
+            d0 = deficit[h]
+            if d0 > 1e-9 and soc > 1e-9:
+                cap = soc * eff
+                d = d0 if d0 < power else power
+                if cap < d:
+                    d = cap
+                discharge[h] = d
+                soc -= d / eff
+    return np.asarray(charge, dtype=float), np.asarray(discharge, dtype=float)
 
 
 def _marginal_cost_usd_mwh(generator_config: dict[str, Any], carbon_price: float) -> float:

@@ -78,6 +78,23 @@ def test_expansion_blends_baseload_and_peaker_by_screening() -> None:
     assert blend["system_lcoe"] < gas_only["system_lcoe"]  # cheaper than peaker-only
 
 
+def test_expansion_prefers_short_storage_for_diurnal_peak() -> None:
+    # A diurnal (summer-evening) peak is short storage's domain. The solver must NOT jump to the
+    # far dearer long tier just because one small short-power increment saturated its 12h energy
+    # window and shaved ~0 — it must escalate short to its effective size and keep it.
+    caps = {"solar": 130, "wind_onshore": 20, "nuclear": 74, "gas_ccgt": 6, "coal": 0, "other": 0}
+    r = calculate_system_lcoe(
+        country="KR", shares=caps, carbon_price=50.0, capacities_gw=caps, ensemble=_SINGLE,
+        annual_demand_twh=595.0, demand_pattern="summer_peak",
+        ess_short_power_gw=2.0, ess_short_duration_hr=12.0, ess_long_power_gw=0.0,
+        ess_long_duration_hr=168.0, expandable=["storage"], meet_full_load=True,
+    )
+    added = r["expansion"]["added_capacities_gw"]
+    assert r["unserved_twh"] < 0.05
+    assert added.get("storage", 0.0) > 0.0          # short storage firms the diurnal peak
+    assert added.get("storage_long", 0.0) == 0.0    # the dear long tier is not built for it
+
+
 def test_expansion_grows_long_storage_for_multiday_drought() -> None:
     # A near-100%-renewable fleet must ride through a multi-day winter Dunkelflaute that 12h
     # short storage cannot bridge. With both storage tiers expandable, the solver grows

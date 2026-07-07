@@ -1,15 +1,29 @@
 import type { Metadata } from "next";
-import { IBM_Plex_Mono, Manrope } from "next/font/google";
+import { Noto_Sans_KR, Roboto, Roboto_Condensed, Roboto_Mono } from "next/font/google";
 import "./globals.css";
 
-const manrope = Manrope({
-  variable: "--font-manrope",
+// PLANiT brand typography: Roboto (sans), Roboto Condensed (display), Noto Sans KR (Korean).
+const roboto = Roboto({
+  variable: "--font-roboto",
+  weight: ["400", "500", "700"],
   subsets: ["latin"],
 });
 
-const plexMono = IBM_Plex_Mono({
-  variable: "--font-plex-mono",
+const robotoCondensed = Roboto_Condensed({
+  variable: "--font-roboto-condensed",
+  weight: ["500", "700"],
+  subsets: ["latin"],
+});
+
+const robotoMono = Roboto_Mono({
+  variable: "--font-roboto-mono",
   weight: ["400", "500"],
+  subsets: ["latin"],
+});
+
+const notoSansKr = Noto_Sans_KR({
+  variable: "--font-noto-kr",
+  weight: ["400", "500", "700"],
   subsets: ["latin"],
 });
 
@@ -26,7 +40,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${manrope.variable} ${plexMono.variable} h-full antialiased`}
+      className={`${roboto.variable} ${robotoCondensed.variable} ${robotoMono.variable} ${notoSansKr.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">{children}</body>
     </html>

@@ -63,8 +63,8 @@ export function HourlyMixChart({
             x: dayOfYear,
             y: series.storage.map((v) => Math.max(v, 0)),
             stackgroup: "mix",
-            fillcolor: "#ec4899cc",
-            line: { width: 0, color: "#ec4899" },
+            fillcolor: "#8BC34Acc",
+            line: { width: 0, color: "#8BC34A" },
             hovertemplate: `Storage discharge: %{y:.1f} GW<extra></extra>`,
           },
         ]
@@ -79,8 +79,8 @@ export function HourlyMixChart({
             x: dayOfYear,
             y: series.storage.map((v) => Math.min(v, 0)),
             fill: "tozeroy" as const,
-            fillcolor: "#ec489955",
-            line: { width: 0, color: "#ec4899" },
+            fillcolor: "#8BC34A55",
+            line: { width: 0, color: "#8BC34A" },
             hovertemplate: `Storage charge: %{y:.1f} GW<extra></extra>`,
           },
         ]
@@ -91,7 +91,7 @@ export function HourlyMixChart({
       name: "Demand",
       x: dayOfYear,
       y: series.demand,
-      line: { color: "#0f172a", width: 1 },
+      line: { color: "#0C356A", width: 1 },
       hovertemplate: `Demand: %{y:.1f} GW<extra></extra>`,
     },
   ];

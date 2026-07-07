@@ -143,7 +143,7 @@ export function PathwayPanel({
         type="button"
         onClick={run}
         disabled={isRunning}
-        className="w-full rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
+        className="w-full rounded-xl bg-navy px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-navy-700 disabled:opacity-50"
       >
         {isRunning ? "Running pathway..." : `Run pathway to ${endYear}`}
       </button>

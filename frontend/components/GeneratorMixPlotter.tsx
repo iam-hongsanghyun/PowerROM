@@ -383,7 +383,7 @@ export function GeneratorMixPlotter({
                 <button
                   onClick={handleGenerate}
                   disabled={loading || maxCombined <= 0}
-                  className="flex items-center gap-1.5 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-700 disabled:opacity-50"
+                  className="flex items-center gap-1.5 rounded-lg bg-navy px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-700 disabled:opacity-50"
                 >
                   <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
                   {loading ? "Computing…" : "Generate Grid"}

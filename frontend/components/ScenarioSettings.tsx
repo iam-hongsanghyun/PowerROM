@@ -194,7 +194,7 @@ export function ScenarioSettings({
               className={[
                 "rounded-xl px-3 py-2 text-sm font-medium transition",
                 dispatchMode === mode
-                  ? "bg-slate-900 text-white shadow-sm"
+                  ? "bg-navy text-white shadow-sm"
                   : "text-slate-500 hover:bg-white hover:text-slate-800",
               ].join(" ")}
             >

@@ -806,7 +806,7 @@ function FunctionEditorModal({
           </button>
           <button
             onClick={() => onApply(local)}
-            className="rounded-lg bg-slate-900 px-5 py-2 text-sm font-medium text-white transition hover:bg-slate-700"
+            className="rounded-lg bg-navy px-5 py-2 text-sm font-medium text-white transition hover:bg-slate-700"
           >
             Apply Changes
           </button>
@@ -1268,7 +1268,7 @@ export function ParametersTab({ country, onProfileEdited }: Props) {
               </button>
               <button
                 onClick={handleDownloadJson}
-                className="rounded-lg bg-slate-900 px-5 py-2 text-sm font-medium text-white transition hover:bg-slate-700"
+                className="rounded-lg bg-navy px-5 py-2 text-sm font-medium text-white transition hover:bg-slate-700"
               >
                 <Download size={13} className="mr-1.5 inline" />
                 Download
@@ -1397,7 +1397,7 @@ export function ParametersTab({ country, onProfileEdited }: Props) {
                   className={[
                     "rounded-lg px-3 py-1.5 text-sm font-medium transition",
                     selectedFeature === key
-                      ? "bg-slate-900 text-white shadow-sm"
+                      ? "bg-navy text-white shadow-sm"
                       : "bg-slate-100 text-slate-600 hover:bg-slate-200",
                   ].join(" ")}
                 >

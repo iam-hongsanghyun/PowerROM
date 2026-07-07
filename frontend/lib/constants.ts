@@ -35,15 +35,20 @@ export const GENERATOR_LABELS: Record<string, string> = {
   other: "Other",
 };
 
-/** Chart accent colours for each generator type. */
+/** Chart accent colours for each generator type — PLANiT brand chart logic:
+ *  renewables warm (solar gold), firm generation in brand blues/navy, fossils in
+ *  orange/grey, storage in soft green. */
 export const GENERATOR_COLORS: Record<string, string> = {
-  solar: "#f59e0b",       // amber
-  wind_onshore: "#3b82f6", // blue
-  gas_ccgt: "#8b5cf6",    // violet
-  coal: "#6b7280",        // slate
-  nuclear: "#10b981",     // emerald
-  other: "#f97316",       // orange
+  solar: "#FFC436",        // golden yellow (sun)
+  wind_onshore: "#0174BE", // bright blue (wind / VRE)
+  nuclear: "#0C356A",      // deep navy (firm baseload)
+  coal: "#8D8D8D",         // warm grey (coal)
+  gas_ccgt: "#EC8305",     // orange (fossil / thermal)
+  other: "#004D40",        // deep teal (misc thermal)
 };
+
+/** Storage accent (charts): soft green — clean, flexible resource. */
+export const STORAGE_COLOR = "#8BC34A";
 
 // ── Country defaults ──────────────────────────────────────────────────────────
 

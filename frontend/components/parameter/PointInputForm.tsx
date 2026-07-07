@@ -27,7 +27,7 @@ export function PointInputForm({
             .map((pair) => [pair[0], pair[1]] as [number, number]);
           onSubmit(points);
         }}
-        className="mt-4 rounded-full bg-slate-900 px-4 py-2 text-sm font-medium text-white"
+        className="mt-4 rounded-full bg-navy px-4 py-2 text-sm font-medium text-white"
       >
         Fit Points
       </button>

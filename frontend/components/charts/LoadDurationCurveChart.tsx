@@ -122,7 +122,7 @@ export function LoadDurationCurveChart({ ldc, dispatch, loading = false }: Props
   const hasCharge = chargeMedian.some((value) => value < -0.001);
 
   const traces: Plotly.Data[] = [
-    ...bandTrace(x, demand.p10, demand.p90, "Load band", "rgba(14,165,233,0.16)"),
+    ...bandTrace(x, demand.p10, demand.p90, "Load band", "rgba(1, 116, 190,0.16)"),
     ...stackKeys.map((key) => ({
       type: "scatter" as const,
       mode: "lines" as const,
@@ -143,8 +143,8 @@ export function LoadDurationCurveChart({ ldc, dispatch, loading = false }: Props
             x,
             y: dischargeMedian,
             stackgroup: "dispatch",
-            fillcolor: "#ec4899cc",
-            line: { color: "#ec4899", width: 0.6 },
+            fillcolor: "#8BC34Acc",
+            line: { color: "#8BC34A", width: 0.6 },
             hovertemplate: "Storage discharge: %{y:.2f} GW<br>%{x:.1f}% of hours<extra></extra>",
           },
         ]
@@ -155,7 +155,7 @@ export function LoadDurationCurveChart({ ldc, dispatch, loading = false }: Props
       name: "Demand",
       x,
       y: demand.median,
-      line: { color: "#0f172a", width: 1.8 },
+      line: { color: "#0C356A", width: 1.8 },
       hovertemplate: "Demand: %{y:.2f} GW<br>%{x:.1f}% of hours<extra></extra>",
     },
     {
@@ -164,7 +164,7 @@ export function LoadDurationCurveChart({ ldc, dispatch, loading = false }: Props
       name: "Served load",
       x,
       y: servedLoad.median,
-      line: { color: "#94a3b8", width: 1.2, dash: "dot" as const },
+      line: { color: "#8D8D8D", width: 1.2, dash: "dot" as const },
       hovertemplate: "Served load: %{y:.2f} GW<br>%{x:.1f}% of hours<extra></extra>",
     },
     {
@@ -173,7 +173,7 @@ export function LoadDurationCurveChart({ ldc, dispatch, loading = false }: Props
       name: "Net load after VRE",
       x,
       y: netLoad.median,
-      line: { color: "#475569", width: 1.0, dash: "dash" as const },
+      line: { color: "#0174BE", width: 1.0, dash: "dash" as const },
       hovertemplate: "Net load after VRE: %{y:.2f} GW<br>%{x:.1f}% of hours<extra></extra>",
     },
     {
@@ -182,7 +182,7 @@ export function LoadDurationCurveChart({ ldc, dispatch, loading = false }: Props
       name: "Curtailed VRE",
       x,
       y: curtailed.median,
-      line: { color: "#ef4444", width: 1.3, dash: "dash" as const },
+      line: { color: "#EC8305", width: 1.3, dash: "dash" as const },
       hovertemplate: "Curtailed VRE: %{y:.2f} GW<br>%{x:.1f}% of hours<extra></extra>",
     },
   ];
@@ -207,8 +207,8 @@ export function LoadDurationCurveChart({ ldc, dispatch, loading = false }: Props
       x,
       y: chargeMedian,
       fill: "tozeroy" as const,
-      fillcolor: "#ec489955",
-      line: { color: "#ec4899", width: 0 },
+      fillcolor: "#8BC34A55",
+      line: { color: "#8BC34A", width: 0 },
       hovertemplate: "Storage charge: %{y:.2f} GW<br>%{x:.1f}% of hours<extra></extra>",
     });
   }

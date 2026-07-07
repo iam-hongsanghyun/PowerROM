@@ -102,7 +102,7 @@ function SizeToStandard({
           type="button"
           onClick={run}
           disabled={running}
-          className="rounded-lg bg-slate-900 px-3 py-1 font-medium text-white transition hover:bg-slate-800 disabled:opacity-50"
+          className="rounded-lg bg-navy px-3 py-1 font-medium text-white transition hover:bg-navy-700 disabled:opacity-50"
         >
           {running ? "Sizing…" : "Size"}
         </button>

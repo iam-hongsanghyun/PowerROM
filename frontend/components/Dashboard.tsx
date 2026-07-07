@@ -333,13 +333,17 @@ export function Dashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(14,165,233,0.16),_transparent_28%),linear-gradient(135deg,_#f7fbff_0%,_#eef5ff_45%,_#fefcf6_100%)] text-slate-900">
+    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(1,116,190,0.10),_transparent_30%),linear-gradient(135deg,_#ffffff_0%,_#f3f8fd_52%,_#fff8e8_100%)] text-navy">
       <div className="mx-auto max-w-[1600px] px-6 py-8 lg:px-10">
         <div className="mb-8 flex flex-col gap-3">
-          <span className="w-fit rounded-full border border-sky-200 bg-white/80 px-3 py-1 text-xs font-semibold uppercase tracking-[0.24em] text-sky-700">
-            PowerROM
-          </span>
-          <h1 className="max-w-4xl text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl">
+          <div className="flex items-center gap-3">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/planit-logo.png" alt="PLANiT" className="h-8 w-auto" />
+            <span className="rounded-full border border-brand/30 bg-white/80 px-3 py-1 text-xs font-semibold uppercase tracking-[0.24em] text-brand">
+              PowerROM
+            </span>
+          </div>
+          <h1 className="max-w-4xl font-display text-4xl font-bold tracking-tight text-navy sm:text-5xl">
             Reduced-order electricity system analysis for policy decisions.
           </h1>
           <p className="max-w-3xl text-base leading-7 text-slate-600">
@@ -387,7 +391,7 @@ export function Dashboard() {
                 type="button"
                 onClick={runAnalysis}
                 disabled={isAnalyzing}
-                className="flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+                className="flex w-full items-center justify-center gap-2 rounded-2xl bg-navy px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-navy-700 disabled:cursor-not-allowed disabled:bg-slate-400"
               >
                 <Play size={16} />
                 {isAnalyzing ? "Analysing..." : "Analyse"}
@@ -423,7 +427,7 @@ export function Dashboard() {
                     value={tab.value}
                     className={[
                       "flex-1 rounded-xl px-4 py-2 text-sm font-medium transition",
-                      "data-[state=active]:bg-slate-900 data-[state=active]:text-white",
+                      "data-[state=active]:bg-navy data-[state=active]:text-white",
                       "data-[state=inactive]:text-slate-500 data-[state=inactive]:hover:bg-slate-50",
                     ].join(" ")}
                   >

@@ -24,6 +24,8 @@ class DispatchResult:
     curtailed_gw: dict[str, np.ndarray]
     unserved_gw: np.ndarray
     capacities_gw: dict[str, float]
+    # Net storage flow, GW: positive = discharging (serving load), negative = charging.
+    storage_net_gw: np.ndarray | None = None
 
 
 def _simulate_storage_soc(
@@ -210,6 +212,7 @@ def dispatch_hourly(
 
     # 4. Endogenous storage (user-set tiers): charge from curtailment, discharge to
     #    unserved demand, in tier order (short/intraday first, then long/seasonal).
+    storage_net_gw = np.zeros(hours, dtype=float)  # + = discharging, − = charging
     if storage_tiers:
         curtailed_total = sum(curtailed_gw.values(), np.zeros(hours, dtype=float))
         surplus_gw = curtailed_total.copy()
@@ -222,6 +225,7 @@ def dispatch_hourly(
             )
             surplus_gw = surplus_gw - charge
             deficit_gw = deficit_gw - discharge
+            storage_net_gw += discharge - charge
         # Attribute the absorbed surplus back to each generator's curtailment pro-rata.
         with np.errstate(divide="ignore", invalid="ignore"):
             remaining_fraction = np.where(curtailed_total > 0.0, surplus_gw / curtailed_total, 0.0)
@@ -240,6 +244,7 @@ def dispatch_hourly(
         curtailed_gw=curtailed_gw,
         unserved_gw=unserved_gw,
         capacities_gw=capacities_gw,
+        storage_net_gw=storage_net_gw,
     )
 
 
@@ -479,6 +484,9 @@ def _chronological_series(result: DispatchResult, generator_names: list[str]) ->
         sum((result.curtailed_gw.get(gen, np.zeros(hours)) for gen in generator_names), np.zeros(hours)), 2
     )
     series["unserved"] = _round_list(result.unserved_gw, 2)
+    if result.storage_net_gw is not None:
+        # Net storage: + discharging (stacks with generation), − charging (below zero).
+        series["storage"] = _round_list(result.storage_net_gw, 2)
     return {
         "hours": list(range(hours)),
         "series": series,

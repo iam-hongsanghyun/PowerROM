@@ -40,6 +40,7 @@ export function HourlyMixChart({
   const dayOfYear = hours.map((h) => h / 24);
   const stackKeys = resource_order.filter((key) => series[key]);
 
+  const hasStorage = Array.isArray(series.storage);
   const traces: Plotly.Data[] = [
     ...stackKeys.map((key) => ({
       type: "scatter" as const,
@@ -52,6 +53,38 @@ export function HourlyMixChart({
       line: { width: 0, color: GENERATOR_COLORS[key] ?? "#64748b" },
       hovertemplate: `${GENERATOR_LABELS[key] ?? key}: %{y:.1f} GW<extra></extra>`,
     })),
+    // Storage discharge stacks on top of generation (fills toward demand).
+    ...(hasStorage
+      ? [
+          {
+            type: "scatter" as const,
+            mode: "lines" as const,
+            name: "Storage (discharge)",
+            x: dayOfYear,
+            y: series.storage.map((v) => Math.max(v, 0)),
+            stackgroup: "mix",
+            fillcolor: "#ec4899cc",
+            line: { width: 0, color: "#ec4899" },
+            hovertemplate: `Storage discharge: %{y:.1f} GW<extra></extra>`,
+          },
+        ]
+      : []),
+    // Storage charge drawn below zero (absorbing surplus), outside the stack.
+    ...(hasStorage
+      ? [
+          {
+            type: "scatter" as const,
+            mode: "lines" as const,
+            name: "Storage (charge)",
+            x: dayOfYear,
+            y: series.storage.map((v) => Math.min(v, 0)),
+            fill: "tozeroy" as const,
+            fillcolor: "#ec489955",
+            line: { width: 0, color: "#ec4899" },
+            hovertemplate: `Storage charge: %{y:.1f} GW<extra></extra>`,
+          },
+        ]
+      : []),
     {
       type: "scatter" as const,
       mode: "lines" as const,
@@ -77,7 +110,7 @@ export function HourlyMixChart({
       rangeslider: { visible: true, thickness: 0.08 },
       gridcolor: "#e2e8f0",
     },
-    yaxis: { title: { text: "GW", standoff: 8 }, gridcolor: "#e2e8f0", rangemode: "tozero" },
+    yaxis: { title: { text: "GW", standoff: 8 }, gridcolor: "#e2e8f0", zeroline: true, zerolinecolor: "#cbd5e1" },
   };
 
   return (

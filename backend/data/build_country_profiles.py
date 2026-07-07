@@ -159,6 +159,28 @@ REGIONS: dict[str, dict[str, float]] = {
     "emerging_europe": {"gas": 11.0, "coal": 4.5, "wacc": 0.100, "vre_mult": 1.00},
 }
 
+# ── Offshore wind split ──────────────────────────────────────────────────────────
+# Ember reports a single "Wind" figure. We carve offshore out of it using a curated
+# offshore-capacity table (GWEC Global Wind Report 2024 / IRENA statistics, end-2024, GW), then
+# attribute generation at an assumed offshore capacity factor and leave the remainder to onshore.
+# Countries not listed have no material offshore fleet (offshore capacity 0).
+OFFSHORE_CAPACITY_GW: dict[str, float] = {
+    "CN": 38.0, "GB": 14.7, "DE": 8.5, "NL": 4.7, "DK": 2.7, "TW": 2.4, "FR": 1.5,
+    "VN": 0.9, "JP": 0.2, "SE": 0.19, "KR": 0.14, "NO": 0.09, "FI": 0.07, "US": 0.04,
+    "IE": 0.03, "IT": 0.03,
+}
+OFFSHORE_CF_RATIO = 1.5       # offshore capacity factor ≈ 1.5 × onshore (IEA/IRENA); the split
+                              # conserves Ember's total wind energy at this ratio
+OFFSHORE_CF_FALLBACK = 0.42   # display CF for a zero-capacity offshore block
+OFFSHORE_CF_BOUNDS = (0.25, 0.60)
+OFFSHORE_CAPEX_USD_KW = 3500  # fixed-bottom offshore capex, IRENA 2024 / NREL ATB 2024
+OFFSHORE_OPEX_USD_KW_YR = 80
+OFFSHORE_VARIABILITY = 0.75   # offshore output is smoother than onshore
+SOURCE_OFFSHORE = (
+    "Offshore wind capacity split from GWEC Global Wind Report 2024 / IRENA statistics; offshore "
+    "costs from IRENA 2024 / NREL ATB 2024"
+)
+
 SOURCE_EMBER = (
     "Ember Yearly Electricity Data (full release), "
     "https://ember-energy.org/data/yearly-electricity-data/ — "
@@ -319,14 +341,79 @@ def build_profile(code: str, iso3: str, name: str, template: dict[str, Any],
                 func["params"]["a"] = cf
                 func["source"] = "Base CF from Ember; degradation-with-share stylized (IEA/IRENA)"
 
+    _split_offshore_wind(code, profile, template, capacities, shares, data, total_gen, region)
+
     profile["capacities_gw"] = capacities
     profile["shares"] = shares
     profile["sources"] = [
         f"{SOURCE_EMBER}; data year {data['year']}",
         SOURCE_COSTS,
         SOURCE_REGIONAL,
+        SOURCE_OFFSHORE,
     ]
     return profile
+
+
+def _anchor_cf_func(gen_block: dict[str, Any], cf: float) -> None:
+    func = gen_block.get("cf_eff_func", {})
+    if func.get("type") == "logarithmic" and "params" in func:
+        func["params"]["a"] = cf
+
+
+def _split_offshore_wind(code: str, profile: dict[str, Any], template: dict[str, Any],
+                         capacities: dict[str, float], shares: dict[str, float],
+                         data: dict[str, Any], total_gen: float, region: dict[str, float]) -> None:
+    """Carve offshore out of the country's total wind and add a ``wind_offshore`` generator.
+
+    The Ember "Wind" capacity/generation is treated as the total. Offshore capacity comes from the
+    curated table; onshore and offshore capacity factors are then split so that offshore is
+    ``OFFSHORE_CF_RATIO`` times onshore **while conserving Ember's total wind generation**
+    (onshore_cap·cf + offshore_cap·ratio·cf = total wind energy). This keeps onshore realistic
+    instead of starving it. Every country gets a wind_offshore block (0 GW where there is none) so
+    the schema is uniform.
+    """
+    total_wind_cap = capacities["wind_onshore"]
+    total_wind_gen = data["generation_twh"]["wind_onshore"]
+    offshore_cap = round(min(OFFSHORE_CAPACITY_GW.get(code, 0.0), total_wind_cap), 3)
+    onshore_cap = round(total_wind_cap - offshore_cap, 3)
+
+    if offshore_cap >= MIN_CAPACITY_GW and onshore_cap >= MIN_CAPACITY_GW and total_wind_gen > 0:
+        # Energy-conserving split at the offshore/onshore CF ratio.
+        avg_gw = total_wind_gen * 1000.0 / HOURS_PER_YEAR
+        onshore_cf = avg_gw / (onshore_cap + OFFSHORE_CF_RATIO * offshore_cap)
+        offshore_cf = onshore_cf * OFFSHORE_CF_RATIO
+        lo, hi = CF_BOUNDS["wind_onshore"]
+        off_lo, off_hi = OFFSHORE_CF_BOUNDS
+        onshore_cf = round(min(max(onshore_cf, lo), hi), 4)
+        offshore_cf = round(min(max(offshore_cf, off_lo), off_hi), 4)
+        onshore_gen = onshore_cap * onshore_cf * HOURS_PER_YEAR / 1000.0
+        offshore_gen = offshore_cap * offshore_cf * HOURS_PER_YEAR / 1000.0
+    else:
+        # No material offshore fleet: give all wind back to onshore (keeping its Ember CF); the
+        # offshore block is 0 GW.
+        onshore_cap = total_wind_cap
+        offshore_cap = 0.0
+        onshore_cf = float(profile["generators"]["wind_onshore"]["cf_base"])
+        offshore_cf = OFFSHORE_CF_FALLBACK
+        onshore_gen = total_wind_gen
+        offshore_gen = 0.0
+
+    capacities["wind_onshore"] = onshore_cap
+    shares["wind_onshore"] = round(onshore_gen / total_gen, 4)
+    profile["generators"]["wind_onshore"]["cf_base"] = onshore_cf
+    _anchor_cf_func(profile["generators"]["wind_onshore"], onshore_cf)
+
+    # Build the offshore generator block from the onshore template with offshore costs/CF.
+    offshore = json.loads(json.dumps(template["generators"]["wind_onshore"]))
+    offshore["cf_base"] = offshore_cf
+    offshore["capex_usd_kw"] = round(OFFSHORE_CAPEX_USD_KW * region["vre_mult"], 1)
+    offshore["opex_fixed_usd_kw_yr"] = OFFSHORE_OPEX_USD_KW_YR
+    offshore["variability_factor"] = OFFSHORE_VARIABILITY
+    _anchor_cf_func(offshore, offshore_cf)
+    profile["generators"]["wind_offshore"] = offshore
+
+    capacities["wind_offshore"] = round(offshore_cap, 3)
+    shares["wind_offshore"] = round(offshore_gen / total_gen, 4)
 
 
 def main() -> int:

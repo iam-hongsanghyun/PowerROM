@@ -6,6 +6,7 @@ import { type CalculateResponse, type GeneratorKey } from "@/lib/api";
 const GENERATOR_LABELS: Record<GeneratorKey, string> = {
   solar: "Solar",
   wind_onshore: "Wind (Onshore)",
+  wind_offshore: "Wind (Offshore)",
   gas_ccgt: "Gas CCGT",
   coal: "Coal",
   nuclear: "Nuclear",

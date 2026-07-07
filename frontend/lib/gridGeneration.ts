@@ -37,6 +37,7 @@ export interface GridConfig {
 const EMPTY_SHARES: Shares = {
   solar: 0,
   wind_onshore: 0,
+  wind_offshore: 0,
   gas_ccgt: 0,
   coal: 0,
   nuclear: 0,

@@ -8,7 +8,7 @@
 // ── Generator registry ────────────────────────────────────────────────────────
 
 /** Keys that identify intermittent (variable renewable) generators. */
-export const VRE_GENERATOR_KEYS = new Set(["solar", "wind_onshore"]);
+export const VRE_GENERATOR_KEYS = new Set(["solar", "wind_onshore", "wind_offshore"]);
 
 /**
  * All generator keys in the merit-order panel's display order (top → bottom).
@@ -21,6 +21,7 @@ export const ALL_GENERATOR_KEYS = [
   "gas_ccgt",
   "coal",
   "nuclear",
+  "wind_offshore",
   "wind_onshore",
   "solar",
 ] as const;
@@ -29,6 +30,7 @@ export const ALL_GENERATOR_KEYS = [
 export const GENERATOR_LABELS: Record<string, string> = {
   solar: "Solar",
   wind_onshore: "Wind (Onshore)",
+  wind_offshore: "Wind (Offshore)",
   gas_ccgt: "Gas CCGT",
   coal: "Coal",
   nuclear: "Nuclear",
@@ -41,6 +43,7 @@ export const GENERATOR_LABELS: Record<string, string> = {
 export const GENERATOR_COLORS: Record<string, string> = {
   solar: "#FFC436",        // golden yellow (sun)
   wind_onshore: "#0174BE", // bright blue (wind / VRE)
+  wind_offshore: "#014D80", // deep ocean blue (offshore wind)
   nuclear: "#0C356A",      // deep navy (firm baseload)
   coal: "#8D8D8D",         // warm grey (coal)
   gas_ccgt: "#EC8305",     // orange (fossil / thermal)
@@ -74,6 +77,7 @@ export function orderStackKeys(keys: string[], order?: string[]): string[] {
 export const DEFAULT_SHARES = {
   solar: 0.15,
   wind_onshore: 0.10,
+  wind_offshore: 0.0,
   gas_ccgt: 0.30,
   coal: 0.25,
   nuclear: 0.18,
@@ -88,6 +92,7 @@ export const DEFAULT_SHARES = {
 export const DEFAULT_CAPACITIES_GW = {
   solar: 70,
   wind_onshore: 31,
+  wind_offshore: 0,
   gas_ccgt: 27,
   coal: 24,
   nuclear: 14,

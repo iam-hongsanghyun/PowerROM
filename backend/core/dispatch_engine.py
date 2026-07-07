@@ -7,8 +7,8 @@ import numpy as np
 
 from backend.core.hourly_profiles import HOURS_PER_YEAR, EnsembleSettings, YearProfile
 
-VRE_GENERATORS = ("solar", "wind_onshore")
-DISPLAY_ORDER = ("solar", "wind_onshore", "nuclear", "coal", "gas_ccgt", "other")
+VRE_GENERATORS = ("solar", "wind_onshore", "wind_offshore")
+DISPLAY_ORDER = ("solar", "wind_onshore", "wind_offshore", "nuclear", "coal", "gas_ccgt", "other")
 QUANTILES = (0.1, 0.5, 0.9)
 
 # Short-duration storage arbitrages only in the priciest hours (top 1−percentile of the marginal
@@ -273,7 +273,16 @@ def dispatch_hourly(
 
     for gen in generator_names:
         if gen in VRE_GENERATORS:
-            cf = year_profile.solar_cf if gen == "solar" else year_profile.wind_cf
+            if gen == "solar":
+                cf = year_profile.solar_cf
+            elif gen == "wind_offshore":
+                # Offshore shares the wind weather shape but at its own (higher) mean CF: scale the
+                # onshore wind profile so its mean equals the offshore base CF.
+                base = _base_capacity_factor(profile["generators"][gen], fallback=0.42)
+                mean_wind = max(float(np.mean(year_profile.wind_cf)), 1e-6)
+                cf = np.clip(year_profile.wind_cf * (base / mean_wind), 0.0, 1.0)
+            else:
+                cf = year_profile.wind_cf
             if gen in fixed_capacities:
                 capacities_gw[gen] = fixed_capacities[gen]
             else:

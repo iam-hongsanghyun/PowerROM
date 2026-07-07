@@ -246,6 +246,52 @@
         "source": "Default system overhead"
       },
       "variability_factor": 0.3
+    },
+    "wind_offshore": {
+      "capex_usd_kw": 3500.0,
+      "opex_fixed_usd_kw_yr": 80,
+      "opex_var_usd_mwh": 0,
+      "lifetime_yr": 25,
+      "emission_factor_tco2_mwh": 0.0,
+      "cf_base": 0.42,
+      "cf_eff_func": {
+        "type": "logarithmic",
+        "params": {
+          "a": 0.42,
+          "b": 0.07,
+          "c": 2.4
+        },
+        "x_min": 0.08,
+        "x_max": 0.3,
+        "source": "Base CF from Ember; degradation-with-share stylized (IEA/IRENA)"
+      },
+      "eta_func": {
+        "type": "constant",
+        "params": {
+          "a": 1.0
+        },
+        "source": "Default renewable efficiency"
+      },
+      "integration_cost_func": {
+        "type": "quadratic",
+        "params": {
+          "a": 2.5,
+          "b": 0.8,
+          "c": 1.8
+        },
+        "source": "OECD/NEA integration cost stylization"
+      },
+      "curtailment_func": {
+        "type": "power",
+        "params": {
+          "a": 0.35,
+          "b": 1.8
+        },
+        "x_min": 0.0,
+        "x_max": 0.95,
+        "source": "Stylized curtailment from VRE share; wind smoother than solar"
+      },
+      "variability_factor": 0.75
     }
   },
   "ess": {
@@ -279,7 +325,8 @@
   "sources": [
     "Ember Yearly Electricity Data (full release), https://ember-energy.org/data/yearly-electricity-data/ \u2014 demand, installed capacity and generation by fuel (CC-BY-4.0); data year 2024",
     "Technology structure (heat rates, dispatch/curtailment functions, storage): IEA WEO 2024 / IRENA Renewable Power Generation Costs 2024 (shared template)",
-    "Regional cost levers \u2014 delivered gas/coal prices, discount rate (WACC) and a VRE capex multiplier \u2014 from IEA WEO 2024 regional assumptions and IRENA 2024 (see COUNTRY_REGION)"
+    "Regional cost levers \u2014 delivered gas/coal prices, discount rate (WACC) and a VRE capex multiplier \u2014 from IEA WEO 2024 regional assumptions and IRENA 2024 (see COUNTRY_REGION)",
+    "Offshore wind capacity split from GWEC Global Wind Report 2024 / IRENA statistics; offshore costs from IRENA 2024 / NREL ATB 2024"
   ],
   "data_year": 2024,
   "annual_demand_twh": 4404.83,
@@ -289,7 +336,8 @@
     "gas_ccgt": 546.01,
     "coal": 192.74,
     "nuclear": 96.83,
-    "other": 127.98
+    "other": 127.98,
+    "wind_offshore": 0.0
   },
   "shares": {
     "solar": 0.0692,
@@ -297,7 +345,8 @@
     "gas_ccgt": 0.4258,
     "coal": 0.1485,
     "nuclear": 0.1781,
-    "other": 0.0755
+    "other": 0.0755,
+    "wind_offshore": 0.0
   },
   "region": "north_america"
 }

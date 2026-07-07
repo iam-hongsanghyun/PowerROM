@@ -18,7 +18,7 @@ from backend.core.function_catalog import evaluate_function
 from backend.core.hourly_profiles import EnsembleSettings, load_hourly_profiles, sample_ensemble
 
 PROFILE_DIR = Path(__file__).resolve().parents[1] / "data" / "country_profiles"
-VRE_GENERATORS = {"solar", "wind_onshore"}
+VRE_GENERATORS = {"solar", "wind_onshore", "wind_offshore"}
 
 # ── Model constants ────────────────────────────────────────────────────────────
 # These are the only numeric literals that are NOT read from country profiles.
@@ -319,7 +319,8 @@ def _worst_case_profile(profile: dict[str, Any], sampled_profiles: list[Any], ca
     """
     avg_load_gw = profile["annual_generation_twh"] * 1000 / _HOURS_PER_YEAR
     solar_cap = capacities.get("solar", 0.0)
-    wind_cap = capacities.get("wind_onshore", 0.0)
+    # Offshore shares the wind weather shape, so count both wind fleets against the net-load peak.
+    wind_cap = capacities.get("wind_onshore", 0.0) + capacities.get("wind_offshore", 0.0)
 
     def net_load_peak(year_profile: Any) -> float:
         residual = year_profile.demand_norm * avg_load_gw - solar_cap * year_profile.solar_cf - wind_cap * year_profile.wind_cf
@@ -603,7 +604,7 @@ def _median_scalar(summary: dict[str, Any], key: str) -> float:
 
 
 # Generators eligible for the clean-energy subsidy (ITC / PTC) — the low-carbon set.
-_CLEAN_GENERATORS = {"solar", "wind_onshore", "nuclear"}
+_CLEAN_GENERATORS = {"solar", "wind_onshore", "wind_offshore", "nuclear"}
 
 # Generators that burn imported fuel — bear the fuel-import tariff and count toward the
 # energy-security import-dependency metric. Nuclear fuel is excluded (small, largely stockpiled).

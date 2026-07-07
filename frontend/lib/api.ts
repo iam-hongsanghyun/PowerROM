@@ -1,6 +1,7 @@
 export type GeneratorKey =
   | "solar"
   | "wind_onshore"
+  | "wind_offshore"
   | "gas_ccgt"
   | "coal"
   | "nuclear"

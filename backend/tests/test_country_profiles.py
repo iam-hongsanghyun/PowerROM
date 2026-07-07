@@ -122,6 +122,10 @@ def test_profile_matches_ember_source(code: str) -> None:
     assert p["annual_generation_twh"] == pytest.approx(round(ember["total"], 2), abs=0.02)
     for bucket in _BUCKETS:
         expected = round(ember["cap"].get(bucket, 0.0), 3)
-        assert p["capacities_gw"][bucket] == pytest.approx(expected, abs=0.01), (
+        shipped = p["capacities_gw"][bucket]
+        if bucket == "wind_onshore":
+            # Ember lumps all wind; we split offshore out, so onshore + offshore = Ember wind.
+            shipped += p["capacities_gw"].get("wind_offshore", 0.0)
+        assert shipped == pytest.approx(expected, abs=0.01), (
             f"{code} {bucket} capacity mismatch vs Ember"
         )

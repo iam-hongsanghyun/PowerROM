@@ -59,6 +59,7 @@ export function GeneratorMixPlotter({
   const fixedShares: Shares = {
     solar: selected.includes("solar") ? 0 : shares.solar,
     wind_onshore: selected.includes("wind_onshore") ? 0 : shares.wind_onshore,
+    wind_offshore: selected.includes("wind_offshore") ? 0 : shares.wind_offshore,
     gas_ccgt: selected.includes("gas_ccgt") ? 0 : shares.gas_ccgt,
     coal: selected.includes("coal") ? 0 : shares.coal,
     nuclear: selected.includes("nuclear") ? 0 : shares.nuclear,

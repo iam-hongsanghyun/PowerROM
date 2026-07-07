@@ -1,32 +1,32 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
-import dynamic from "next/dynamic";
+import { useEffect, useState } from "react";
+import { ChevronLeft, ChevronRight, Play } from "lucide-react";
 import * as Tabs from "@radix-ui/react-tabs";
 
 import { ControlPanel } from "@/components/ControlPanel";
 import { ShareSliders } from "@/components/ShareSliders";
-import { CompletenessReport } from "@/components/parameter/CompletenessReport";
-import { ExcelUploader } from "@/components/parameter/ExcelUploader";
-import { GeneratorMixPlotter } from "@/components/GeneratorMixPlotter";
 import { ParametersTab } from "@/components/ParametersTab";
 import { ProfileAnalysis } from "@/components/ProfileAnalysis";
 import {
   calculateSystem,
+  dispatchSystem,
   fetchCountries,
-  fitCurve,
   type CalculateResponse,
+  type Capacities,
   type CountryProfile,
   type CountrySummary,
+  type DispatchMode,
+  type DispatchResponse,
+  type EnsembleConfig,
+  type GeneratorKey,
   type Shares,
-  validateGeneratorConfig,
 } from "@/lib/api";
 import {
   COUNTRY_ESS_CAPEX,
+  DEFAULT_CAPACITIES_GW,
   DEFAULT_CARBON_PRICE_USD_TCO2,
   DEFAULT_EV_PENETRATION,
-  DEFAULT_SHARES,
   FALLBACK_ESS_CAPEX_USD_KWH,
 } from "@/lib/constants";
 
@@ -60,11 +60,66 @@ const FALLBACK_COUNTRIES: CountrySummary[] = [
 ];
 
 const INITIAL_COUNTRY = "KR";
+const GENERATOR_KEYS = ["solar", "wind_onshore", "gas_ccgt", "coal", "nuclear", "other"] as const;
+
+function capacityShares(capacities: Capacities): Shares {
+  const total = Object.values(capacities).reduce((sum, value) => sum + Math.max(0, value), 0);
+  if (total <= 0) {
+    return {
+      solar: 0,
+      wind_onshore: 0,
+      gas_ccgt: 0,
+      coal: 0,
+      nuclear: 0,
+      other: 0,
+    };
+  }
+  return {
+    solar: Math.max(0, capacities.solar) / total,
+    wind_onshore: Math.max(0, capacities.wind_onshore) / total,
+    gas_ccgt: Math.max(0, capacities.gas_ccgt) / total,
+    coal: Math.max(0, capacities.coal) / total,
+    nuclear: Math.max(0, capacities.nuclear) / total,
+    other: Math.max(0, capacities.other) / total,
+  };
+}
+
+function capacityInputDefaults(capacities: Capacities): Record<(typeof GENERATOR_KEYS)[number], string> {
+  return {
+    solar: String(capacities.solar),
+    wind_onshore: String(capacities.wind_onshore),
+    gas_ccgt: String(capacities.gas_ccgt),
+    coal: String(capacities.coal),
+    nuclear: String(capacities.nuclear),
+    other: String(capacities.other),
+  };
+}
+
+function parseCapacityInputs(
+  capacityInputs: Record<(typeof GENERATOR_KEYS)[number], string>,
+): Capacities | null {
+  const parsed = {} as Capacities;
+  for (const key of GENERATOR_KEYS) {
+    const raw = capacityInputs[key].trim();
+    if (raw === "") {
+      parsed[key] = 0;
+      continue;
+    }
+    const value = Number(raw);
+    if (!Number.isFinite(value)) return null;
+    parsed[key] = value;
+  }
+  return parsed;
+}
 
 export function Dashboard() {
   const [countries, setCountries] = useState<CountrySummary[]>(FALLBACK_COUNTRIES);
   const [country, setCountry] = useState(INITIAL_COUNTRY);
-  const [shares, setShares] = useState<Shares>({ ...DEFAULT_SHARES });
+  const [capacities, setCapacities] = useState<Capacities>({ ...DEFAULT_CAPACITIES_GW });
+  const [capacityInputs, setCapacityInputs] = useState<Record<(typeof GENERATOR_KEYS)[number], string>>(
+    capacityInputDefaults(DEFAULT_CAPACITIES_GW),
+  );
+  const [generatorOrder, setGeneratorOrder] = useState<GeneratorKey[]>([...GENERATOR_KEYS]);
   const [carbonPrice, setCarbonPrice] = useState(DEFAULT_CARBON_PRICE_USD_TCO2);
   const [evPenetration, setEvPenetration] = useState(DEFAULT_EV_PENETRATION);
   const [annualDemandTwh, setAnnualDemandTwh] = useState(
@@ -73,15 +128,25 @@ export function Dashboard() {
   const [essCostUsdKwh, setEssCostUsdKwh] = useState(
     COUNTRY_ESS_CAPEX[INITIAL_COUNTRY] ?? FALLBACK_ESS_CAPEX_USD_KWH,
   );
+  const [dispatchMode, setDispatchMode] = useState<DispatchMode>("parametric");
+  const [weatherYears, setWeatherYears] = useState<number[]>([]);
+  const [ensemble, setEnsemble] = useState<EnsembleConfig>({
+    method: "jitter",
+    n_samples: 5,
+    sigma: 0.04,
+    seed: 42,
+  });
   const [useCustomParameters, setUseCustomParameters] = useState(false);
   // Holds the user's in-progress parameter edits from the Parameters tab.
   // Persists across tab switches; reset only on country change or explicit reset.
   const [customProfile, setCustomProfile] = useState<CountryProfile | null>(null);
   const [result, setResult] = useState<CalculateResponse | null>(null);
-  const [validation, setValidation] = useState<Record<string, Record<string, string | number | null>> | null>(null);
+  const [dispatchResult, setDispatchResult] = useState<DispatchResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [isPending, startTransition] = useTransition();
+  const [isDispatchLoading, setIsDispatchLoading] = useState(false);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const shares = capacityShares(capacities);
 
   function handleCountryChange(nextCountry: string) {
     setCountry(nextCountry);
@@ -108,9 +173,9 @@ export function Dashboard() {
       });
   }, [country]);
 
-  useEffect(() => {
-    // Build custom_params: merge the user's profile edits (if any) with the
-    // sidebar ESS-cost slider. The sidebar always wins for ESS capex.
+  function buildCustomParams(): Record<string, unknown> {
+    // Merge the user's profile edits (if any) with the sidebar ESS-cost slider.
+    // The sidebar always wins for ESS capex.
     const custom_params: Record<string, unknown> = customProfile
       ? ({
           ...customProfile,
@@ -123,39 +188,64 @@ export function Dashboard() {
           },
         } as Record<string, unknown>)
       : { ess: { short_dur: { capex_usd_kwh: essCostUsdKwh } } };
+    return custom_params;
+  }
 
-    startTransition(() => {
-      void calculateSystem({
-        country,
-        shares,
-        carbon_price: carbonPrice,
-        ev_penetration: evPenetration,
-        annual_demand_twh: annualDemandTwh,
-        custom_params,
-      })
-        .then((response) => {
-          setResult(response);
-          setError(null);
-        })
-        .catch((requestError: Error) => setError(requestError.message));
-    });
-  }, [annualDemandTwh, carbonPrice, country, customProfile, essCostUsdKwh, evPenetration, shares]);
+  async function runAnalysis() {
+    const nextCapacities = parseCapacityInputs(capacityInputs);
+    if (!nextCapacities) {
+      setError("Enter numeric GW values before running analysis.");
+      return;
+    }
+    if (Object.values(nextCapacities).every((value) => value <= 0)) {
+      setError("At least one generator capacity must be greater than 0 GW.");
+      return;
+    }
 
-  async function handleExcelPoints(points: Array<[number, number]>) {
-    const fit = await fitCurve({ data_points: points, func_type: "linear" });
-    const validationResult = await validateGeneratorConfig({
-      generator_config: {
-        capex_usd_kw: 900,
-        opex_fixed_usd_kw_yr: 15,
-        opex_var_usd_mwh: 0,
-        lifetime_yr: 25,
-        emission_factor_tco2_mwh: 0,
-        cf_eff_func: { type: "linear", params: fit.params, r_squared: fit.r_squared },
-        eta_func: { type: "constant", params: { a: 1 } },
-        integration_cost_func: { type: "constant", params: { a: 0 } },
-      },
-    });
-    setValidation(validationResult.components);
+    setCapacities(nextCapacities);
+    setError(null);
+    setIsAnalyzing(true);
+    setIsDispatchLoading(true);
+    const custom_params = buildCustomParams();
+
+    try {
+      const [calculation, dispatch] = await Promise.all([
+        calculateSystem({
+          country,
+          capacities_gw: nextCapacities,
+          carbon_price: carbonPrice,
+          ev_penetration: evPenetration,
+          annual_demand_twh: annualDemandTwh,
+          custom_params,
+          dispatch_mode: dispatchMode,
+          weather_years: weatherYears.length ? weatherYears : null,
+          generator_order: generatorOrder,
+        }),
+        dispatchSystem({
+          country,
+          capacities_gw: nextCapacities,
+          carbon_price: carbonPrice,
+          ev_penetration: evPenetration,
+          annual_demand_twh: annualDemandTwh,
+          custom_params,
+          dispatch_mode: dispatchMode,
+          weather_years: weatherYears.length ? weatherYears : null,
+          ensemble,
+          generator_order: generatorOrder,
+        }),
+      ]);
+      setResult(calculation);
+      setDispatchResult(dispatch);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Analysis failed.");
+    } finally {
+      setIsAnalyzing(false);
+      setIsDispatchLoading(false);
+    }
+  }
+
+  function handleCapacityInputChange(key: (typeof GENERATOR_KEYS)[number], value: string) {
+    setCapacityInputs((prev) => ({ ...prev, [key]: value }));
   }
 
   return (
@@ -190,15 +280,35 @@ export function Dashboard() {
                 essCostUsdKwh={essCostUsdKwh}
                 evPenetration={evPenetration}
                 annualDemandTwh={annualDemandTwh}
+                dispatchMode={dispatchMode}
+                weatherYears={weatherYears}
+                ensemble={ensemble}
                 useCustomParameters={useCustomParameters}
                 onCountryChange={handleCountryChange}
                 onCarbonPriceChange={setCarbonPrice}
                 onEssCostChange={setEssCostUsdKwh}
                 onEvPenetrationChange={setEvPenetration}
                 onAnnualDemandChange={setAnnualDemandTwh}
+                onDispatchModeChange={setDispatchMode}
+                onWeatherYearsChange={setWeatherYears}
+                onEnsembleChange={setEnsemble}
                 onUseCustomParametersChange={setUseCustomParameters}
               />
-              <ShareSliders shares={shares} onChange={setShares} />
+              <ShareSliders
+                capacityInputs={capacityInputs}
+                generatorOrder={generatorOrder}
+                onChange={handleCapacityInputChange}
+                onOrderChange={setGeneratorOrder}
+              />
+              <button
+                type="button"
+                onClick={runAnalysis}
+                disabled={isAnalyzing}
+                className="flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+              >
+                <Play size={16} />
+                {isAnalyzing ? "Analysing..." : "Analyse"}
+              </button>
               {error ? (
                 <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
                   {error}
@@ -222,7 +332,6 @@ export function Dashboard() {
               <Tabs.List className="flex gap-1 rounded-2xl border border-slate-200 bg-white p-1.5 shadow-sm">
                 {[
                   { value: "profile", label: "Profile" },
-                  { value: "mix", label: "Mix" },
                   { value: "parameters", label: "Parameters" },
                 ].map((tab) => (
                   <Tabs.Trigger
@@ -273,6 +382,12 @@ export function Dashboard() {
                       </strong>
                     </span>
                     <span className="text-slate-500">
+                      Unserved:{" "}
+                      <strong className="text-slate-900">
+                        {result?.unserved_twh.toFixed(1) ?? "--"} TWh
+                      </strong>
+                    </span>
+                    <span className="text-slate-500">
                       Annual Cost:{" "}
                       <strong className="text-slate-900">
                         ${result?.annual_system_cost_usd_billion.toFixed(1) ?? "--"}B
@@ -287,14 +402,14 @@ export function Dashboard() {
                       className={
                         error
                           ? "font-medium text-rose-600"
-                          : isPending
+                          : isAnalyzing
                             ? "font-medium text-amber-600"
                             : result
                               ? "font-medium text-emerald-600"
                               : "font-medium text-slate-400"
                       }
                     >
-                      {error ? `Error: ${error}` : isPending ? "Updating…" : result ? "Ready" : "Waiting"}
+                      {error ? `Error: ${error}` : isAnalyzing ? "Analysing..." : result ? "Ready" : "Waiting"}
                     </span>
                   </div>
                 </div>
@@ -304,32 +419,19 @@ export function Dashboard() {
               <Tabs.Content value="profile">
                 <ProfileAnalysis
                   result={result}
+                  dispatchResult={dispatchResult}
+                  isDispatchLoading={isDispatchLoading}
                   country={country}
                   carbonPrice={carbonPrice}
                   essCostUsdKwh={essCostUsdKwh}
                   shares={shares}
+                  capacities={capacities}
                   annualDemandTwh={annualDemandTwh}
                   evPenetration={evPenetration}
+                  dispatchMode={dispatchMode}
+                  weatherYears={weatherYears}
+                  generatorOrder={generatorOrder}
                 />
-              </Tabs.Content>
-
-              {/* Mix Explorer tab */}
-              <Tabs.Content value="mix" className="space-y-4">
-                <GeneratorMixPlotter
-                  country={country}
-                  carbonPrice={carbonPrice}
-                  essCostUsdKwh={essCostUsdKwh}
-                  evPenetration={evPenetration}
-                  annualDemandTwh={annualDemandTwh}
-                  shares={shares}
-                />
-
-                {useCustomParameters && (
-                  <div className="grid gap-6 md:grid-cols-2">
-                    <ExcelUploader onParsed={handleExcelPoints} />
-                    <CompletenessReport components={validation} />
-                  </div>
-                )}
               </Tabs.Content>
 
               {/* Parameters tab — forceMount keeps state alive across tab switches */}

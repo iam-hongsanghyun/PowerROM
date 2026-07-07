@@ -7,6 +7,16 @@ export type GeneratorKey =
   | "other";
 
 export type Shares = Record<GeneratorKey, number>;
+export type Capacities = Record<GeneratorKey, number>;
+export type DispatchMode = "parametric" | "data";
+export type EnsembleMethod = "single" | "jitter" | "multiyear";
+
+export interface EnsembleConfig {
+  method: EnsembleMethod;
+  n_samples: number;
+  sigma: number;
+  seed: number;
+}
 
 export interface CurvePoint {
   vre_share: number;
@@ -24,6 +34,7 @@ export interface CurvePoint {
   curtailment_rate: number;
   curtailed_twh: number;
   backup_flexibility: number;
+  unserved_twh: number;
 }
 
 export interface CountrySummary {
@@ -46,6 +57,8 @@ export interface DataQuality {
 export interface CalculateResponse {
   country: string;
   shares: Record<string, number>;
+  capacity_shares: Record<string, number>;
+  capacities_gw: Record<string, number>;
   annual_demand_twh: number;
   system_lcoe: number;
   annual_system_cost_usd_billion: number;
@@ -62,9 +75,63 @@ export interface CalculateResponse {
   ess_long_lcoe: number;
   curtailment_rate: number;
   curtailed_twh: number;
+  unserved_twh: number;
   backup_flexibility: number;
   curve_data: CurvePoint[];
   stack_components: Record<string, number>;
+  dispatch?: DispatchSummary | null;
+  ldc?: LdcPayload | null;
+  data_quality: DataQuality;
+}
+
+export interface MetricBand {
+  p10: number;
+  median: number;
+  p90: number;
+}
+
+export interface LdcSeriesBand {
+  p10: number[];
+  median: number[];
+  p90: number[];
+}
+
+export interface LdcPayload {
+  x_hours: number[];
+  x_percent: number[];
+  series: Record<string, LdcSeriesBand>;
+  resource_order: string[];
+}
+
+export interface DispatchSummary {
+  mode: DispatchMode;
+  ensemble: {
+    method: EnsembleMethod;
+    n_samples: number;
+    sigma: number;
+    seed: number;
+    sources: string[];
+    years: number[];
+  };
+  metrics: {
+    scalars: Record<string, MetricBand>;
+    capacity_factor: Record<string, MetricBand>;
+    realized_share: Record<string, MetricBand>;
+    energy_twh: Record<string, MetricBand>;
+    capacity_gw: Record<string, MetricBand>;
+    capacity_share: Record<string, MetricBand>;
+    curtailment_rate_by_generator: Record<string, MetricBand>;
+  };
+}
+
+export interface DispatchResponse {
+  country: string;
+  shares: Record<string, number>;
+  capacity_shares: Record<string, number>;
+  capacities_gw: Record<string, number>;
+  annual_demand_twh: number;
+  dispatch: DispatchSummary;
+  ldc: LdcPayload;
   data_quality: DataQuality;
 }
 
@@ -115,13 +182,37 @@ export async function fetchCountries(): Promise<CountriesResponse> {
 
 export async function calculateSystem(payload: {
   country: string;
-  shares: Shares;
+  shares?: Shares;
+  capacities_gw?: Capacities;
+  generator_order?: GeneratorKey[];
   carbon_price: number;
   ev_penetration?: number;
   annual_demand_twh?: number;
   custom_params?: Record<string, unknown> | null;
+  dispatch_mode?: DispatchMode;
+  weather_years?: number[] | null;
+  ensemble?: EnsembleConfig | null;
 }): Promise<CalculateResponse> {
   return request<CalculateResponse>("/calculate", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function dispatchSystem(payload: {
+  country: string;
+  shares?: Shares;
+  capacities_gw?: Capacities;
+  generator_order?: GeneratorKey[];
+  carbon_price: number;
+  ev_penetration?: number;
+  annual_demand_twh?: number;
+  custom_params?: Record<string, unknown> | null;
+  dispatch_mode?: DispatchMode;
+  weather_years?: number[] | null;
+  ensemble?: EnsembleConfig | null;
+}): Promise<DispatchResponse> {
+  return request<DispatchResponse>("/dispatch", {
     method: "POST",
     body: JSON.stringify(payload),
   });

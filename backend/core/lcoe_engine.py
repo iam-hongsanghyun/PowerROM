@@ -5,34 +5,20 @@ import json
 from pathlib import Path
 from typing import Any
 
-import numpy as np
-
+from backend.core.dispatch_engine import run_dispatch_ensemble
 from backend.core.function_catalog import evaluate_function
+from backend.core.hourly_profiles import EnsembleSettings, load_hourly_profiles
 
 PROFILE_DIR = Path(__file__).resolve().parents[1] / "data" / "country_profiles"
 VRE_GENERATORS = {"solar", "wind_onshore"}
 
 # ── Model constants ────────────────────────────────────────────────────────────
 # These are the only numeric literals that are NOT read from country profiles.
-# If you change a profile JSON field that mirrors one of these, update it here too.
 
-# Curtailment / flexibility
-# Minimum effective backup flexibility used as a denominator so flex_scale
-# never exceeds 1/0.5 = 2×.  Prevents extreme curtailment amplification for
-# pathological portfolios (e.g. 100 % nuclear + trace VRE).
-_MIN_BACKUP_FLEXIBILITY: float = 0.5
-
-# Fraction of curtailed GWh that short-duration batteries can absorb.
-# Used only when the profile does NOT specify `{gen}_absorption_fraction`.
-# Profiles should always define this field; 0.4 is a conservative mid-point.
-_DEFAULT_ABSORPTION_FRACTION: float = 0.4
-
-# ESS parameter fallbacks — used when the profile key is missing.
-# Profile JSON files should always define these; the fallbacks keep the engine
-# from crashing on incomplete or legacy profiles.
-_DEFAULT_SHORT_DURATION_HR: float = 4.0    # 4-hour lithium-ion day battery
-_DEFAULT_LONG_DURATION_HR: float = 168.0   # 7-day (1-week) seasonal storage
-_DEFAULT_LONG_THRESHOLD: float = 0.65      # VRE share above which seasonal storage activates
+# Fraction of intraday short-duration storage relieved per unit of EV penetration.
+# EV smart-charging soaks up midday surplus, shrinking the stationary battery need.
+# Relief is clipped to [0, 1], so at this rate 50 % EV penetration relieves ~20 %.
+_EV_SHORT_STORAGE_RELIEF_PER_UNIT: float = 0.4
 
 # Share normalisation tolerance: shares are considered already normalised when
 # |sum − 1| ≤ this value (avoids floating-point noise triggering the flag).
@@ -120,16 +106,25 @@ def _generator_breakdown(
     vre_share: float,
     carbon_price: float,
     discount_rate: float,
+    cf_eff: float,
 ) -> dict[str, float]:
-    # Build context for x_variable resolution; cf_eff added below after computation
+    """Money math for one generator at its dispatch-realized capacity factor.
+
+    ``cf_eff`` is the effective capacity factor that hourly merit-order dispatch
+    actually produced for this generator — it is no longer inferred from a fitted
+    ``cf_eff_func``. Curtailment and grid-integration effects are already priced by
+    the dispatch (via realized CF) and by pattern-sized storage, so no separate
+    ``integration_cost_func`` term is added here. The only retained behavioural
+    curve is ``eta_func`` (thermal part-load efficiency), which the pattern cannot
+    supply.
+    """
     context: dict[str, float] = {
         "vre_share": vre_share,
         "own_share": share,
         "non_vre_share": max(0.0, 1.0 - vre_share),
+        "cf_eff": max(cf_eff, _CF_FLOOR),
     }
-    cf_eff_x = _resolve_x_value(generator_config["cf_eff_func"], vre_share, context)
-    cf_eff = _evaluate_configured_function(generator_config["cf_eff_func"], cf_eff_x, context)
-    context["cf_eff"] = cf_eff
+    cf_eff = max(cf_eff, _CF_FLOOR)
 
     eta_x = _resolve_x_value(generator_config["eta_func"], cf_eff, context)
     eta = _evaluate_configured_function(generator_config["eta_func"], eta_x, context)
@@ -154,8 +149,6 @@ def _generator_breakdown(
 
     emission_factor = float(generator_config.get("emission_factor_tco2_mwh", 0.0))
     carbon = carbon_price * emission_factor * efficiency_penalty
-    int_x = _resolve_x_value(generator_config["integration_cost_func"], share, context)
-    integration = _evaluate_configured_function(generator_config["integration_cost_func"], int_x, context)
 
     return {
         "generator": generator_name,
@@ -166,8 +159,8 @@ def _generator_breakdown(
         "variable_opex": variable_opex,
         "fuel": fuel,
         "carbon": carbon,
-        "integration": integration,
-        "total_lcoe": capex + fixed_opex + variable_opex + fuel + carbon + integration,
+        "integration": 0.0,
+        "total_lcoe": capex + fixed_opex + variable_opex + fuel + carbon,
         "emission_intensity_tco2_mwh": emission_factor * efficiency_penalty,
     }
 
@@ -202,126 +195,61 @@ def _backup_flexibility(
     return max(0.0, min(1.0, weighted))
 
 
-def _curtailment_metrics(
-    profile: dict[str, Any],
-    normalized_shares: dict[str, float],
-    vre_share: float,
-) -> dict[str, float]:
-    """Curtailment is driven by two factors:
-
-    1. **VRE share** — more VRE → more temporal surplus → more curtailment.
-    2. **Backup flexibility** — dispatchable backup (gas) can back off and absorb VRE
-       output; must-run backup (nuclear, coal) cannot → forces curtailment at the same VRE share.
-
-    The model computes an ``effective_vre`` = VRE_share × flex_scale, where:
-        flex_scale = 1 / backup_flexibility   (range ≈ 1.0 for all-gas to 1.25 for all-nuclear)
-
-    The per-generator ``curtailment_func`` is evaluated at ``effective_vre`` rather than the
-    raw VRE share, so grids with more must-run capacity see higher curtailment.
-    """
-    if vre_share <= 0:
-        return {"curtailment_rate": 0.0, "curtailed_twh": 0.0, "backup_flexibility": 1.0}
-    annual_twh = profile["annual_generation_twh"]
-
-    # Backup flexibility: how well non-VRE generators can follow / back off
-    backup_flex = _backup_flexibility(profile, normalized_shares, vre_share)
-    # flex_scale > 1 when backup is inflexible (nuclear) → amplifies effective curtailment pressure
-    flex_scale = 1.0 / max(backup_flex, _MIN_BACKUP_FLEXIBILITY)  # capped at 1/_MIN_BACKUP_FLEXIBILITY = 2×
-    effective_vre = min(1.0, vre_share * flex_scale)
-
-    base_context: dict[str, float] = {
-        "vre_share": vre_share,
-        "effective_vre": effective_vre,
-        "non_vre_share": max(0.0, 1.0 - vre_share),
-    }
-    w_curtail = 0.0
-    curtailed_twh = 0.0
-    for gen in VRE_GENERATORS:
-        share = normalized_shares.get(gen, 0.0)
-        if share <= 0:
-            continue
-        gen_cfg = profile["generators"][gen]
-        if "curtailment_func" in gen_cfg:
-            ctx = {**base_context, "own_share": share}
-            cr_x = _resolve_x_value(gen_cfg["curtailment_func"], effective_vre, ctx)
-            cr = _evaluate_configured_function(gen_cfg["curtailment_func"], cr_x, ctx)
-            cr = max(0.0, min(1.0, cr))
-        else:
-            cf_base = float(gen_cfg.get("cf_base", 1.0))
-            cf_eff = max(_evaluate_configured_function(gen_cfg["cf_eff_func"], vre_share, base_context), _CF_FLOOR)
-            cr = max(0.0, 1.0 - cf_eff / cf_base)
-        w_curtail += share * cr
-        curtailed_twh += annual_twh * share * cr
-    return {
-        "curtailment_rate": w_curtail / vre_share,
-        "curtailed_twh": curtailed_twh,
-        "backup_flexibility": backup_flex,
-    }
-
-
 def _ess_metrics(
     profile: dict[str, Any],
-    normalized_shares: dict[str, float],
-    vre_share: float,
+    dispatch_summary: dict[str, Any],
     ev_penetration: float = 0.0,
 ) -> dict[str, float]:
-    """Compute ESS capacity and LCOE contribution split into short- and long-duration.
+    """Cost pattern-derived storage that hourly dispatch already sized.
 
-    Short-duration: absorbs curtailed VRE from each generator.
-    Long-duration: last-gap seasonal storage activated above a VRE share threshold.
+    Storage energy (GWh) and power (GW) come straight from the hourly surplus/deficit
+    pattern (see ``dispatch_engine._size_storage_from_pattern``): short-duration is
+    intraday shifting, long-duration is the seasonal reservoir. This function only
+    applies the annualised capital cost to those capacities — no VRE-share power law
+    or curtailment-absorption heuristic remains.
+
+    Args:
+        profile: Country profile with the ``ess`` capex/lifetime block.
+        dispatch_summary: Ensemble summary carrying ``storage_*`` scalar bands.
+        ev_penetration: EV fraction (0–1); smart-charging relieves intraday storage.
+
+    Returns:
+        Storage energy/power totals and the short/long LCOE contributions ($/MWh).
     """
     annual_twh = profile["annual_generation_twh"]
     ess = profile["ess"]
     short = ess["short_dur"]
     long = ess["long_dur"]
 
-    # Short-duration: curtailment absorption per VRE generator
-    ess_ctx: dict[str, float] = {
-        "vre_share": vre_share,
-        "non_vre_share": max(0.0, 1.0 - vre_share),
-    }
-    throughput_gwh = 0.0
-    for gen in VRE_GENERATORS:
-        share = normalized_shares.get(gen, 0.0)
-        if share <= 0:
-            continue
-        gen_cfg = profile["generators"][gen]
-        if "curtailment_func" in gen_cfg:
-            ctx = {**ess_ctx, "own_share": share}
-            cr_x = _resolve_x_value(gen_cfg["curtailment_func"], vre_share, ctx)
-            cr = _evaluate_configured_function(gen_cfg["curtailment_func"], cr_x, ctx)
-            cr = max(0.0, min(1.0, cr))
-        else:
-            cf_base = float(gen_cfg.get("cf_base", 1.0))
-            cf_eff = max(_evaluate_configured_function(gen_cfg["cf_eff_func"], vre_share, ess_ctx), _CF_FLOOR)
-            cr = max(0.0, 1.0 - cf_eff / cf_base)
-        absorption = float(short.get(f"{gen}_absorption_fraction", _DEFAULT_ABSORPTION_FRACTION))
-        curtailed_gwh = share * annual_twh * 1000 * cr
-        throughput_gwh += curtailed_gwh * absorption
-
-    ev_offset = ev_penetration * short.get("ev_offset_gwh_per_unit", 0.0)
-    net_throughput = max(throughput_gwh - ev_offset, 0.0)
-    short_cycles = short["cycles_per_year"]
-    short_dod = short["dod"]
-    short_gwh = net_throughput / (short_cycles * short_dod) if (short_cycles * short_dod) > 0 else 0.0
-    short_gw = short_gwh / float(short.get("duration_hr", _DEFAULT_SHORT_DURATION_HR))
-    short_lcoe = (
-        short["capex_usd_kwh"]
-        * crf(profile["discount_rate"], short["lifetime_yr"])
-        * short_gwh
-        / annual_twh
+    # Built energy = power × the device's own duration, so no device is ever sized to
+    # hold more than its power rating can. The seasonal device is additionally bounded
+    # by the recoverable curtailment (it exists to recover surplus VRE, not to firm the
+    # system against chronic under-capacity — that stays visible as unserved energy).
+    short_power_gw = _median_scalar(dispatch_summary, "storage_short_power_gw")
+    short_gwh = min(
+        _median_scalar(dispatch_summary, "storage_short_shift_gwh"),
+        short_power_gw * float(short["duration_hr"]),
     )
+    short_gw = short_gwh / float(short["duration_hr"]) if short["duration_hr"] else 0.0
 
-    # Long-duration: last-gap seasonal storage, VRE-share power law above threshold
-    shifted = max(0.0, vre_share - float(long.get("threshold", _DEFAULT_LONG_THRESHOLD)))
-    long_ratio = _evaluate_configured_function(long["requirement_func"], shifted)
-    long_gwh = (long_ratio * annual_twh * 1000) / (long["cycles_per_year"] * long["dod"])
-    long_gw = long_gwh / float(long.get("duration_hr", _DEFAULT_LONG_DURATION_HR))
+    long_power_gw = _median_scalar(dispatch_summary, "storage_long_power_gw")
+    long_gwh = min(
+        _median_scalar(dispatch_summary, "storage_long_depth_gwh"),
+        _median_scalar(dispatch_summary, "storage_long_recoverable_gwh"),
+        long_power_gw * float(long["duration_hr"]),
+    )
+    long_gw = long_gwh / float(long["duration_hr"]) if long["duration_hr"] else 0.0
+
+    # EV smart-charging absorbs midday surplus, shrinking the stationary intraday battery.
+    ev_relief = min(1.0, max(0.0, ev_penetration) * _EV_SHORT_STORAGE_RELIEF_PER_UNIT)
+    short_gwh *= 1.0 - ev_relief
+    short_gw *= 1.0 - ev_relief
+
+    short_lcoe = (
+        short["capex_usd_kwh"] * crf(profile["discount_rate"], short["lifetime_yr"]) * short_gwh / annual_twh
+    )
     long_lcoe = (
-        long["capex_usd_kwh"]
-        * crf(profile["discount_rate"], long["lifetime_yr"])
-        * long_gwh
-        / annual_twh
+        long["capex_usd_kwh"] * crf(profile["discount_rate"], long["lifetime_yr"]) * long_gwh / annual_twh
     )
 
     return {
@@ -337,20 +265,56 @@ def _ess_metrics(
     }
 
 
-def calculate_system_lcoe(
-    country: str,
+def _coerce_ensemble_settings(ensemble: Any | None) -> EnsembleSettings:
+    if ensemble is None:
+        return EnsembleSettings()
+    if isinstance(ensemble, EnsembleSettings):
+        return ensemble
+    if isinstance(ensemble, dict):
+        return EnsembleSettings(
+            method=ensemble.get("method", "jitter"),
+            n_samples=int(ensemble.get("n_samples", 5)),
+            sigma=float(ensemble.get("sigma", 0.04)),
+            seed=int(ensemble.get("seed", 42)),
+        )
+    return EnsembleSettings(
+        method=getattr(ensemble, "method", "jitter"),
+        n_samples=int(getattr(ensemble, "n_samples", 5)),
+        sigma=float(getattr(ensemble, "sigma", 0.04)),
+        seed=int(getattr(ensemble, "seed", 42)),
+    )
+
+
+def _median_metric(summary: dict[str, Any], group: str, key: str) -> float:
+    return float(summary["metrics"][group].get(key, {}).get("median", 0.0))
+
+
+def _median_scalar(summary: dict[str, Any], key: str) -> float:
+    return float(summary["metrics"]["scalars"].get(key, {}).get("median", 0.0))
+
+
+def _calculate_from_dispatch_summary(
+    profile: dict[str, Any],
     shares: dict[str, float],
     carbon_price: float,
-    ev_penetration: float = 0.0,
-    annual_demand_twh: float | None = None,
-    custom_params: dict[str, Any] | None = None,
+    ev_penetration: float,
+    dispatch_summary: dict[str, Any],
 ) -> dict[str, Any]:
-    base_profile = load_country_profile(country)
-    profile = deep_merge(base_profile, custom_params or {})
-    if annual_demand_twh is not None:
-        profile["annual_generation_twh"] = annual_demand_twh
-    normalized_shares, normalized = normalize_shares(shares)
+    normalized_shares, _ = normalize_shares(shares)
     vre_share = sum(normalized_shares.get(key, 0.0) for key in VRE_GENERATORS)
+
+    all_generators = sorted(
+        set(profile["generators"].keys()).union(normalized_shares.keys()),
+        key=lambda name: ["solar", "wind_onshore", "gas_ccgt", "coal", "nuclear", "other", name].index(name)
+        if name in {"solar", "wind_onshore", "gas_ccgt", "coal", "nuclear", "other"}
+        else 99,
+    )
+    realized_weights = {
+        gen: _median_metric(dispatch_summary, "realized_share", gen)
+        for gen in all_generators
+    }
+    if sum(realized_weights.values()) <= 0:
+        realized_weights = {gen: normalized_shares.get(gen, 0.0) for gen in all_generators}
 
     breakdowns: dict[str, dict[str, float]] = {}
     system_lcoe = 0.0
@@ -365,8 +329,10 @@ def calculate_system_lcoe(
         "ess": 0.0,
     }
 
-    for generator_name, share in normalized_shares.items():
-        if share <= 0:
+    for generator_name in all_generators:
+        share = normalized_shares.get(generator_name, 0.0)
+        realized_share = realized_weights.get(generator_name, 0.0)
+        if generator_name not in profile["generators"] or (share <= 0 and realized_share <= 0):
             breakdowns[generator_name] = {
                 "generator": generator_name,
                 "cf_eff": 0.0,
@@ -380,35 +346,132 @@ def calculate_system_lcoe(
                 "total_lcoe": 0.0,
                 "emission_intensity_tco2_mwh": 0.0,
                 "share_weighted_cost": 0.0,
+                "realized_share": realized_share,
+                "capacity_gw": _median_metric(dispatch_summary, "capacity_gw", generator_name),
+                "capacity_share": _median_metric(dispatch_summary, "capacity_share", generator_name),
+                "energy_twh": _median_metric(dispatch_summary, "energy_twh", generator_name),
             }
             continue
 
-        generator_config = profile["generators"][generator_name]
         generator_breakdown = _generator_breakdown(
             generator_name=generator_name,
-            generator_config=generator_config,
+            generator_config=profile["generators"][generator_name],
             share=share,
             vre_share=vre_share,
             carbon_price=carbon_price,
             discount_rate=profile["discount_rate"],
+            cf_eff=_median_metric(dispatch_summary, "capacity_factor", generator_name),
         )
-        weighted_cost = share * generator_breakdown["total_lcoe"]
+        weighted_cost = realized_share * generator_breakdown["total_lcoe"]
         generator_breakdown["share_weighted_cost"] = weighted_cost
+        generator_breakdown["realized_share"] = realized_share
+        generator_breakdown["capacity_gw"] = _median_metric(dispatch_summary, "capacity_gw", generator_name)
+        generator_breakdown["capacity_share"] = _median_metric(dispatch_summary, "capacity_share", generator_name)
+        generator_breakdown["energy_twh"] = _median_metric(dispatch_summary, "energy_twh", generator_name)
         breakdowns[generator_name] = generator_breakdown
 
         system_lcoe += weighted_cost
-        emission_intensity += share * generator_breakdown["emission_intensity_tco2_mwh"]
+        emission_intensity += realized_share * generator_breakdown["emission_intensity_tco2_mwh"]
         for key in ("capex", "fixed_opex", "variable_opex", "fuel", "carbon", "integration"):
-            stack_components[key] += share * generator_breakdown[key]
+            stack_components[key] += realized_share * generator_breakdown[key]
 
-    ess_metrics = _ess_metrics(profile, normalized_shares, vre_share, ev_penetration)
-    curtailment_metrics = _curtailment_metrics(profile, normalized_shares, vre_share)
+    ess_metrics = _ess_metrics(profile, dispatch_summary, ev_penetration)
     system_lcoe += ess_metrics["ess_lcoe"]
     stack_components["ess"] = ess_metrics["ess_lcoe"]
-    annual_system_cost_usd_billion = system_lcoe * profile["annual_generation_twh"] / 1000
-    annual_emissions_mtco2 = emission_intensity * profile["annual_generation_twh"]
+
+    return {
+        "shares": normalized_shares,
+        "capacity_shares": {
+            gen: _median_metric(dispatch_summary, "capacity_share", gen)
+            for gen in all_generators
+        },
+        "capacities_gw": {
+            gen: _median_metric(dispatch_summary, "capacity_gw", gen)
+            for gen in all_generators
+        },
+        "system_lcoe": system_lcoe,
+        "annual_system_cost_usd_billion": system_lcoe * profile["annual_generation_twh"] / 1000,
+        "lcoe_by_generator": breakdowns,
+        "emission_intensity": emission_intensity,
+        "annual_emissions_mtco2": emission_intensity * profile["annual_generation_twh"],
+        "ess_requirement_gw": ess_metrics["ess_requirement_gw"],
+        "ess_requirement_gwh": ess_metrics["ess_requirement_gwh"],
+        "ess_short_gwh": ess_metrics["ess_short_gwh"],
+        "ess_short_gw": ess_metrics["ess_short_gw"],
+        "ess_short_lcoe": ess_metrics["ess_short_lcoe"],
+        "ess_long_gwh": ess_metrics["ess_long_gwh"],
+        "ess_long_gw": ess_metrics["ess_long_gw"],
+        "ess_long_lcoe": ess_metrics["ess_long_lcoe"],
+        "curtailment_rate": _median_scalar(dispatch_summary, "curtailment_rate"),
+        "curtailed_twh": _median_scalar(dispatch_summary, "curtailed_twh"),
+        "unserved_twh": _median_scalar(dispatch_summary, "unserved_twh"),
+        "backup_flexibility": _backup_flexibility(profile, normalized_shares, vre_share),
+        "stack_components": stack_components,
+    }
+
+
+def _calculate_system_lcoe_dispatch(
+    country: str,
+    shares: dict[str, float],
+    carbon_price: float,
+    ev_penetration: float,
+    annual_demand_twh: float | None,
+    custom_params: dict[str, Any] | None,
+    dispatch_mode: str,
+    weather_years: list[int] | None,
+    ensemble: Any | None,
+    include_ldc: bool,
+    capacities_gw: dict[str, float] | None,
+    generator_order: list[str] | None = None,
+) -> dict[str, Any]:
+    base_profile = load_country_profile(country)
+    profile = deep_merge(base_profile, custom_params or {})
+    if annual_demand_twh is not None:
+        profile["annual_generation_twh"] = annual_demand_twh
+
+    settings = _coerce_ensemble_settings(ensemble)
+    if capacities_gw:
+        normalized_capacities = {key: max(0.0, float(value)) for key, value in capacities_gw.items()}
+        total_capacity = sum(normalized_capacities.values())
+        if total_capacity <= 0:
+            raise ValueError("At least one generator capacity must be greater than zero.")
+        normalized_shares = {
+            key: normalized_capacities.get(key, 0.0) / total_capacity
+            for key in profile["generators"]
+        }
+        normalized = False
+    else:
+        normalized_shares, normalized = normalize_shares(shares)
+        normalized_capacities = None
+    mode = "data" if dispatch_mode == "data" else "parametric"
+    year_profiles = load_hourly_profiles(
+        country=country,
+        profile=profile,
+        mode=mode,
+        years=weather_years,
+        seed=settings.seed,
+    )
+    dispatch_summary = run_dispatch_ensemble(
+        profile=profile,
+        year_profiles=year_profiles,
+        shares=normalized_shares,
+        annual_demand_twh=profile["annual_generation_twh"],
+        settings=settings,
+        include_ldc=include_ldc,
+        capacities_gw=normalized_capacities,
+        generator_order=generator_order,
+    )
+
+    current = _calculate_from_dispatch_summary(
+        profile=profile,
+        shares=normalized_shares,
+        carbon_price=carbon_price,
+        ev_penetration=ev_penetration,
+        dispatch_summary=dispatch_summary,
+    )
 
     curve_data: list[dict[str, float]] = []
+    vre_share = sum(normalized_shares.get(key, 0.0) for key in VRE_GENERATORS)
     base_non_vre = 1.0 - vre_share
     solar_ratio = normalized_shares.get("solar", 0.0) / vre_share if vre_share > 0 else 0.5
     wind_ratio = normalized_shares.get("wind_onshore", 0.0) / vre_share if vre_share > 0 else 0.5
@@ -429,15 +492,24 @@ def calculate_system_lcoe(
             curve_shares[key] = residual * weight
         for key in normalized_shares:
             curve_shares.setdefault(key, 0.0)
-
-        # Guard: if no shares are positive (e.g. 100% VRE portfolio at vre_point=0),
-        # substitute a tiny solar share so the curve point doesn't crash.
-        if sum(max(v, 0.0) for v in curve_shares.values()) <= 0:
+        if sum(max(value, 0.0) for value in curve_shares.values()) <= 0:
             curve_shares["solar"] = 1e-6
 
-        point_result = calculate_system_lcoe_point(
-            profile, curve_shares, carbon_price, ev_penetration,
-            vre_share_override=vre_point,
+        curve_dispatch_summary = run_dispatch_ensemble(
+            profile=profile,
+            year_profiles=year_profiles,
+            shares=curve_shares,
+            annual_demand_twh=profile["annual_generation_twh"],
+            settings=settings,
+            include_ldc=False,
+            generator_order=generator_order,
+        )
+        point_result = _calculate_from_dispatch_summary(
+            profile=profile,
+            shares=curve_shares,
+            carbon_price=carbon_price,
+            ev_penetration=ev_penetration,
+            dispatch_summary=curve_dispatch_summary,
         )
         curve_data.append(
             {
@@ -456,99 +528,70 @@ def calculate_system_lcoe(
                 "curtailment_rate": point_result["curtailment_rate"],
                 "curtailed_twh": point_result["curtailed_twh"],
                 "backup_flexibility": point_result["backup_flexibility"],
+                "unserved_twh": point_result["unserved_twh"],
             }
         )
 
-    return {
+    source_note = "Hourly profiles are generated from the parametric synthesizer."
+    if dispatch_mode == "data":
+        if all(str(source).startswith("parametric") for source in dispatch_summary["ensemble"]["sources"]):
+            source_note = "No hourly data files were found; data mode fell back to seeded parametric profiles."
+        else:
+            source_note = "Hourly profiles were loaded from backend/data/hourly."
+
+    result = {
         "country": country.upper(),
-        "shares": normalized_shares,
         "annual_demand_twh": profile["annual_generation_twh"],
-        "system_lcoe": system_lcoe,
-        "annual_system_cost_usd_billion": annual_system_cost_usd_billion,
-        "lcoe_by_generator": breakdowns,
-        "emission_intensity": emission_intensity,
-        "annual_emissions_mtco2": annual_emissions_mtco2,
-        "ess_requirement_gw": ess_metrics["ess_requirement_gw"],
-        "ess_requirement_gwh": ess_metrics["ess_requirement_gwh"],
-        "ess_short_gwh": ess_metrics["ess_short_gwh"],
-        "ess_short_gw": ess_metrics["ess_short_gw"],
-        "ess_short_lcoe": ess_metrics["ess_short_lcoe"],
-        "ess_long_gwh": ess_metrics["ess_long_gwh"],
-        "ess_long_gw": ess_metrics["ess_long_gw"],
-        "ess_long_lcoe": ess_metrics["ess_long_lcoe"],
-        "curtailment_rate": curtailment_metrics["curtailment_rate"],
-        "curtailed_twh": curtailment_metrics["curtailed_twh"],
-        "backup_flexibility": curtailment_metrics["backup_flexibility"],
+        **current,
         "curve_data": curve_data,
-        "stack_components": stack_components,
+        "dispatch": {
+            "mode": mode,
+            "ensemble": dispatch_summary["ensemble"],
+            "metrics": dispatch_summary["metrics"],
+        },
         "data_quality": {
             "share_normalized": normalized,
             "used_custom_params": bool(custom_params),
             "custom_override_fields": sorted((custom_params or {}).keys()),
             "sources": profile.get("sources", []),
             "notes": [
-                "ESS cost is modeled separately from generator LCOE.",
+                "System cost, emissions, curtailment, storage, and capacity factors are derived from hourly merit-order dispatch.",
                 "Shares are normalized if they do not sum to 1.0 within tolerance.",
                 "Annual demand scales total cost, total emissions, and storage need estimates.",
+                source_note,
             ],
         },
     }
+    if include_ldc and "ldc" in dispatch_summary:
+        result["ldc"] = dispatch_summary["ldc"]
+    return result
 
 
-def calculate_system_lcoe_point(
-    profile: dict[str, Any],
+def calculate_system_lcoe(
+    country: str,
     shares: dict[str, float],
     carbon_price: float,
     ev_penetration: float = 0.0,
-    vre_share_override: float | None = None,
+    annual_demand_twh: float | None = None,
+    custom_params: dict[str, Any] | None = None,
+    dispatch_mode: str = "parametric",
+    weather_years: list[int] | None = None,
+    ensemble: Any | None = None,
+    include_ldc: bool = False,
+    capacities_gw: dict[str, float] | None = None,
+    generator_order: list[str] | None = None,
 ) -> dict[str, Any]:
-    normalized_shares, _ = normalize_shares(shares)
-    vre_share = (
-        vre_share_override
-        if vre_share_override is not None
-        else sum(normalized_shares.get(key, 0.0) for key in VRE_GENERATORS)
+    return _calculate_system_lcoe_dispatch(
+        country=country,
+        shares=shares,
+        carbon_price=carbon_price,
+        ev_penetration=ev_penetration,
+        annual_demand_twh=annual_demand_twh,
+        custom_params=custom_params,
+        dispatch_mode=dispatch_mode,
+        weather_years=weather_years,
+        ensemble=ensemble,
+        include_ldc=include_ldc,
+        capacities_gw=capacities_gw,
+        generator_order=generator_order,
     )
-    system_lcoe = 0.0
-    emission_intensity = 0.0
-    stack_components = {
-        "capex": 0.0,
-        "fixed_opex": 0.0,
-        "variable_opex": 0.0,
-        "fuel": 0.0,
-        "carbon": 0.0,
-        "integration": 0.0,
-        "ess": 0.0,
-    }
-    for generator_name, share in normalized_shares.items():
-        if share <= 0:
-            continue
-        generator_breakdown = _generator_breakdown(
-            generator_name=generator_name,
-            generator_config=profile["generators"][generator_name],
-            share=share,
-            vre_share=vre_share,
-            carbon_price=carbon_price,
-            discount_rate=profile["discount_rate"],
-        )
-        system_lcoe += share * generator_breakdown["total_lcoe"]
-        emission_intensity += share * generator_breakdown["emission_intensity_tco2_mwh"]
-        for key in ("capex", "fixed_opex", "variable_opex", "fuel", "carbon", "integration"):
-            stack_components[key] += share * generator_breakdown[key]
-
-    ess_metrics = _ess_metrics(profile, normalized_shares, vre_share, ev_penetration)
-    curtailment_metrics = _curtailment_metrics(profile, normalized_shares, vre_share)
-    system_lcoe += ess_metrics["ess_lcoe"]
-    stack_components["ess"] = ess_metrics["ess_lcoe"]
-
-    return {
-        "system_lcoe": system_lcoe,
-        "emission_intensity": emission_intensity,
-        "ess_requirement_gw": ess_metrics["ess_requirement_gw"],
-        "ess_requirement_gwh": ess_metrics["ess_requirement_gwh"],
-        "ess_short_gwh": ess_metrics["ess_short_gwh"],
-        "ess_long_gwh": ess_metrics["ess_long_gwh"],
-        "curtailment_rate": curtailment_metrics["curtailment_rate"],
-        "curtailed_twh": curtailment_metrics["curtailed_twh"],
-        "backup_flexibility": curtailment_metrics["backup_flexibility"],
-        "stack_components": stack_components,
-    }

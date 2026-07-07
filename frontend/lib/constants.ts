@@ -70,6 +70,20 @@ export const DEFAULT_SHARES = {
   other: 0.02,
 } as const;
 
+/**
+ * Default installed capacities in GW for the left-panel inputs.
+ * These are capacity inputs, not constrained shares; served generation shares
+ * and capacity shares are calculated from hourly dispatch output.
+ */
+export const DEFAULT_CAPACITIES_GW = {
+  solar: 70,
+  wind_onshore: 31,
+  gas_ccgt: 27,
+  coal: 24,
+  nuclear: 14,
+  other: 5,
+} as const;
+
 /** Default carbon price ($/tCO₂) shown in the sidebar slider on first load. */
 export const DEFAULT_CARBON_PRICE_USD_TCO2 = 40;
 

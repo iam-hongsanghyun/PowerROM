@@ -2,7 +2,16 @@
 
 import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { calculateSystem, type CalculateResponse, type Shares } from "@/lib/api";
+import { LoadDurationCurveChart } from "@/components/charts/LoadDurationCurveChart";
+import {
+  calculateSystem,
+  type CalculateResponse,
+  type Capacities,
+  type DispatchMode,
+  type DispatchResponse,
+  type GeneratorKey,
+  type Shares,
+} from "@/lib/api";
 
 const Plot = dynamic(() => import("react-plotly.js"), { ssr: false });
 
@@ -50,12 +59,18 @@ const PLOT_CONFIG: Partial<Plotly.Config> = {
 
 interface Props {
   result: CalculateResponse | null;
+  dispatchResult: DispatchResponse | null;
+  isDispatchLoading: boolean;
   country: string;
   carbonPrice: number;
   essCostUsdKwh: number;
   shares: Shares;
+  capacities: Capacities;
   annualDemandTwh: number;
   evPenetration: number;
+  dispatchMode: DispatchMode;
+  weatherYears: number[];
+  generatorOrder: GeneratorKey[];
 }
 
 // ─── Helper ──────────────────────────────────────────────────────────────────
@@ -83,6 +98,11 @@ function SummaryCard({ label, value, sub }: { label: string; value: string; sub?
   );
 }
 
+function numericBreakdownValue(result: CalculateResponse, generator: string, key: string): number {
+  const value = result.lcoe_by_generator[generator]?.[key];
+  return typeof value === "number" ? value : 0;
+}
+
 function ChartCard({ title, subtitle, children }: {
   title: string;
   subtitle: string;
@@ -105,12 +125,18 @@ function ChartCard({ title, subtitle, children }: {
 
 export function ProfileAnalysis({
   result,
+  dispatchResult,
+  isDispatchLoading,
   country,
   carbonPrice,
   essCostUsdKwh,
   shares,
+  capacities,
   annualDemandTwh,
   evPenetration,
+  dispatchMode,
+  weatherYears,
+  generatorOrder,
 }: Props) {
   // Carbon-price sensitivity curves (4 fixed carbon prices × current ESS cost)
   const [carbonCurves, setCarbonCurves] = useState<Record<number, CalculateResponse>>({});
@@ -119,7 +145,7 @@ export function ProfileAnalysis({
   const [loadingScenarios, setLoadingScenarios] = useState(false);
   const lastFetchKey = useRef<string>("");
 
-  const fetchKey = `${country}|${annualDemandTwh}|${evPenetration}|${essCostUsdKwh}|${JSON.stringify(shares)}`;
+  const fetchKey = `${country}|${annualDemandTwh}|${evPenetration}|${essCostUsdKwh}|${dispatchMode}|${weatherYears.join(",")}|${JSON.stringify(capacities)}|${generatorOrder.join(",")}`;
 
   useEffect(() => {
     if (!result) return;
@@ -131,22 +157,28 @@ export function ProfileAnalysis({
     const carbonFetches = CARBON_SCENARIOS.map((price) =>
       calculateSystem({
         country,
-        shares,
+        capacities_gw: capacities,
         carbon_price: price,
         ev_penetration: evPenetration,
         annual_demand_twh: annualDemandTwh,
         custom_params: { ess: { short_dur: { capex_usd_kwh: essCostUsdKwh } } },
+        dispatch_mode: dispatchMode,
+        weather_years: weatherYears.length ? weatherYears : null,
+        generator_order: generatorOrder,
       }),
     );
 
     const essFetches = ESS_SCENARIOS.map((cost) =>
       calculateSystem({
         country,
-        shares,
+        capacities_gw: capacities,
         carbon_price: carbonPrice,
         ev_penetration: evPenetration,
         annual_demand_twh: annualDemandTwh,
-        custom_params: { ess: { capex_usd_kwh: cost } },
+        custom_params: { ess: { short_dur: { capex_usd_kwh: cost } } },
+        dispatch_mode: dispatchMode,
+        weather_years: weatherYears.length ? weatherYears : null,
+        generator_order: generatorOrder,
       }),
     );
 
@@ -162,7 +194,7 @@ export function ProfileAnalysis({
       })
       .catch(console.error)
       .finally(() => setLoadingScenarios(false));
-  }, [fetchKey, result, country, shares, annualDemandTwh, evPenetration, carbonPrice, essCostUsdKwh]);
+  }, [fetchKey, result, country, capacities, annualDemandTwh, evPenetration, carbonPrice, essCostUsdKwh, dispatchMode, weatherYears, generatorOrder]);
 
   if (!result) {
     return (
@@ -177,6 +209,10 @@ export function ProfileAnalysis({
 
   // Current scenario VRE position
   const currentVrePct = (shares.solar + shares.wind_onshore) * 100;
+  const servedVrePct = (
+    numericBreakdownValue(result, "solar", "realized_share")
+    + numericBreakdownValue(result, "wind_onshore", "realized_share")
+  ) * 100;
   const currentIdx = vrePct.reduce((best, v, i) =>
     Math.abs(v - currentVrePct) < Math.abs(vrePct[best]! - currentVrePct) ? i : best,
     0,
@@ -512,17 +548,25 @@ export function ProfileAnalysis({
 
   // ─── Render ──────────────────────────────────────────────────────────────────
 
-  // Find min-LCOE point
-  const minPoint = curve[minIdx]!;
-
   return (
     <div className="space-y-6">
+      <LoadDurationCurveChart
+        ldc={dispatchResult?.ldc ?? result.ldc ?? null}
+        dispatch={dispatchResult?.dispatch ?? result.dispatch ?? null}
+        loading={isDispatchLoading}
+      />
+
       {/* Summary strip */}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
         <SummaryCard
-          label="Current VRE Share"
+          label="VRE Capacity Share"
           value={`${currentVrePct.toFixed(0)}%`}
-          sub={`Solar ${(shares.solar * 100).toFixed(0)}% + Wind ${(shares.wind_onshore * 100).toFixed(0)}%`}
+          sub={`Solar ${capacities.solar.toFixed(0)} GW + Wind ${capacities.wind_onshore.toFixed(0)} GW`}
+        />
+        <SummaryCard
+          label="VRE Served Share"
+          value={`${servedVrePct.toFixed(0)}%`}
+          sub="Share of annual served generation"
         />
         <SummaryCard
           label="System LCOE"

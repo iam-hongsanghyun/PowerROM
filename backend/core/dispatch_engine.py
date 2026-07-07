@@ -1,0 +1,435 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any
+
+import numpy as np
+
+from backend.core.hourly_profiles import HOURS_PER_YEAR, EnsembleSettings, YearProfile
+
+VRE_GENERATORS = ("solar", "wind_onshore")
+DISPLAY_ORDER = ("solar", "wind_onshore", "nuclear", "coal", "gas_ccgt", "other")
+QUANTILES = (0.1, 0.5, 0.9)
+
+# Day-sizing percentile for storage: size to the 95th-percentile day so a single
+# extreme day does not dominate the storage estimate.
+STORAGE_SIZING_QUANTILE = 0.95
+HOURS_PER_DAY = 24
+
+
+@dataclass(frozen=True)
+class DispatchResult:
+    country: str
+    year: int
+    source: str
+    annual_demand_twh: float
+    demand_gw: np.ndarray
+    dispatch_gw: dict[str, np.ndarray]
+    available_gw: dict[str, np.ndarray]
+    curtailed_gw: dict[str, np.ndarray]
+    unserved_gw: np.ndarray
+    capacities_gw: dict[str, float]
+
+
+def dispatch_hourly(
+    profile: dict[str, Any],
+    year_profile: YearProfile,
+    shares: dict[str, float],
+    annual_demand_twh: float,
+    capacities_gw: dict[str, float] | None = None,
+    generator_order: list[str] | None = None,
+) -> DispatchResult:
+    generator_names = _ordered_generators(profile, generator_order)
+    normalized_shares = _normalize_shares(shares)
+    fixed_capacities = _normalize_capacities(capacities_gw or {})
+    hours = len(year_profile.demand_norm)
+    if hours != HOURS_PER_YEAR:
+        raise ValueError("Dispatch requires an 8760-hour profile.")
+
+    average_load_gw = annual_demand_twh * 1000 / hours
+    demand_gw = year_profile.demand_norm * average_load_gw
+
+    capacities_gw = {name: 0.0 for name in generator_names}
+    dispatch_gw = {name: np.zeros(hours, dtype=float) for name in generator_names}
+    available_gw = {name: np.zeros(hours, dtype=float) for name in generator_names}
+    curtailed_gw = {name: np.zeros(hours, dtype=float) for name in generator_names}
+
+    for gen in generator_names:
+        if gen in VRE_GENERATORS:
+            cf = year_profile.solar_cf if gen == "solar" else year_profile.wind_cf
+            if gen in fixed_capacities:
+                capacities_gw[gen] = fixed_capacities[gen]
+            else:
+                mean_cf = max(float(np.mean(cf)), 1e-6)
+                target_gwh = annual_demand_twh * 1000 * normalized_shares.get(gen, 0.0)
+                capacities_gw[gen] = target_gwh / (mean_cf * hours) if target_gwh > 0 else 0.0
+            available_gw[gen] = capacities_gw[gen] * cf
+            continue
+
+        if gen == "nuclear":
+            nuclear_cf = _base_capacity_factor(profile["generators"][gen], fallback=0.85)
+            if gen in fixed_capacities:
+                capacities_gw[gen] = fixed_capacities[gen]
+            else:
+                gen_share = normalized_shares.get(gen, 0.0)
+                target_gwh = annual_demand_twh * 1000 * gen_share
+                capacities_gw[gen] = target_gwh / (nuclear_cf * hours) if target_gwh > 0 else 0.0
+            available_gw[gen] = np.full(hours, capacities_gw[gen] * nuclear_cf, dtype=float)
+            continue
+
+        gen_cf = _base_capacity_factor(profile["generators"][gen], fallback=0.55)
+        if gen in fixed_capacities:
+            capacities_gw[gen] = fixed_capacities[gen]
+        else:
+            gen_share = normalized_shares.get(gen, 0.0)
+            target_gwh = annual_demand_twh * 1000 * gen_share
+            capacities_gw[gen] = target_gwh / (gen_cf * hours) if target_gwh > 0 else 0.0
+        available_gw[gen] = np.full(hours, capacities_gw[gen], dtype=float)
+
+    residual_gw = demand_gw.copy()
+    for gen in generator_names:
+        dispatch_gw[gen] = np.minimum(residual_gw, available_gw[gen])
+        residual_gw = np.maximum(residual_gw - dispatch_gw[gen], 0.0)
+        if gen in VRE_GENERATORS:
+            curtailed_gw[gen] = np.maximum(available_gw[gen] - dispatch_gw[gen], 0.0)
+
+    unserved_gw = residual_gw
+
+    return DispatchResult(
+        country=year_profile.country,
+        year=year_profile.year,
+        source=year_profile.source,
+        annual_demand_twh=annual_demand_twh,
+        demand_gw=demand_gw,
+        dispatch_gw=dispatch_gw,
+        available_gw=available_gw,
+        curtailed_gw=curtailed_gw,
+        unserved_gw=unserved_gw,
+        capacities_gw=capacities_gw,
+    )
+
+
+def run_dispatch_ensemble(
+    profile: dict[str, Any],
+    year_profiles: list[YearProfile],
+    shares: dict[str, float],
+    annual_demand_twh: float,
+    settings: EnsembleSettings | None = None,
+    include_ldc: bool = False,
+    capacities_gw: dict[str, float] | None = None,
+    generator_order: list[str] | None = None,
+) -> dict[str, Any]:
+    from backend.core.hourly_profiles import sample_ensemble
+
+    sampled_profiles = sample_ensemble(year_profiles, settings)
+    results = [
+        dispatch_hourly(
+            profile=profile,
+            year_profile=year_profile,
+            shares=shares,
+            annual_demand_twh=annual_demand_twh,
+            capacities_gw=capacities_gw,
+            generator_order=generator_order,
+        )
+        for year_profile in sampled_profiles
+    ]
+    return aggregate_dispatch_results(results, settings=settings, include_ldc=include_ldc)
+
+
+def aggregate_dispatch_results(
+    results: list[DispatchResult],
+    settings: EnsembleSettings | None = None,
+    include_ldc: bool = False,
+) -> dict[str, Any]:
+    if not results:
+        raise ValueError("At least one dispatch result is required.")
+
+    generator_names = _ordered_result_generators(results[0])
+    per_result_metrics = [_dispatch_metrics(result, generator_names) for result in results]
+    scalar_names = (
+        "curtailment_rate",
+        "curtailed_twh",
+        "unserved_twh",
+        "served_twh",
+        "residual_peak_gw",
+        "peak_load_gw",
+        "storage_short_shift_gwh",
+        "storage_short_power_gw",
+        "storage_long_depth_gwh",
+        "storage_long_recoverable_gwh",
+        "storage_long_power_gw",
+    )
+    grouped_metric_names = (
+        "capacity_factor",
+        "realized_share",
+        "energy_twh",
+        "capacity_gw",
+        "capacity_share",
+        "curtailment_rate_by_generator",
+    )
+
+    scalars = {
+        name: _quantile_summary([metrics["scalars"][name] for metrics in per_result_metrics])
+        for name in scalar_names
+    }
+    grouped = {
+        group: {
+            gen: _quantile_summary([metrics[group][gen] for metrics in per_result_metrics])
+            for gen in generator_names
+        }
+        for group in grouped_metric_names
+    }
+
+    output: dict[str, Any] = {
+        "country": results[0].country,
+        "annual_demand_twh": results[0].annual_demand_twh,
+        "ensemble": {
+            "method": (settings.method if settings else "single"),
+            "n_samples": len(results),
+            "sigma": (settings.sigma if settings else 0.0),
+            "seed": (settings.seed if settings else 0),
+            "sources": sorted({result.source for result in results}),
+            "years": [result.year for result in results],
+        },
+        "metrics": {
+            **grouped,
+            "scalars": scalars,
+        },
+    }
+
+    if include_ldc:
+        output["ldc"] = _aggregate_ldc(results, generator_names)
+
+    return output
+
+
+def _dispatch_metrics(result: DispatchResult, generator_names: list[str]) -> dict[str, Any]:
+    hours = len(result.demand_gw)
+    energy_twh: dict[str, float] = {}
+    capacity_factor: dict[str, float] = {}
+    realized_share: dict[str, float] = {}
+    capacity_gw: dict[str, float] = {}
+    capacity_share: dict[str, float] = {}
+    curtailment_by_generator: dict[str, float] = {}
+
+    total_served_twh = 0.0
+    for gen in generator_names:
+        energy = float(np.sum(result.dispatch_gw.get(gen, np.zeros(hours)))) / 1000
+        energy_twh[gen] = energy
+        total_served_twh += energy
+        capacity = float(result.capacities_gw.get(gen, 0.0))
+        capacity_gw[gen] = capacity
+        capacity_factor[gen] = energy * 1000 / (capacity * hours) if capacity > 0 else 0.0
+        available = float(np.sum(result.available_gw.get(gen, np.zeros(hours)))) / 1000
+        curtailed = float(np.sum(result.curtailed_gw.get(gen, np.zeros(hours)))) / 1000
+        curtailment_by_generator[gen] = curtailed / available if available > 0 else 0.0
+
+    total_capacity_gw = sum(capacity_gw.values())
+    for gen in generator_names:
+        realized_share[gen] = energy_twh[gen] / total_served_twh if total_served_twh > 0 else 0.0
+        capacity_share[gen] = capacity_gw[gen] / total_capacity_gw if total_capacity_gw > 0 else 0.0
+
+    total_vre_available_twh = sum(
+        float(np.sum(result.available_gw.get(gen, np.zeros(hours)))) / 1000 for gen in VRE_GENERATORS
+    )
+    total_vre_curtailed_twh = sum(
+        float(np.sum(result.curtailed_gw.get(gen, np.zeros(hours)))) / 1000 for gen in VRE_GENERATORS
+    )
+    vre_dispatch = sum((result.dispatch_gw.get(gen, np.zeros(hours)) for gen in VRE_GENERATORS), np.zeros(hours))
+    net_load = np.maximum(result.demand_gw - vre_dispatch, 0.0)
+    unserved_twh = float(np.sum(result.unserved_gw)) / 1000
+
+    surplus_gw = sum((result.curtailed_gw.get(gen, np.zeros(hours)) for gen in VRE_GENERATORS), np.zeros(hours))
+    storage = _size_storage_from_pattern(surplus_gw, result.unserved_gw)
+
+    return {
+        "capacity_factor": capacity_factor,
+        "realized_share": realized_share,
+        "energy_twh": energy_twh,
+        "capacity_gw": capacity_gw,
+        "capacity_share": capacity_share,
+        "curtailment_rate_by_generator": curtailment_by_generator,
+        "scalars": {
+            "curtailment_rate": (
+                total_vre_curtailed_twh / total_vre_available_twh if total_vre_available_twh > 0 else 0.0
+            ),
+            "curtailed_twh": total_vre_curtailed_twh,
+            "unserved_twh": unserved_twh,
+            "served_twh": total_served_twh,
+            "residual_peak_gw": float(np.max(net_load)) if len(net_load) else 0.0,
+            "peak_load_gw": float(np.max(result.demand_gw)) if len(result.demand_gw) else 0.0,
+            **storage,
+        },
+    }
+
+
+def _size_storage_from_pattern(
+    surplus_gw: np.ndarray,
+    deficit_gw: np.ndarray,
+) -> dict[str, float]:
+    """Extract the raw storage-sizing quantities from the hourly surplus/deficit pattern.
+
+    Storage can only move energy that is *surplus* (curtailed VRE) at one hour and
+    *deficit* (unserved demand) at another. This function reports the pattern
+    quantities on two timescales; the caller turns them into built energy capacity by
+    applying each device's real ``duration_hr`` (see ``lcoe_engine._ess_metrics``), so
+    no storage device is ever sized beyond the energy its power rating can hold.
+
+    * **Intraday (short-duration)** — surplus/deficit matched *within the same day*.
+    * **Seasonal (long-duration)** — the residual net daily imbalance, characterised by
+      the cumulative reservoir depth, the recoverable energy (``min`` of residual
+      surplus and residual deficit — you cannot shift more than the smaller side), and
+      the peak sustained power.
+
+    Both timescales are sized to the 95th-percentile day so one extreme day does not
+    dominate.
+
+    Args:
+        surplus_gw: Hourly curtailed VRE available to charge storage, GW (8760).
+        deficit_gw: Hourly unserved demand storage could discharge to serve, GW (8760).
+
+    Returns:
+        ``storage_short_shift_gwh`` / ``storage_short_power_gw`` (intraday) and
+        ``storage_long_depth_gwh`` / ``storage_long_recoverable_gwh`` /
+        ``storage_long_power_gw`` (seasonal).
+
+    Algorithm:
+        $$R_d = S_d - D_d,\\quad C_d = \\sum_{k\\le d} R_k$$
+        intraday shift $= Q_{0.95}(\\min(S_d, D_d))$; reservoir depth $= \\max C - \\min C$;
+        recoverable $= \\min(\\Sigma R^{+}, \\Sigma R^{-})$; seasonal power $= \\max_d|R_d| / 24$.
+
+        ASCII: resid = daily_surplus - daily_deficit; depth = max(cumsum) - min(cumsum);
+               recoverable = min(sum(resid>0), sum(-resid<0)).
+    """
+    zero = {
+        "storage_short_shift_gwh": 0.0,
+        "storage_short_power_gw": 0.0,
+        "storage_long_depth_gwh": 0.0,
+        "storage_long_recoverable_gwh": 0.0,
+        "storage_long_power_gw": 0.0,
+    }
+    hours = len(surplus_gw)
+    days = hours // HOURS_PER_DAY
+    if days == 0:
+        return zero
+
+    # Hourly step is 1 h, so GW over one hour equals GWh numerically.
+    s_day = surplus_gw[: days * HOURS_PER_DAY].reshape(days, HOURS_PER_DAY)
+    d_day = deficit_gw[: days * HOURS_PER_DAY].reshape(days, HOURS_PER_DAY)
+    daily_surplus = s_day.sum(axis=1)  # GWh chargeable each day
+    daily_deficit = d_day.sum(axis=1)  # GWh needing discharge each day
+
+    intraday_shift = np.minimum(daily_surplus, daily_deficit)  # GWh moved within a day
+    short_shift_gwh = float(np.quantile(intraday_shift, STORAGE_SIZING_QUANTILE))
+    daily_peak_flow = np.maximum(s_day.max(axis=1), d_day.max(axis=1))  # GW charge/discharge
+    short_power_gw = float(np.quantile(daily_peak_flow, STORAGE_SIZING_QUANTILE))
+
+    # Seasonal reservoir on the net daily imbalance (intraday-matched energy cancels).
+    residual = daily_surplus - daily_deficit
+    reservoir = np.cumsum(residual)  # GWh state of charge
+    long_depth_gwh = float(reservoir.max() - reservoir.min())
+    long_recoverable_gwh = float(
+        min(np.clip(residual, 0.0, None).sum(), np.clip(-residual, 0.0, None).sum())
+    )
+    long_power_gw = float(np.max(np.abs(residual)) / HOURS_PER_DAY)  # avg GW over peak residual day
+    return {
+        "storage_short_shift_gwh": short_shift_gwh,
+        "storage_short_power_gw": short_power_gw,
+        "storage_long_depth_gwh": long_depth_gwh,
+        "storage_long_recoverable_gwh": long_recoverable_gwh,
+        "storage_long_power_gw": long_power_gw,
+    }
+
+
+def _aggregate_ldc(results: list[DispatchResult], generator_names: list[str]) -> dict[str, Any]:
+    hours = len(results[0].demand_gw)
+    per_result_series = [_ldc_series(result, generator_names) for result in results]
+    keys = list(per_result_series[0].keys())
+    series = {
+        key: _quantile_array([item[key] for item in per_result_series])
+        for key in keys
+    }
+    return {
+        "x_hours": [float(value) for value in range(1, hours + 1)],
+        "x_percent": [float(value) for value in np.linspace(0, 100, hours)],
+        "series": series,
+        "resource_order": generator_names,
+    }
+
+
+def _ldc_series(result: DispatchResult, generator_names: list[str]) -> dict[str, np.ndarray]:
+    hours = len(result.demand_gw)
+    vre_dispatch = sum((result.dispatch_gw.get(gen, np.zeros(hours)) for gen in VRE_GENERATORS), np.zeros(hours))
+    net_load = np.maximum(result.demand_gw - vre_dispatch, 0.0)
+    order = np.argsort(-result.demand_gw)
+    served_load = sum((result.dispatch_gw.get(gen, np.zeros(hours)) for gen in generator_names), np.zeros(hours))
+
+    series: dict[str, np.ndarray] = {
+        "demand": result.demand_gw[order],
+        "net_load": net_load[order],
+        "served_load": served_load[order],
+        "curtailed_vre": sum(
+            (result.curtailed_gw.get(gen, np.zeros(hours)) for gen in VRE_GENERATORS),
+            np.zeros(hours),
+        )[order],
+        "unserved": result.unserved_gw[order],
+    }
+    for gen in generator_names:
+        series[gen] = result.dispatch_gw.get(gen, np.zeros(hours))[order]
+    return series
+
+
+def _quantile_array(values: list[np.ndarray]) -> dict[str, list[float]]:
+    stacked = np.vstack(values)
+    p10, median, p90 = np.quantile(stacked, QUANTILES, axis=0)
+    return {
+        "p10": _round_list(p10),
+        "median": _round_list(median),
+        "p90": _round_list(p90),
+    }
+
+
+def _quantile_summary(values: list[float]) -> dict[str, float]:
+    p10, median, p90 = np.quantile(np.asarray(values, dtype=float), QUANTILES)
+    return {
+        "p10": float(p10),
+        "median": float(median),
+        "p90": float(p90),
+    }
+
+
+def _round_list(values: np.ndarray) -> list[float]:
+    return [float(value) for value in np.round(values.astype(float), 6)]
+
+
+def _ordered_generators(profile: dict[str, Any], generator_order: list[str] | None = None) -> list[str]:
+    available = set(profile["generators"].keys())
+    preferred = generator_order or list(DISPLAY_ORDER)
+    ordered = [gen for gen in preferred if gen in available]
+    ordered.extend(sorted(available.difference(ordered)))
+    return ordered
+
+
+def _ordered_result_generators(result: DispatchResult) -> list[str]:
+    available = set(result.dispatch_gw.keys())
+    return [gen for gen in result.dispatch_gw.keys() if gen in available]
+
+
+def _normalize_shares(shares: dict[str, float]) -> dict[str, float]:
+    total = sum(max(0.0, float(value)) for value in shares.values())
+    if total <= 0:
+        raise ValueError("At least one generator share must be greater than zero.")
+    return {key: max(0.0, float(value)) / total for key, value in shares.items()}
+
+
+def _normalize_capacities(capacities_gw: dict[str, float]) -> dict[str, float]:
+    return {key: max(0.0, float(value)) for key, value in capacities_gw.items()}
+
+
+def _base_capacity_factor(generator_config: dict[str, Any], fallback: float) -> float:
+    if "cf_base" in generator_config:
+        return max(float(generator_config["cf_base"]), 1e-6)
+    func = generator_config.get("cf_eff_func", {})
+    if func.get("type") == "constant":
+        return max(float(func.get("params", {}).get("a", fallback)), 1e-6)
+    return max(float(fallback), 1e-6)

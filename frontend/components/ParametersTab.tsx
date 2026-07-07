@@ -945,10 +945,16 @@ export function ParametersTab({ country, onProfileEdited }: Props) {
   }
 
   useEffect(() => {
-    setLoading(true);
-    setError(null);
-    fetchProfile(country)
+    let cancelled = false;
+    void Promise.resolve()
+      .then(() => {
+        if (cancelled) return null;
+        setLoading(true);
+        setError(null);
+        return fetchProfile(country);
+      })
       .then((p) => {
+        if (!p || cancelled) return;
         setOriginal(p);
         setDraft(cloneDeep(p));
         // Country changed — clear any applied custom params in the parent.
@@ -956,8 +962,15 @@ export function ParametersTab({ country, onProfileEdited }: Props) {
         setAppliedSnapshot("");
         setAppliedAt(null);
       })
-      .catch((e: Error) => setError(e.message))
-      .finally(() => setLoading(false));
+      .catch((e: Error) => {
+        if (!cancelled) setError(e.message);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [country]);
 

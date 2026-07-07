@@ -37,16 +37,29 @@ class CalculateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     country: str = Field(min_length=2, max_length=2)
-    shares: dict[str, float]
+    shares: dict[str, float] = Field(default_factory=dict)
+    capacities_gw: dict[str, float] | None = None
+    generator_order: list[str] | None = None
     carbon_price: float = Field(ge=0, le=500)
     ev_penetration: float = Field(default=0.0, ge=0.0, le=0.5)
     annual_demand_twh: float | None = Field(default=None, gt=0)
     custom_params: dict[str, Any] | None = None
+    dispatch_mode: Literal["parametric", "data"] = "parametric"
+    weather_years: list[int] | None = None
+    ensemble: "EnsembleConfig | None" = None
 
     @model_validator(mode="after")
     def validate_shares(self) -> "CalculateRequest":
+        if self.capacities_gw is not None:
+            if not self.capacities_gw:
+                raise ValueError("At least one generator capacity is required.")
+            if any(value < 0 for value in self.capacities_gw.values()):
+                raise ValueError("Capacities cannot be negative.")
+            if sum(self.capacities_gw.values()) <= 0:
+                raise ValueError("Capacities must sum to a positive value.")
+            return self
         if not self.shares:
-            raise ValueError("At least one generator share is required.")
+            raise ValueError("At least one generator share or capacity is required.")
         total = sum(self.shares.values())
         if total <= 0:
             raise ValueError("Shares must sum to a positive value.")
@@ -73,6 +86,41 @@ class CurveDataPoint(BaseModel):
     curtailment_rate: float = 0.0
     curtailed_twh: float = 0.0
     backup_flexibility: float = 1.0
+    unserved_twh: float = 0.0
+
+
+class EnsembleConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    method: Literal["single", "jitter", "multiyear"] = "jitter"
+    n_samples: int = Field(default=5, ge=1, le=50)
+    sigma: float = Field(default=0.04, ge=0.0, le=0.5)
+    seed: int = 42
+
+
+class MetricBand(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    p10: float
+    median: float
+    p90: float
+
+
+class LdcSeriesBand(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    p10: list[float]
+    median: list[float]
+    p90: list[float]
+
+
+class LdcPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    x_hours: list[float]
+    x_percent: list[float]
+    series: dict[str, LdcSeriesBand]
+    resource_order: list[str]
 
 
 class DataQuality(BaseModel):
@@ -90,6 +138,8 @@ class CalculateResponse(BaseModel):
 
     country: str
     shares: dict[str, float]
+    capacity_shares: dict[str, float] = Field(default_factory=dict)
+    capacities_gw: dict[str, float] = Field(default_factory=dict)
     annual_demand_twh: float
     system_lcoe: float
     annual_system_cost_usd_billion: float
@@ -106,9 +156,25 @@ class CalculateResponse(BaseModel):
     ess_long_lcoe: float = 0.0
     curtailment_rate: float = 0.0
     curtailed_twh: float = 0.0
+    unserved_twh: float = 0.0
     backup_flexibility: float = 1.0
     curve_data: list[CurveDataPoint]
     stack_components: dict[str, float]
+    dispatch: dict[str, Any] | None = None
+    ldc: LdcPayload | None = None
+    data_quality: DataQuality
+
+
+class DispatchResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    country: str
+    shares: dict[str, float]
+    capacity_shares: dict[str, float] = Field(default_factory=dict)
+    capacities_gw: dict[str, float] = Field(default_factory=dict)
+    annual_demand_twh: float
+    dispatch: dict[str, Any]
+    ldc: LdcPayload
     data_quality: DataQuality
 
 

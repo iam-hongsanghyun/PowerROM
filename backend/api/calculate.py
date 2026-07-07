@@ -17,6 +17,11 @@ def calculate(payload: CalculateRequest) -> CalculateResponse:
         ev_penetration=payload.ev_penetration,
         annual_demand_twh=payload.annual_demand_twh,
         custom_params=payload.custom_params,
+        dispatch_mode=payload.dispatch_mode,
+        weather_years=payload.weather_years,
+        ensemble=payload.ensemble.model_dump() if payload.ensemble else None,
+        capacities_gw=payload.capacities_gw,
+        generator_order=payload.generator_order,
     )
     return CalculateResponse(**result)
 
@@ -32,6 +37,11 @@ def calculate_batch(payloads: list[CalculateRequest]) -> list[CalculateResponse]
             ev_penetration=payload.ev_penetration,
             annual_demand_twh=payload.annual_demand_twh,
             custom_params=payload.custom_params,
+            dispatch_mode=payload.dispatch_mode,
+            weather_years=payload.weather_years,
+            ensemble=payload.ensemble.model_dump() if payload.ensemble else None,
+            capacities_gw=payload.capacities_gw,
+            generator_order=payload.generator_order,
         )
         results.append(CalculateResponse(**result))
     return results

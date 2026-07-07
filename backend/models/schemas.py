@@ -204,6 +204,30 @@ class CalculateResponse(BaseModel):
     data_quality: DataQuality
 
 
+class PathwayRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    country: str = Field(min_length=2, max_length=2)
+    start_capacities_gw: dict[str, float]
+    target_capacities_gw: dict[str, float]
+    years: list[int] = Field(min_length=1, max_length=12)
+    carbon_price_start: float = Field(default=0.0, ge=0, le=500)
+    carbon_price_end: float = Field(default=0.0, ge=0, le=500)
+    annual_demand_twh_start: float | None = Field(default=None, gt=0)
+    annual_demand_twh_end: float | None = Field(default=None, gt=0)
+    ensemble: "EnsembleConfig | None" = None
+    ess_short_power_gw: float | None = Field(default=None, ge=0)
+    ess_short_duration_hr: float | None = Field(default=None, ge=0)
+    ess_long_power_gw: float | None = Field(default=None, ge=0)
+    ess_long_duration_hr: float | None = Field(default=None, ge=0)
+
+
+class PathwayResponse(BaseModel):
+    country: str
+    years: list[int]
+    steps: list[dict[str, Any]]
+
+
 class DispatchResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

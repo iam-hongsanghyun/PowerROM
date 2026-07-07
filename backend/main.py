@@ -7,6 +7,7 @@ from backend.api.calculate import router as calculate_router
 from backend.api.countries import router as countries_router
 from backend.api.dispatch import router as dispatch_router
 from backend.api.fit import router as fit_router
+from backend.api.pathway import router as pathway_router
 from backend.api.profile import router as profile_router
 from backend.api.validate import router as validate_router
 
@@ -31,6 +32,7 @@ app.include_router(fit_router, prefix="/api", tags=["fit"])
 app.include_router(validate_router, prefix="/api", tags=["validate"])
 app.include_router(countries_router, prefix="/api", tags=["countries"])
 app.include_router(profile_router, prefix="/api", tags=["profile"])
+app.include_router(pathway_router, prefix="/api", tags=["pathway"])
 
 
 @app.get("/health")

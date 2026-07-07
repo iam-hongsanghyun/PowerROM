@@ -6,6 +6,7 @@ import * as Tabs from "@radix-ui/react-tabs";
 
 import { ControlPanel, type StorageInput } from "@/components/ControlPanel";
 import { ScenarioSettings } from "@/components/ScenarioSettings";
+import { PathwayPanel } from "@/components/PathwayPanel";
 import { DemandProfileEditor, DEFAULT_DEMAND_PROFILE, type DemandProfile } from "@/components/DemandProfileEditor";
 import { ShareSliders } from "@/components/ShareSliders";
 import { ParametersTab } from "@/components/ParametersTab";
@@ -366,6 +367,7 @@ export function Dashboard() {
                 {[
                   { value: "profile", label: "Profile" },
                   { value: "parameters", label: "Parameters" },
+                  { value: "pathway", label: "Pathway" },
                 ].map((tab) => (
                   <Tabs.Trigger
                     key={tab.value}
@@ -489,6 +491,18 @@ export function Dashboard() {
                   <DemandProfileEditor profile={demandProfile} onChange={setDemandProfile} />
                   <ParametersTab country={country} onProfileEdited={setCustomProfile} />
                 </div>
+              </Tabs.Content>
+
+              {/* Pathway tab — plan the fleet & carbon trajectory to a target year */}
+              <Tabs.Content value="pathway">
+                <PathwayPanel
+                  country={country}
+                  startCapacities={capacities}
+                  startCarbonPrice={carbonPrice}
+                  startDemandTwh={annualDemandTwh}
+                  ensemble={ensemble}
+                  storage={storage}
+                />
               </Tabs.Content>
             </Tabs.Root>
           </main>

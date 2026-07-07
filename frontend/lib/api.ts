@@ -273,6 +273,45 @@ export async function dispatchSystem(payload: {
   });
 }
 
+export interface PathwayStep {
+  year: number;
+  fraction: number;
+  carbon_price: number;
+  annual_demand_twh: number;
+  system_lcoe: number;
+  annual_emissions_mtco2: number;
+  emission_intensity: number;
+  import_dependency: number;
+  capacities_gw: Record<string, number>;
+}
+
+export interface PathwayResponse {
+  country: string;
+  years: number[];
+  steps: PathwayStep[];
+}
+
+export async function simulatePathway(payload: {
+  country: string;
+  start_capacities_gw: Capacities;
+  target_capacities_gw: Capacities;
+  years: number[];
+  carbon_price_start: number;
+  carbon_price_end: number;
+  annual_demand_twh_start?: number | null;
+  annual_demand_twh_end?: number | null;
+  ensemble?: EnsembleConfig | null;
+  ess_short_power_gw?: number | null;
+  ess_short_duration_hr?: number | null;
+  ess_long_power_gw?: number | null;
+  ess_long_duration_hr?: number | null;
+}): Promise<PathwayResponse> {
+  return request<PathwayResponse>("/pathway", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function calculateBatch(
   payloads: Array<{
     country: string;

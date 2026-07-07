@@ -1026,3 +1026,91 @@ def calculate_system_lcoe(
         subsidy_ptc_usd_mwh=subsidy_ptc_usd_mwh,
         fuel_import_tariff_pct=fuel_import_tariff_pct,
     )
+
+
+def _interpolate(start: float, end: float, fraction: float) -> float:
+    """Linear blend ``start → end`` at ``fraction ∈ [0, 1]``."""
+    return start * (1.0 - fraction) + end * fraction
+
+
+def simulate_pathway(
+    country: str,
+    start_capacities: dict[str, float],
+    target_capacities: dict[str, float],
+    years: list[int],
+    carbon_price_start: float = 0.0,
+    carbon_price_end: float = 0.0,
+    annual_demand_twh_start: float | None = None,
+    annual_demand_twh_end: float | None = None,
+    ensemble: Any | None = None,
+    **calculate_kwargs: Any,
+) -> dict[str, Any]:
+    """Run the single-year model along a planning pathway and return the trajectory.
+
+    Each milestone year is a snapshot: generator capacities are **linearly interpolated** from
+    today's fleet (``start_capacities``) to the end-of-horizon fleet (``target_capacities``) — so a
+    target of 0 phases a generator out and a higher target builds it — the carbon price ramps from
+    ``carbon_price_start`` to ``carbon_price_end``, and demand (optionally) grows from start to end.
+    Each snapshot is evaluated with the full hourly-dispatch model, so the pathway captures how
+    system LCOE, emissions, and import dependency evolve as the mix, carbon price, and demand shift.
+
+    Args:
+        country: Country code.
+        start_capacities: Installed capacity by generator today (GW).
+        target_capacities: Installed capacity by generator at the final year (GW).
+        years: Ascending milestone years, e.g. ``[2025, 2030, 2040, 2050]``.
+        carbon_price_start / carbon_price_end: Carbon price ($/tCO₂) at the first / last year.
+        annual_demand_twh_start / _end: Optional demand (TWh) at the first / last year; if either is
+            omitted both fall back to ``calculate_kwargs['annual_demand_twh']`` (flat demand).
+        ensemble: Ensemble settings passed to each snapshot.
+        **calculate_kwargs: Forwarded verbatim to :func:`calculate_system_lcoe` (carbon price,
+            demand, capacities, and ensemble are supplied per-year and must not be duplicated here).
+
+    Returns:
+        ``{"country", "years", "steps": [{year, fraction, carbon_price, annual_demand_twh,
+        system_lcoe, annual_emissions_mtco2, emission_intensity, import_dependency,
+        capacities_gw}, ...]}`` — one step per milestone year.
+    """
+    if not years:
+        raise ValueError("A pathway needs at least one milestone year.")
+    keys = sorted(set(start_capacities) | set(target_capacities))
+    first_year, last_year = years[0], years[-1]
+    span = float(last_year - first_year) or 1.0
+    flat_demand = calculate_kwargs.pop("annual_demand_twh", None)
+    demand_start = annual_demand_twh_start if annual_demand_twh_start is not None else flat_demand
+    demand_end = annual_demand_twh_end if annual_demand_twh_end is not None else flat_demand
+
+    steps: list[dict[str, Any]] = []
+    for year in years:
+        fraction = (year - first_year) / span
+        capacities = {
+            key: _interpolate(float(start_capacities.get(key, 0.0)), float(target_capacities.get(key, 0.0)), fraction)
+            for key in keys
+        }
+        carbon_price = _interpolate(carbon_price_start, carbon_price_end, fraction)
+        demand = (
+            _interpolate(float(demand_start), float(demand_end), fraction)
+            if demand_start is not None and demand_end is not None
+            else None
+        )
+        result = calculate_system_lcoe(
+            country=country,
+            shares=capacities,  # ignored when capacities_gw is set, but the signature requires it
+            capacities_gw=capacities,
+            carbon_price=carbon_price,
+            annual_demand_twh=demand,
+            ensemble=ensemble,
+            **calculate_kwargs,
+        )
+        steps.append({
+            "year": year,
+            "fraction": round(fraction, 4),
+            "carbon_price": round(carbon_price, 2),
+            "annual_demand_twh": result["annual_demand_twh"],
+            "system_lcoe": result["system_lcoe"],
+            "annual_emissions_mtco2": result["annual_emissions_mtco2"],
+            "emission_intensity": result["emission_intensity"],
+            "import_dependency": result["import_dependency"],
+            "capacities_gw": {key: round(value, 3) for key, value in capacities.items()},
+        })
+    return {"country": country.upper(), "years": list(years), "steps": steps}

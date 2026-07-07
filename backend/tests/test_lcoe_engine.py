@@ -1,8 +1,31 @@
 import pytest
 
-from backend.core.lcoe_engine import calculate_system_lcoe
+from backend.core.lcoe_engine import calculate_system_lcoe, simulate_pathway
 
 _SINGLE = {"method": "single", "n_samples": 1, "sigma": 0.0, "seed": 42}
+
+
+def test_pathway_phase_out_decarbonises_over_time() -> None:
+    # A planning pathway: phase coal out and build VRE/nuclear while carbon escalates. Each
+    # milestone interpolates the fleet + carbon price and runs the full model, so emissions and
+    # import dependency should fall monotonically as the mix cleans up.
+    start = {"solar": 30, "wind_onshore": 15, "gas_ccgt": 30, "coal": 30, "nuclear": 20, "other": 3}
+    target = {"solar": 120, "wind_onshore": 70, "gas_ccgt": 25, "coal": 0, "nuclear": 25, "other": 2}
+    pathway = simulate_pathway(
+        country="KR", start_capacities=start, target_capacities=target,
+        years=[2025, 2035, 2050], carbon_price_start=40.0, carbon_price_end=150.0, ensemble=_SINGLE,
+    )
+    steps = pathway["steps"]
+
+    assert [s["year"] for s in steps] == [2025, 2035, 2050]
+    assert steps[0]["capacities_gw"]["coal"] == 30.0   # today's fleet
+    assert steps[-1]["capacities_gw"]["coal"] == 0.0   # ...phased out by 2050
+    assert steps[-1]["carbon_price"] == 150.0          # carbon escalated to the end value
+    emissions = [s["annual_emissions_mtco2"] for s in steps]
+    assert emissions[0] > emissions[-1]                                  # decarbonises
+    assert all(a >= b for a, b in zip(emissions, emissions[1:]))         # monotonically
+    imports = [s["import_dependency"] for s in steps]
+    assert all(a >= b for a, b in zip(imports, imports[1:]))             # import reliance falls too
 
 
 def test_expansion_meets_full_load_and_prices_it() -> None:

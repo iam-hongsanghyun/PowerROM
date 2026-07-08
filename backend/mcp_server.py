@@ -345,6 +345,8 @@ def run_dispatch(
     annual_demand_twh: float | None = None,
     ess_short_power_gw: float | None = None,
     ess_long_power_gw: float | None = None,
+    min_cf: dict[str, float] | None = None,
+    max_cf: dict[str, float] | None = None,
     dispatch_mode: str = "data",
     ensemble_method: str = "single",
     ensemble_samples: int = 5,
@@ -363,6 +365,8 @@ def run_dispatch(
         carbon_price: Carbon price, USD/tCO2.
         annual_demand_twh: Demand to serve (TWh); defaults to the real demand.
         ess_short_power_gw / ess_long_power_gw: Storage power (GW).
+        min_cf / max_cf: Per-generator CF limits (0-1) — must-run floor / availability ceiling,
+            e.g. max_cf={"gas_ccgt": 0.2} caps gas at a 20% CF in the dispatch.
         dispatch_mode: "data" or "parametric".
         ensemble_method: "single", "jitter", "multiyear" or "block_bootstrap".
         ensemble_samples: Ensemble sample count.
@@ -373,7 +377,7 @@ def run_dispatch(
     result = calculate_system_lcoe(
         country=country.upper(), shares=caps or {}, capacities_gw=caps,
         carbon_price=carbon_price, annual_demand_twh=annual_demand_twh,
-        dispatch_mode=dispatch_mode, include_ldc=True,
+        dispatch_mode=dispatch_mode, include_ldc=True, min_cf=min_cf, max_cf=max_cf,
         ensemble=_ensemble(ensemble_method, ensemble_samples, 0.04, 42),
         ess_short_power_gw=ess_short_power_gw, ess_long_power_gw=ess_long_power_gw,
     )

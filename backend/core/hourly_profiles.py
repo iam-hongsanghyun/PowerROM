@@ -6,8 +6,14 @@ from typing import Any, Literal
 
 import numpy as np
 import pandas as pd
+from scipy.special import ndtr
 
 HOURS_PER_YEAR = 8760
+
+# Weibull shape for the synthetic wind capacity factor. k≈1.8 reproduces the ~0.6 coefficient of
+# variation of real onshore wind — frequent near-calm hours and a fat high-output tail — instead of
+# a value that hovers near its mean (which would make a large wind fleet behave like baseload).
+_WIND_WEIBULL_K = 1.8
 HOURLY_DATA_DIR = Path(__file__).resolve().parents[1] / "data" / "hourly"
 
 ProfileMode = Literal["parametric", "data"]
@@ -180,11 +186,19 @@ def synthesize_parametric(
     solar_shape = np.clip(daylight * solar_seasonal * solar_noise, 0.0, None) * solar_drought_mask
     solar_cf = _scale_to_mean(solar_shape, solar_base, upper=0.96)
 
+    # Wind: a persistent Weibull-distributed capacity factor. A standard AR(1) Gaussian (sigma=1)
+    # gives multi-hour persistence; mapping it through the normal CDF to a uniform and then a
+    # Weibull(shape k) inverse-CDF yields a CF with the real ~0.6 CV — real calms and real windy
+    # spells — rather than the old low-variance noise that sat near its mean. The winter-high
+    # seasonal cycle, a weak diurnal term and the Dunkelflaute troughs modulate it; the result is
+    # mean-scaled so annual energy still equals the profile's cf_base.
+    wind_z = _ar1_noise(rng, HOURS_PER_YEAR, sigma=1.0, rho=0.93)
+    wind_uniform = np.clip(ndtr(wind_z), 1e-6, 1.0 - 1e-6)
+    wind_weibull = (-np.log(1.0 - wind_uniform)) ** (1.0 / _WIND_WEIBULL_K)
     wind_seasonal = 1.0 + season_sign * 0.16 * np.cos(2 * np.pi * (day_of_year - 25) / 365)
     wind_diurnal = 1.0 + 0.08 * np.sin(2 * np.pi * (hour_of_day - 2) / 24)
-    wind_noise = _ar1_noise(rng, HOURS_PER_YEAR, sigma=0.18, rho=0.88)
-    wind_shape = np.clip(wind_seasonal * wind_diurnal * (1.0 + wind_noise), 0.0, None) * wind_drought_mask
-    wind_cf = _scale_to_mean(wind_shape, wind_base, upper=0.90)
+    wind_shape = wind_weibull * wind_seasonal * wind_diurnal * wind_drought_mask
+    wind_cf = _scale_to_mean(wind_shape, wind_base, upper=1.0)
 
     if demand_monthly is not None and demand_daily is not None:
         # User-drawn shape: monthly seasonal level × daily (hour-of-day) pattern.

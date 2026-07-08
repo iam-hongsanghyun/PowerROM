@@ -492,6 +492,7 @@ export interface EssShortDurConfig {
   cycles_per_year?: number;
   dod?: number;
   duration_hr?: number;
+  round_trip_efficiency?: number;
   ev_offset_gwh_per_unit?: number;
   solar_absorption_fraction?: number;
   wind_onshore_absorption_fraction?: number;
@@ -503,6 +504,7 @@ export interface EssLongDurConfig {
   cycles_per_year?: number;
   dod?: number;
   duration_hr?: number;
+  round_trip_efficiency?: number;
   threshold?: number;
   requirement_func?: FuncConfig;
 }

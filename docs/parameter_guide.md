@@ -24,3 +24,11 @@ fields: `emission_factor_tco2_mwh`, `heat_rate_mmbtu_mwh`, `cf_base`, `variabili
 - At hourly resolution these bind mainly for slow units on the steep evening net-load ramp; tighten
   them to model an inflexible fleet, where the flexibility gap shows up as unserved energy that
   storage/fast peakers must fill.
+
+## Storage (Parameters → ESS)
+
+Both tiers' economics are profile fields, editable in Parameters → ESS: `capex_usd_kwh`,
+`lifetime_yr`, `cycles_per_year`, `dod` (depth of discharge), `duration_hr`, and
+`round_trip_efficiency` — the fraction of charged energy returned on discharge (config default:
+short/intraday 0.85, long/seasonal 0.45). Storage power (GW) is set on the left rail; energy
+(GWh) = power × `duration_hr`.

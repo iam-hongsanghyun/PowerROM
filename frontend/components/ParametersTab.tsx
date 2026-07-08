@@ -1510,6 +1510,7 @@ export function ParametersTab({ country, onProfileEdited }: Props) {
                         { field: "short_dur.cycles_per_year", label: "Cycles/year", unit: "" },
                         { field: "short_dur.dod", label: "Depth of Discharge", unit: "(0–1)" },
                         { field: "short_dur.duration_hr", label: "Duration", unit: "hr" },
+                        { field: "short_dur.round_trip_efficiency", label: "Round-trip Eff.", unit: "(0–1)" },
                         { field: "short_dur.ev_offset_gwh_per_unit", label: "EV Offset", unit: "GWh/unit" },
                         { field: "short_dur.solar_absorption_fraction", label: "Solar Absorption", unit: "(0–1)" },
                         {
@@ -1543,6 +1544,7 @@ export function ParametersTab({ country, onProfileEdited }: Props) {
                         { field: "long_dur.cycles_per_year", label: "Cycles/year", unit: "" },
                         { field: "long_dur.dod", label: "Depth of Discharge", unit: "(0–1)" },
                         { field: "long_dur.duration_hr", label: "Duration", unit: "hr" },
+                        { field: "long_dur.round_trip_efficiency", label: "Round-trip Eff.", unit: "(0–1)" },
                         { field: "long_dur.threshold", label: "VRE Threshold", unit: "(0–1)" },
                       ].map(({ field, label, unit }) => {
                         const k = field.slice("long_dur.".length) as keyof typeof draft.ess.long_dur;

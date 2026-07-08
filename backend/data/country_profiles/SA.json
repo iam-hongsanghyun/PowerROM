@@ -309,7 +309,8 @@
       "duration_hr": 4,
       "ev_offset_gwh_per_unit": 18000,
       "solar_absorption_fraction": 0.55,
-      "wind_onshore_absorption_fraction": 0.3
+      "wind_onshore_absorption_fraction": 0.3,
+      "round_trip_efficiency": 0.85
     },
     "long_dur": {
       "capex_usd_kwh": 400,
@@ -325,7 +326,8 @@
           "b": 3.6
         },
         "source": "Last-gap seasonal storage; kicks in above 65% VRE"
-      }
+      },
+      "round_trip_efficiency": 0.45
     }
   },
   "sources": [

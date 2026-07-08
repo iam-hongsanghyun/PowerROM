@@ -13,6 +13,8 @@ HOURS_PER_YEAR = 8760
 # Weibull shape for the synthetic wind capacity factor. k≈1.8 reproduces the ~0.6 coefficient of
 # variation of real onshore wind — frequent near-calm hours and a fat high-output tail — instead of
 # a value that hovers near its mean (which would make a large wind fleet behave like baseload).
+# Config default only: the per-country value lives on the profile's wind_onshore block
+# (``wind_weibull_k``); this constant is the fallback when a profile omits it.
 _WIND_WEIBULL_K = 1.8
 HOURLY_DATA_DIR = Path(__file__).resolve().parents[1] / "data" / "hourly"
 
@@ -170,7 +172,11 @@ def synthesize_parametric(
     summer_peak_phase = 15 if southern else 205
 
     solar_base = float(profile["generators"].get("solar", {}).get("cf_base", 0.18))
-    wind_base = float(profile["generators"].get("wind_onshore", {}).get("cf_base", 0.28))
+    wind_onshore_cfg = profile["generators"].get("wind_onshore", {})
+    wind_base = float(wind_onshore_cfg.get("cf_base", 0.28))
+    # Weibull shape of the synthetic onshore-wind CF (lower k ⇒ higher variability / CV). Config-
+    # backed per country on the wind_onshore block; falls back to the global default.
+    wind_k = float(wind_onshore_cfg.get("wind_weibull_k", _WIND_WEIBULL_K))
 
     # Winter Dunkelflaute troughs (multi-day near-calm + overcast) so the reliability-binding
     # hour is a realistic renewable drought, not the smooth profile's artificial wind floor.
@@ -194,7 +200,7 @@ def synthesize_parametric(
     # mean-scaled so annual energy still equals the profile's cf_base.
     wind_z = _ar1_noise(rng, HOURS_PER_YEAR, sigma=1.0, rho=0.93)
     wind_uniform = np.clip(ndtr(wind_z), 1e-6, 1.0 - 1e-6)
-    wind_weibull = (-np.log(1.0 - wind_uniform)) ** (1.0 / _WIND_WEIBULL_K)
+    wind_weibull = (-np.log(1.0 - wind_uniform)) ** (1.0 / wind_k)
     wind_seasonal = 1.0 + season_sign * 0.16 * np.cos(2 * np.pi * (day_of_year - 25) / 365)
     wind_diurnal = 1.0 + 0.08 * np.sin(2 * np.pi * (hour_of_day - 2) / 24)
     wind_shape = wind_weibull * wind_seasonal * wind_diurnal * wind_drought_mask

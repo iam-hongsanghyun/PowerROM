@@ -93,7 +93,8 @@
         "x_max": 0.95,
         "source": "Stylized curtailment from VRE share; wind smoother than solar"
       },
-      "variability_factor": 0.85
+      "variability_factor": 0.85,
+      "wind_weibull_k": 1.8
     },
     "gas_ccgt": {
       "capex_usd_kw": 1100,

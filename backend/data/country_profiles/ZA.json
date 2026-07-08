@@ -358,5 +358,6 @@
     "other": 0.0142,
     "wind_offshore": 0.0
   },
-  "region": "africa"
+  "region": "africa",
+  "latitude": -26.2
 }

@@ -334,6 +334,11 @@ def build_profile(code: str, iso3: str, name: str, template: dict[str, Any],
     region = REGIONS[COUNTRY_REGION[code]]
     profile["discount_rate"] = region["wacc"]
     profile["region"] = COUNTRY_REGION[code]
+    # Latitude (config) — the synthetic-profile seasonal/drought logic derives the hemisphere from
+    # this, so southern-hemisphere countries get their winter in the right half of the year.
+    from backend.data.build_hourly_profiles import COORDS
+    if code in COORDS:
+        profile["latitude"] = COORDS[code][0]
     profile["generators"]["gas_ccgt"]["fuel_usd_mmbtu"] = region["gas"]
     profile["generators"]["coal"]["fuel_usd_mmbtu"] = region["coal"]
     for vre in ("solar", "wind_onshore"):

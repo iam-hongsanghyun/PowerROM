@@ -358,5 +358,6 @@
     "other": 0.2535,
     "wind_offshore": 0.0
   },
-  "region": "lat_am"
+  "region": "lat_am",
+  "latitude": -34.61
 }

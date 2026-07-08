@@ -358,5 +358,6 @@
     "other": 0.079,
     "wind_offshore": 0.0
   },
-  "region": "oceania"
+  "region": "oceania",
+  "latitude": -33.87
 }

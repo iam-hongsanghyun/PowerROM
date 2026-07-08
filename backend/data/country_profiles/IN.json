@@ -358,5 +358,6 @@
     "other": 0.0898,
     "wind_offshore": 0.0
   },
-  "region": "south_asia"
+  "region": "south_asia",
+  "latitude": 28.61
 }

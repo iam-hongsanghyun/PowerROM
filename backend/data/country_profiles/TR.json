@@ -358,5 +358,6 @@
     "other": 0.2767,
     "wind_offshore": 0.0
   },
-  "region": "emerging_europe"
+  "region": "emerging_europe",
+  "latitude": 39.93
 }

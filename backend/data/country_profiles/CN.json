@@ -358,5 +358,6 @@
     "other": 0.1637,
     "wind_offshore": 0.0104
   },
-  "region": "china"
+  "region": "china",
+  "latitude": 34.27
 }

@@ -358,5 +358,6 @@
     "other": 0.1636,
     "wind_offshore": 0.0073
   },
-  "region": "europe"
+  "region": "europe",
+  "latitude": 48.85
 }

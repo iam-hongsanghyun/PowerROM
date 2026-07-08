@@ -166,7 +166,10 @@ def synthesize_parametric(
     day_of_year = hour // 24
     country_code = country.upper()
 
-    southern = country_code == "AU"
+    # Hemisphere is derived from the profile's latitude (config), not a hardcoded country check, so
+    # every southern-hemisphere country (AR, BR, CL, ZA, AU, …) gets its seasons — and its winter
+    # Dunkelflaute cluster — placed in the right half of the year, not just Australia.
+    southern = float(profile.get("latitude", 0.0)) < 0.0
     season_sign = -1.0 if southern else 1.0
     winter_peak_phase = 10 if southern else 192
     summer_peak_phase = 15 if southern else 205

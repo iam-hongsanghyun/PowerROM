@@ -358,5 +358,6 @@
     "other": 0.0012,
     "wind_offshore": 0.0
   },
-  "region": "middle_east"
+  "region": "middle_east",
+  "latitude": 24.45
 }

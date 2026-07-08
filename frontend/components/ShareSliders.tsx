@@ -156,7 +156,7 @@ export function ShareSliders({
               draggingKey && draggingKey !== key ? "opacity-60" : "",
             ].join(" ")}
           >
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
             <div
               onPointerDown={(event) => {
                 event.preventDefault();
@@ -177,23 +177,24 @@ export function ShareSliders({
               <span className="truncate text-sm text-slate-800">{label}</span>
             </div>
 
-            <input
-              type="text"
-              inputMode="decimal"
-              value={capacityInputs[key]}
-              onChange={(event) => onChange(key, event.target.value)}
-              aria-label={`${label} capacity in GW`}
-              className="w-16 shrink-0 rounded-md border border-slate-200 bg-white px-2 py-1 text-right text-sm tabular-nums text-slate-900 outline-none transition focus:border-slate-400"
-            />
-
-            <span
-              className="w-10 shrink-0 text-right text-xs font-medium tabular-nums"
-              title={added > 0 ? "Capacity added to meet 100% load" : "expandable"}
-            >
+            <div className="relative shrink-0">
+              <input
+                type="text"
+                inputMode="decimal"
+                value={capacityInputs[key]}
+                onChange={(event) => onChange(key, event.target.value)}
+                aria-label={`${label} capacity in GW`}
+                className="w-16 rounded-md border border-slate-200 bg-white px-2 py-1 text-right text-sm tabular-nums text-slate-900 outline-none transition focus:border-slate-400"
+              />
               {added > 0 ? (
-                <span className="text-emerald-600">+{added.toFixed(0)}</span>
+                <span
+                  title="Capacity added to meet 100% load"
+                  className="pointer-events-none absolute -top-1.5 -right-1 rounded bg-emerald-500 px-1 text-[9px] font-semibold leading-tight text-white shadow-sm"
+                >
+                  +{added.toFixed(0)}
+                </span>
               ) : null}
-            </span>
+            </div>
 
             <input
               type="checkbox"

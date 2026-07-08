@@ -236,14 +236,19 @@ def _build_storage_tiers(
     )
     tiers: list[dict[str, float]] = []
     for name, cfg, power, duration, default_duration, default_rte in specs:
-        tiers.append({
+        tier = {
             "name": name,
             "power_gw": float(power) if power is not None else 0.0,
             "duration_hr": float(duration) if duration is not None else float(cfg.get("duration_hr", default_duration)),
             "efficiency": float(cfg.get("round_trip_efficiency", default_rte)),
             "capex_usd_kwh": float(cfg.get("capex_usd_kwh", 0.0)),
             "lifetime_yr": float(cfg.get("lifetime_yr", 15.0)),
-        })
+        }
+        # Short tier's economic-arbitrage price-percentile window (config; dispatch falls back to its
+        # own default when absent). Only meaningful for the short/intraday tier.
+        if "arbitrage_price_percentile" in cfg:
+            tier["arbitrage_price_percentile"] = float(cfg["arbitrage_price_percentile"])
+        tiers.append(tier)
     return tiers
 
 
@@ -605,7 +610,9 @@ def _median_scalar(summary: dict[str, Any], key: str) -> float:
     return float(summary["metrics"]["scalars"].get(key, {}).get("median", 0.0))
 
 
-# Generators eligible for the clean-energy subsidy (ITC / PTC) — the low-carbon set.
+# Generators eligible for the clean-energy subsidy (ITC / PTC) — the low-carbon set. Deliberately
+# broader than the RPS "renewable" set (``VRE_GENERATORS`` = solar + wind): clean energy = renewable
+# + nuclear, so nuclear earns the clean subsidy but does not count toward a renewable-portfolio target.
 _CLEAN_GENERATORS = {"solar", "wind_onshore", "wind_offshore", "nuclear"}
 
 # Generators that burn imported fuel — bear the fuel-import tariff and count toward the

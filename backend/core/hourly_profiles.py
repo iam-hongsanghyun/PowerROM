@@ -110,22 +110,37 @@ _VRE_DROUGHT_SOLAR_FLOOR: float = 0.15  # solar shape multiplier across the trou
 _VRE_DROUGHT_WINTER_DAY: int = 20       # deep-winter day-of-year the events cluster around (N. hemisphere)
 _VRE_DROUGHT_SPREAD_DAY: int = 45       # ± spread of event centres, days
 _VRE_DROUGHT_SEED_OFFSET: int = 8191    # separate RNG stream so base CF/demand noise is unchanged
+# Fallback defaults for the config-backed synthesis knobs (per-country values live on the profile:
+# a top-level ``vre_drought`` block and ``wind_onshore.wind_ar1_rho``); used only when absent.
+_WIND_AR1_RHO: float = 0.93             # onshore-wind hour-to-hour persistence (calm/windy spells)
 
 
-def _vre_drought_masks(seed: int, southern: bool) -> tuple[np.ndarray, np.ndarray]:
+def _resolve_vre_drought(profile: dict[str, Any]) -> dict[str, float]:
+    """Merge the per-country ``vre_drought`` config block over the fallback defaults."""
+    cfg = profile.get("vre_drought", {}) or {}
+    return {
+        "events": int(cfg.get("events", _VRE_DROUGHT_EVENTS)),
+        "min_duration_hr": int(cfg.get("min_duration_hr", _VRE_DROUGHT_MIN_HR)),
+        "max_duration_hr": int(cfg.get("max_duration_hr", _VRE_DROUGHT_MAX_HR)),
+        "wind_floor": float(cfg.get("wind_floor", _VRE_DROUGHT_WIND_FLOOR)),
+        "solar_floor": float(cfg.get("solar_floor", _VRE_DROUGHT_SOLAR_FLOOR)),
+    }
+
+
+def _vre_drought_masks(seed: int, southern: bool, drought: dict[str, float]) -> tuple[np.ndarray, np.ndarray]:
     """Multiplicative wind/solar suppression masks for winter Dunkelflaute events.
 
     Each event is a multi-day flat-bottomed trough (cosine shoulders of ``_VRE_DROUGHT_SHOULDER_HR``
-    ramping into a core held at full suppression) dipping the *shape* of wind to
-    ``_VRE_DROUGHT_WIND_FLOOR`` and solar to ``_VRE_DROUGHT_SOLAR_FLOOR``, clustered around deep
-    winter. Applied before mean-scaling, so annual energy (the profile's ``cf_base``) is
-    preserved — the drought redistributes generation rather than deleting it.
-    Drawn from a *separate* RNG stream keyed off ``seed`` so the base CF and demand noise, and
-    therefore every existing result that does not fall in a drought window, is unchanged.
+    ramping into a core held at full suppression) dipping the *shape* of wind to ``drought["wind_floor"]``
+    and solar to ``drought["solar_floor"]``, clustered around deep winter. Applied before mean-scaling,
+    so annual energy (the profile's ``cf_base``) is preserved — the drought redistributes generation
+    rather than deleting it. Drawn from a *separate* RNG stream keyed off ``seed`` so the base CF and
+    demand noise, and therefore every existing result that does not fall in a drought window, is unchanged.
 
     Args:
         seed: Base profile seed; the drought stream is ``seed + _VRE_DROUGHT_SEED_OFFSET``.
         southern: Southern-hemisphere flag — shifts the winter cluster by half a year.
+        drought: Resolved config (events, min/max duration, wind/solar floor) — see ``_resolve_vre_drought``.
 
     Returns:
         ``(wind_mask, solar_mask)`` each an 8760-hour array in ``[floor, 1]``.
@@ -134,9 +149,9 @@ def _vre_drought_masks(seed: int, southern: bool) -> tuple[np.ndarray, np.ndarra
     wind_mask = np.ones(HOURS_PER_YEAR, dtype=float)
     solar_mask = np.ones(HOURS_PER_YEAR, dtype=float)
     winter_day = (_VRE_DROUGHT_WINTER_DAY + 182) % 365 if southern else _VRE_DROUGHT_WINTER_DAY
-    for _ in range(_VRE_DROUGHT_EVENTS):
+    for _ in range(drought["events"]):
         centre_day = (winter_day + int(drng.integers(-_VRE_DROUGHT_SPREAD_DAY, _VRE_DROUGHT_SPREAD_DAY + 1))) % 365
-        duration = int(drng.integers(_VRE_DROUGHT_MIN_HR, _VRE_DROUGHT_MAX_HR + 1))
+        duration = int(drng.integers(drought["min_duration_hr"], drought["max_duration_hr"] + 1))
         start = centre_day * 24 - duration // 2
         idx = np.arange(start, start + duration) % HOURS_PER_YEAR
         # Flat-bottomed trough: cosine shoulders ramp 0→1, a core held at 1 (full suppression).
@@ -145,8 +160,8 @@ def _vre_drought_masks(seed: int, southern: bool) -> tuple[np.ndarray, np.ndarra
         shoulder = 0.5 * (1.0 - np.cos(np.pi * np.arange(1, ramp + 1) / ramp))  # 0 → 1
         bump[:ramp] = shoulder
         bump[duration - ramp:] = shoulder[::-1]
-        wind_mask[idx] = np.minimum(wind_mask[idx], 1.0 - (1.0 - _VRE_DROUGHT_WIND_FLOOR) * bump)
-        solar_mask[idx] = np.minimum(solar_mask[idx], 1.0 - (1.0 - _VRE_DROUGHT_SOLAR_FLOOR) * bump)
+        wind_mask[idx] = np.minimum(wind_mask[idx], 1.0 - (1.0 - drought["wind_floor"]) * bump)
+        solar_mask[idx] = np.minimum(solar_mask[idx], 1.0 - (1.0 - drought["solar_floor"]) * bump)
     return wind_mask, solar_mask
 
 
@@ -177,13 +192,15 @@ def synthesize_parametric(
     solar_base = float(profile["generators"].get("solar", {}).get("cf_base", 0.18))
     wind_onshore_cfg = profile["generators"].get("wind_onshore", {})
     wind_base = float(wind_onshore_cfg.get("cf_base", 0.28))
-    # Weibull shape of the synthetic onshore-wind CF (lower k ⇒ higher variability / CV). Config-
-    # backed per country on the wind_onshore block; falls back to the global default.
+    # Weibull shape and AR(1) persistence of the synthetic onshore-wind CF (lower k ⇒ higher CV;
+    # higher rho ⇒ longer calm/windy spells). Config-backed per country on the wind_onshore block.
     wind_k = float(wind_onshore_cfg.get("wind_weibull_k", _WIND_WEIBULL_K))
+    wind_rho = float(wind_onshore_cfg.get("wind_ar1_rho", _WIND_AR1_RHO))
 
     # Winter Dunkelflaute troughs (multi-day near-calm + overcast) so the reliability-binding
-    # hour is a realistic renewable drought, not the smooth profile's artificial wind floor.
-    wind_drought_mask, solar_drought_mask = _vre_drought_masks(seed, southern)
+    # hour is a realistic renewable drought, not the smooth profile's artificial wind floor. Event
+    # count / duration / depth are the config-backed ``vre_drought`` block (per country, editable).
+    wind_drought_mask, solar_drought_mask = _vre_drought_masks(seed, southern, _resolve_vre_drought(profile))
 
     daylight = np.sin(np.pi * (hour_of_day - 6) / 12)
     daylight = np.clip(daylight, 0.0, None) ** 1.45
@@ -201,7 +218,7 @@ def synthesize_parametric(
     # spells — rather than the old low-variance noise that sat near its mean. The winter-high
     # seasonal cycle, a weak diurnal term and the Dunkelflaute troughs modulate it; the result is
     # mean-scaled so annual energy still equals the profile's cf_base.
-    wind_z = _ar1_noise(rng, HOURS_PER_YEAR, sigma=1.0, rho=0.93)
+    wind_z = _ar1_noise(rng, HOURS_PER_YEAR, sigma=1.0, rho=wind_rho)
     wind_uniform = np.clip(ndtr(wind_z), 1e-6, 1.0 - 1e-6)
     wind_weibull = (-np.log(1.0 - wind_uniform)) ** (1.0 / wind_k)
     wind_seasonal = 1.0 + season_sign * 0.16 * np.cos(2 * np.pi * (day_of_year - 25) / 365)

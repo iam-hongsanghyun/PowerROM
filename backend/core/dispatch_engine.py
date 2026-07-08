@@ -489,6 +489,14 @@ def dispatch_hourly(
         marginal_gw = np.zeros(hours, dtype=float)
         marginal_idx = np.full(hours, -1, dtype=int)
         displaceable_peak = np.zeros(hours, dtype=float)
+        # Arbitrage price-percentile window: config-backed on the short tier (ess.short_dur), falling
+        # back to the module default. Higher ⇒ fewer, pricier hours qualify ⇒ less thermal displaced.
+        short_tier = next((t for t in storage_tiers if t.get("name") == "short"), None)
+        arb_percentile = float(
+            short_tier["arbitrage_price_percentile"]
+            if short_tier and "arbitrage_price_percentile" in short_tier
+            else _ARBITRAGE_PRICE_PERCENTILE
+        )
         if economic_storage and flexible_names:
             flex_by_cost = sorted(
                 flexible_names,
@@ -503,7 +511,7 @@ def dispatch_hourly(
                 price = np.where(running, srmc, price)
             positive = price[price > 1e-9]
             if positive.size:
-                threshold = float(np.percentile(positive, _ARBITRAGE_PRICE_PERCENTILE))
+                threshold = float(np.percentile(positive, arb_percentile))
                 displaceable_peak = np.where(price >= threshold, marginal_gw, 0.0)
                 # Reserve storage for reliability: on any day with a pre-storage shortfall, hold the
                 # charge for the peak instead of arbitraging it away (which would re-open the gap the

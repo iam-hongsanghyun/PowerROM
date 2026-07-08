@@ -94,7 +94,8 @@
         "source": "Stylized curtailment from VRE share; wind smoother than solar"
       },
       "variability_factor": 0.85,
-      "wind_weibull_k": 1.8
+      "wind_weibull_k": 1.8,
+      "wind_ar1_rho": 0.93
     },
     "gas_ccgt": {
       "capex_usd_kw": 1100,
@@ -311,7 +312,8 @@
       "ev_offset_gwh_per_unit": 18000,
       "solar_absorption_fraction": 0.55,
       "wind_onshore_absorption_fraction": 0.3,
-      "round_trip_efficiency": 0.85
+      "round_trip_efficiency": 0.85,
+      "arbitrage_price_percentile": 75.0
     },
     "long_dur": {
       "capex_usd_kwh": 400,
@@ -336,7 +338,8 @@
     "Technology structure (heat rates, dispatch/curtailment functions, storage): IEA WEO 2024 / IRENA Renewable Power Generation Costs 2024 (shared template)",
     "Regional cost levers \u2014 delivered gas/coal prices, discount rate (WACC) and a VRE capex multiplier \u2014 from IEA WEO 2024 regional assumptions and IRENA 2024 (see COUNTRY_REGION)",
     "Offshore wind capacity split from GWEC Global Wind Report 2024 / IRENA statistics; offshore costs from IRENA 2024 / NREL ATB 2024",
-    "Per-technology ramp rates (fraction of nameplate per hour) stylized from IEA/NREL unit-flexibility literature; nuclear runs as flat baseload and VRE is weather-driven (no ramp limit)"
+    "Per-technology ramp rates (fraction of nameplate per hour) stylized from IEA/NREL unit-flexibility literature; nuclear runs as flat baseload and VRE is weather-driven (no ramp limit)",
+    "Synthetic-profile stress knobs (VRE-drought frequency/duration/depth, wind AR(1) persistence, short-storage arbitrage price-percentile) \u2014 stylized reliability-modelling defaults, editable per country"
   ],
   "data_year": 2024,
   "annual_demand_twh": 307.18,
@@ -359,5 +362,12 @@
     "wind_offshore": 0.0086
   },
   "region": "se_asia",
-  "latitude": 21.03
+  "latitude": 21.03,
+  "vre_drought": {
+    "events": 3,
+    "min_duration_hr": 36,
+    "max_duration_hr": 72,
+    "wind_floor": 0.05,
+    "solar_floor": 0.15
+  }
 }

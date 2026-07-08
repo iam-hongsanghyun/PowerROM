@@ -51,3 +51,41 @@ def test_data_mode_falls_back_to_parametric_without_files() -> None:
     profile = load_country_profile("KR")
     years = load_hourly_profiles("ZZ", profile, mode="data")  # no hourly/ZZ dir
     assert years and all(y.source == "parametric_synthetic" for y in years)
+
+
+def test_synthesis_knobs_are_config_backed() -> None:
+    """VRE-drought, wind AR(1) persistence and hemisphere are read from the profile (config), so an
+    override changes the synthesized profile and the shipped profiles all carry the fields."""
+    import json
+
+    from backend.core.hourly_profiles import synthesize_parametric
+
+    prof = load_country_profile("KR")
+    # Every shipped profile carries the migrated config knobs.
+    assert prof.get("latitude") is not None
+    assert prof["vre_drought"]["events"] >= 1
+    assert prof["generators"]["wind_onshore"]["wind_ar1_rho"] > 0
+    assert prof["ess"]["short_dur"]["arbitrage_price_percentile"] > 0
+
+    base = synthesize_parametric("KR", prof, seed=42, year=2019)
+    stormier = json.loads(json.dumps(prof))
+    stormier["vre_drought"] = {"events": 8, "min_duration_hr": 60, "max_duration_hr": 120,
+                               "wind_floor": 0.01, "solar_floor": 0.05}
+    out = synthesize_parametric("KR", stormier, seed=42, year=2019)
+    # A harsher drought config redistributes the synthetic wind shape (annual energy still conserved).
+    assert not np.allclose(base.wind_cf, out.wind_cf)
+    assert base.wind_cf.mean() == pytest.approx(out.wind_cf.mean(), rel=1e-6)
+
+
+def test_southern_hemisphere_derived_from_latitude() -> None:
+    """Hemisphere comes from the config latitude, not a hardcoded country check: a southern profile
+    puts its solar-seasonal low in mid-year (its winter), a northern one at the turn of the year."""
+    from backend.core.hourly_profiles import synthesize_parametric
+
+    def low_solar_month(code: str) -> int:
+        y = synthesize_parametric(code, load_country_profile(code), seed=42, year=2019)
+        monthly = [float(np.mean(y.solar_cf[m * 730:(m + 1) * 730])) for m in range(12)]
+        return int(np.argmin(monthly)) + 1
+
+    assert low_solar_month("ZA") in (6, 7, 8)   # southern winter
+    assert low_solar_month("DE") in (11, 12, 1)  # northern winter

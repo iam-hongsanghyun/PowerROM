@@ -31,4 +31,22 @@ Both tiers' economics are profile fields, editable in Parameters → ESS: `capex
 `lifetime_yr`, `cycles_per_year`, `dod` (depth of discharge), `duration_hr`, and
 `round_trip_efficiency` — the fraction of charged energy returned on discharge (config default:
 short/intraday 0.85, long/seasonal 0.45). Storage power (GW) is set on the left rail; energy
-(GWh) = power × `duration_hr`.
+(GWh) = power × `duration_hr`. The short tier also carries `arbitrage_price_percentile` (default 75)
+— the price-percentile window above which it displaces the marginal thermal in reporting mode.
+
+## Synthetic-profile / reliability knobs (config, per country)
+
+These drive the `parametric` (synthetic) dispatch mode and are stored in the profile:
+
+- `latitude` — hemisphere is derived from it (`latitude < 0` ⇒ southern), so seasons and the winter
+  VRE-drought land in the right half of the year.
+- `wind_onshore.wind_weibull_k` (default 1.8) — Weibull shape of synthetic wind (lower ⇒ higher CV).
+- `wind_onshore.wind_ar1_rho` (default 0.93) — hour-to-hour wind persistence (calm/windy spells).
+- `vre_drought` block — the injected winter Dunkelflaute that sets the reliability-binding hour:
+  `events` (3), `min_duration_hr` (36), `max_duration_hr` (72), `wind_floor` (0.05), `solar_floor`
+  (0.15). Deeper/longer/more-frequent droughts raise the firm-capacity and long-storage the
+  reliability sizers must add.
+
+Clean-energy subsidy eligibility (`solar`, `wind_onshore`, `wind_offshore`, `nuclear`) is a global
+model definition, deliberately broader than the RPS "renewable" set (`solar` + `wind`): clean =
+renewable + nuclear.

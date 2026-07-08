@@ -195,6 +195,31 @@ SOURCE_RAMP = (
     "flexibility literature; nuclear runs as flat baseload and VRE is weather-driven (no ramp limit)"
 )
 
+# ── Synthetic-profile knobs written into every profile as config (were hardcoded in the core) ────
+# Sourced from the core fallback constants so the config and the code default can never diverge.
+from backend.core.dispatch_engine import _ARBITRAGE_PRICE_PERCENTILE  # noqa: E402
+from backend.core.hourly_profiles import (  # noqa: E402
+    _VRE_DROUGHT_EVENTS,
+    _VRE_DROUGHT_MAX_HR,
+    _VRE_DROUGHT_MIN_HR,
+    _VRE_DROUGHT_SOLAR_FLOOR,
+    _VRE_DROUGHT_WIND_FLOOR,
+    _WIND_AR1_RHO,
+)
+
+VRE_DROUGHT_DEFAULTS: dict[str, float] = {
+    "events": _VRE_DROUGHT_EVENTS,               # winter Dunkelflaute events injected per synthetic year
+    "min_duration_hr": _VRE_DROUGHT_MIN_HR,      # shortest event (h)
+    "max_duration_hr": _VRE_DROUGHT_MAX_HR,      # longest event (h) — sets storage-energy need
+    "wind_floor": _VRE_DROUGHT_WIND_FLOOR,       # wind-shape multiplier at the trough core (deep calm)
+    "solar_floor": _VRE_DROUGHT_SOLAR_FLOOR,     # solar-shape multiplier at the trough core (overcast)
+}
+SOURCE_SYNTHESIS = (
+    "Synthetic-profile stress knobs (VRE-drought frequency/duration/depth, wind AR(1) persistence, "
+    "short-storage arbitrage price-percentile) — stylized reliability-modelling defaults, editable "
+    "per country"
+)
+
 SOURCE_OFFSHORE = (
     "Offshore wind capacity split from GWEC Global Wind Report 2024 / IRENA statistics; offshore "
     "costs from IRENA 2024 / NREL ATB 2024"
@@ -373,6 +398,13 @@ def build_profile(code: str, iso3: str, name: str, template: dict[str, Any],
             profile["generators"][tech]["ramp_up_frac_per_hr"] = rates["up"]
             profile["generators"][tech]["ramp_down_frac_per_hr"] = rates["down"]
 
+    # Config-backed synthetic-profile stress knobs (were hardcoded in the core synthesis/dispatch).
+    profile["vre_drought"] = dict(VRE_DROUGHT_DEFAULTS)
+    if "wind_onshore" in profile["generators"]:
+        profile["generators"]["wind_onshore"]["wind_ar1_rho"] = _WIND_AR1_RHO
+    if "short_dur" in profile.get("ess", {}):
+        profile["ess"]["short_dur"]["arbitrage_price_percentile"] = _ARBITRAGE_PRICE_PERCENTILE
+
     profile["capacities_gw"] = capacities
     profile["shares"] = shares
     profile["sources"] = [
@@ -381,6 +413,7 @@ def build_profile(code: str, iso3: str, name: str, template: dict[str, Any],
         SOURCE_REGIONAL,
         SOURCE_OFFSHORE,
         SOURCE_RAMP,
+        SOURCE_SYNTHESIS,
     ]
     return profile
 

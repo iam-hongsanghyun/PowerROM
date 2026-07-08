@@ -141,6 +141,12 @@ const INITIAL_CAPACITIES = capacitiesFromSummary(
   FALLBACK_COUNTRIES.find((c) => c.code === INITIAL_COUNTRY) ?? FALLBACK_COUNTRIES[0],
 );
 
+// Scenario-lever defaults. Single source of truth so both the initial state and the
+// per-country reset (handleCountryChange) start from identical values.
+const DEFAULT_RPS_PENALTY_USD_MWH = 50;
+const DEFAULT_STORAGE: StorageInput = { shortPowerGw: 20, longPowerGw: 5 };
+const DEFAULT_ENSEMBLE: EnsembleConfig = { method: "jitter", n_samples: 5, sigma: 0.04, seed: 42 };
+
 function emptyCfInputs(): Record<(typeof GENERATOR_KEYS)[number], string> {
   return { solar: "", wind_onshore: "", wind_offshore: "", gas_ccgt: "", coal: "", nuclear: "", other: "" };
 }
@@ -195,7 +201,7 @@ export function Dashboard() {
   const [carbonPrice, setCarbonPrice] = useState(DEFAULT_CARBON_PRICE_USD_TCO2);
   // Renewable-target (RPS) policy lever: share target (0 = off) + shortfall penalty.
   const [rpsTarget, setRpsTarget] = useState(0);
-  const [rpsPenalty, setRpsPenalty] = useState(50);
+  const [rpsPenalty, setRpsPenalty] = useState(DEFAULT_RPS_PENALTY_USD_MWH);
   // Clean-energy subsidy (solar + wind + nuclear): ITC (0–1 capex) + PTC ($/MWh).
   const [subsidyItc, setSubsidyItc] = useState(0);
   const [subsidyPtc, setSubsidyPtc] = useState(0);
@@ -205,10 +211,7 @@ export function Dashboard() {
     FALLBACK_COUNTRIES.find((c) => c.code === INITIAL_COUNTRY)?.annual_generation_twh ?? 595,
   );
   // User-set storage, dispatched endogenously (energy = power × duration). Illustrative defaults.
-  const [storage, setStorage] = useState<StorageInput>({
-    shortPowerGw: 20,
-    longPowerGw: 5,
-  });
+  const [storage, setStorage] = useState<StorageInput>({ ...DEFAULT_STORAGE });
   // Visual demand profile (12 monthly + 24 hourly), always sent as demand_monthly/demand_daily.
   const [demandProfile, setDemandProfile] = useState<DemandProfile>({
     monthly: [...DEFAULT_DEMAND_PROFILE.monthly],
@@ -218,12 +221,7 @@ export function Dashboard() {
   // when no hourly file exists for the selected country).
   const [dispatchMode, setDispatchMode] = useState<DispatchMode>("data");
   const [weatherYears, setWeatherYears] = useState<number[]>([]);
-  const [ensemble, setEnsemble] = useState<EnsembleConfig>({
-    method: "jitter",
-    n_samples: 5,
-    sigma: 0.04,
-    seed: 42,
-  });
+  const [ensemble, setEnsemble] = useState<EnsembleConfig>({ ...DEFAULT_ENSEMBLE });
   const [useCustomParameters, setUseCustomParameters] = useState(false);
   // Holds the user's in-progress parameter edits from the Parameters tab.
   // Persists across tab switches; reset only on country change or explicit reset.
@@ -252,13 +250,50 @@ export function Dashboard() {
     setCapacityInputs(capacityInputDefaults(caps));
   }
 
+  // Switching country invalidates every value and result on screen, so start the new
+  // country from a clean slate: re-seed the country-derived inputs from its profile and
+  // reset every scenario lever, override, and cached result back to defaults.
   function handleCountryChange(nextCountry: string) {
     setCountry(nextCountry);
-    setCustomProfile(null); // clear edits when switching country
+
+    // Country-derived inputs — reseeded from the new country's Ember profile.
     const current = countries.find((item) => item.code === nextCountry);
     if (current) {
-      applyCountryDefaults(current);
+      applyCountryDefaults(current); // annual demand + installed capacities
     }
+
+    // Left-rail overrides back to unconstrained / default order.
+    setMinCfInputs(emptyCfInputs());
+    setMaxCfInputs(emptyCfInputs());
+    setGeneratorOrder([...GENERATOR_KEYS]);
+    setExpandable(new Set());
+    setMeetFullLoad(false);
+
+    // Scenario levers back to defaults.
+    setCarbonPrice(DEFAULT_CARBON_PRICE_USD_TCO2);
+    setRpsTarget(0);
+    setRpsPenalty(DEFAULT_RPS_PENALTY_USD_MWH);
+    setSubsidyItc(0);
+    setSubsidyPtc(0);
+    setFuelImportTariff(0);
+    setEvPenetration(DEFAULT_EV_PENETRATION);
+    setStorage({ ...DEFAULT_STORAGE });
+    setDemandProfile({
+      monthly: [...DEFAULT_DEMAND_PROFILE.monthly],
+      daily: [...DEFAULT_DEMAND_PROFILE.daily],
+    });
+    setDispatchMode("data");
+    setWeatherYears([]);
+    setEnsemble({ ...DEFAULT_ENSEMBLE });
+    setUseCustomParameters(false);
+    setCustomProfile(null); // drop any Parameters-tab edits
+
+    // Clear cached results/status so no stale numbers or expansion badges linger.
+    setResult(null);
+    setDispatchResult(null);
+    setError(null);
+    setIsAnalyzing(false);
+    setIsDispatchLoading(false);
   }
 
   useEffect(() => {
@@ -502,7 +537,7 @@ export function Dashboard() {
             </aside>
           )}
 
-          <main>
+          <main className="min-w-0">
             {sidebarCollapsed && (
               <button
                 onClick={() => setSidebarCollapsed(false)}

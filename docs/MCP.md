@@ -15,8 +15,8 @@ JSON summaries (scalars + small maps), not raw 8760-hour arrays, so results fit 
 | `run_dispatch` | Run the 8760-hour dispatch and return the **full** result by default: per-generator metric bands, the complete Load-Duration-Curve (8760 pts), and the complete chronological hourly generation (8760 h per generator). Set `include_hourly`/`include_ldc` to `false` to trim. |
 | `lcoe_vs_vre_curve` | Sweep the renewable share 0→max and return the LCOE / emissions / curtailment frontier — traces the cost of decarbonisation. |
 | `simulate_decarbonisation_pathway` | Run a plan from today's fleet to a target-year mix (phase-outs, escalating carbon price, demand growth), optionally growing selected resources to meet load each year. |
-| `size_firm_capacity_for_reliability` | Minimum GW of one firm resource to meet a reliability standard (LOLE ≤ target h/yr). |
-| `size_least_cost_mix_for_reliability` | Co-size the least-cost combination of selected resources to meet the reliability standard. |
+| `size_firm_capacity_for_reliability` | Minimum GW of one firm resource to meet a reliability standard (LOLE ≤ target h/yr). Accepts `min_cf`/`max_cf`. |
+| `size_least_cost_mix_for_reliability` | Co-size the least-cost combination of selected resources to meet the reliability standard. Accepts `min_cf`/`max_cf` — e.g. `max_cf={"gas_ccgt": 0.2}` caps gas at 20% CF so the solver builds clean tech + storage to cover the gap (the direct "gas as peaker" knob, no two-step needed). |
 | `validate_generator_config` | Validate a generator config (which fields are fitted / defaulted / missing per component). |
 | `fit_curve` | Fit a parametric curve (linear, logarithmic, power, …) to (x, y) points; returns params, R², 95% CIs. |
 

@@ -43,6 +43,20 @@ def test_size_mix_for_adequacy_co_sizes_a_blend_to_target() -> None:
     assert sum(result["added_capacities_gw"].values()) > 0.0  # a real build
 
 
+def test_size_mix_respects_max_cf_gas_cap() -> None:
+    # Capping gas at a 20% CF during co-sizing is the direct "gas as peaker" knob: with gas throttled
+    # the solver must build more clean capacity/storage to hold the reliability standard than it
+    # would with gas unconstrained.
+    caps = {"solar": 160, "wind_onshore": 90, "gas_ccgt": 40, "coal": 0, "nuclear": 10, "other": 2}
+    common = dict(country="KR", capacities=caps, expandable=["solar", "wind_onshore", "storage"],
+                  lole_target_hours=5.0, carbon_price=50.0, annual_demand_twh=595.0, ensemble=_BLOCK8,
+                  ess_short_power_gw=15.0, ess_short_duration_hr=8.0)
+    free = size_mix_for_adequacy(**common)
+    capped = size_mix_for_adequacy(**common, max_cf={"gas_ccgt": 0.20})
+    assert capped["met"] and free["met"]
+    assert sum(capped["added_capacities_gw"].values()) > sum(free["added_capacities_gw"].values())
+
+
 def test_size_for_adequacy_no_build_when_already_adequate() -> None:
     # A fleet already inside the standard needs no firm build.
     caps = {"solar": 40, "wind_onshore": 20, "gas_ccgt": 90, "coal": 20, "nuclear": 30, "other": 5}

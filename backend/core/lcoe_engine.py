@@ -1184,6 +1184,8 @@ def size_for_adequacy(
     ess_long_power_gw: float | None = None,
     ess_long_duration_hr: float | None = None,
     max_gw: float | None = None,
+    min_cf: dict[str, float] | None = None,
+    max_cf: dict[str, float] | None = None,
 ) -> dict[str, Any]:
     """Least firm capacity of ``firm_key`` that holds resource adequacy to ``lole_target_hours``.
 
@@ -1224,6 +1226,7 @@ def size_for_adequacy(
                 annual_demand_twh=annual_demand_twh, ensemble=ensemble,
                 ess_short_power_gw=ess_short_power_gw, ess_short_duration_hr=ess_short_duration_hr,
                 ess_long_power_gw=ess_long_power_gw, ess_long_duration_hr=ess_long_duration_hr,
+                min_cf=min_cf, max_cf=max_cf,
             )
             adequacy = result.get("adequacy")
             lole = float(adequacy["lole_hours"]) if adequacy else 0.0
@@ -1282,6 +1285,8 @@ def size_mix_for_adequacy(
     ess_short_duration_hr: float | None = None,
     ess_long_power_gw: float | None = None,
     ess_long_duration_hr: float | None = None,
+    min_cf: dict[str, float] | None = None,
+    max_cf: dict[str, float] | None = None,
 ) -> dict[str, Any]:
     """Least-cost *mix* that holds resource adequacy to ``lole_target_hours``.
 
@@ -1313,7 +1318,7 @@ def size_mix_for_adequacy(
         annual_demand_twh=annual_demand_twh, ensemble=ensemble,
         ess_short_power_gw=ess_short_power_gw, ess_short_duration_hr=ess_short_duration_hr,
         ess_long_power_gw=ess_long_power_gw, ess_long_duration_hr=ess_long_duration_hr,
-        expandable=expandable, meet_full_load=True,
+        expandable=expandable, meet_full_load=True, min_cf=min_cf, max_cf=max_cf,
     )
     added_full = dict((full.get("expansion") or {}).get("added_capacities_gw", {}))
 
@@ -1334,6 +1339,7 @@ def size_mix_for_adequacy(
                 ess_short_duration_hr=ess_short_duration_hr,
                 ess_long_power_gw=base_long + scale * added_full.get("storage_long", 0.0),
                 ess_long_duration_hr=ess_long_duration_hr,
+                min_cf=min_cf, max_cf=max_cf,
             )
             adequacy = result.get("adequacy")
             lole = float(adequacy["lole_hours"]) if adequacy else 0.0

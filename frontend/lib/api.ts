@@ -376,6 +376,8 @@ export async function sizeForAdequacy(payload: {
   ess_long_power_gw?: number | null;
   ess_long_duration_hr?: number | null;
   max_gw?: number | null;
+  min_cf?: Partial<Record<GeneratorKey, number>>;
+  max_cf?: Partial<Record<GeneratorKey, number>>;
 }): Promise<SizeForAdequacyResult> {
   return request<SizeForAdequacyResult>("/size-for-adequacy", {
     method: "POST",
@@ -407,6 +409,8 @@ export async function sizeMixForAdequacy(payload: {
   ess_short_duration_hr?: number | null;
   ess_long_power_gw?: number | null;
   ess_long_duration_hr?: number | null;
+  min_cf?: Partial<Record<GeneratorKey, number>>;
+  max_cf?: Partial<Record<GeneratorKey, number>>;
 }): Promise<SizeMixForAdequacyResult> {
   return request<SizeMixForAdequacyResult>("/size-mix-for-adequacy", {
     method: "POST",

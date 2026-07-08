@@ -52,6 +52,8 @@ def size_adequacy(payload: SizeForAdequacyRequest) -> SizeForAdequacyResponse:
         ess_long_power_gw=payload.ess_long_power_gw,
         ess_long_duration_hr=payload.ess_long_duration_hr,
         max_gw=payload.max_gw,
+        min_cf=payload.min_cf,
+        max_cf=payload.max_cf,
     )
     return SizeForAdequacyResponse(**result)
 
@@ -70,5 +72,7 @@ def size_mix_adequacy(payload: SizeMixForAdequacyRequest) -> SizeMixForAdequacyR
         ess_short_duration_hr=payload.ess_short_duration_hr,
         ess_long_power_gw=payload.ess_long_power_gw,
         ess_long_duration_hr=payload.ess_long_duration_hr,
+        min_cf=payload.min_cf,
+        max_cf=payload.max_cf,
     )
     return SizeMixForAdequacyResponse(**result)

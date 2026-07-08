@@ -264,6 +264,9 @@ class SizeForAdequacyRequest(BaseModel):
     ess_long_power_gw: float | None = Field(default=None, ge=0)
     ess_long_duration_hr: float | None = Field(default=None, ge=0)
     max_gw: float | None = Field(default=None, ge=0)
+    # Per-generator CF limits applied during every adequacy evaluation (e.g. cap gas at 20% CF).
+    min_cf: dict[str, float] | None = None
+    max_cf: dict[str, float] | None = None
 
 
 class SizeForAdequacyResponse(BaseModel):
@@ -292,6 +295,10 @@ class SizeMixForAdequacyRequest(BaseModel):
     ess_short_duration_hr: float | None = Field(default=None, ge=0)
     ess_long_power_gw: float | None = Field(default=None, ge=0)
     ess_long_duration_hr: float | None = Field(default=None, ge=0)
+    # Per-generator CF limits applied during co-sizing (e.g. cap gas at 20% CF so clean tech +
+    # storage are built to cover the reliability gap the capped peaker leaves).
+    min_cf: dict[str, float] | None = None
+    max_cf: dict[str, float] | None = None
 
 
 class SizeMixForAdequacyResponse(BaseModel):

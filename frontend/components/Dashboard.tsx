@@ -281,7 +281,10 @@ export function Dashboard() {
 
   function handleSizeForAdequacy(firmKey: string, targetHours: number): Promise<SizeForAdequacyResult> {
     // Sizing needs a real weather spread; force the correct sampler (block bootstrap) regardless
-    // of the display ensemble so the LOLE reflects multi-day droughts.
+    // of the display ensemble so the LOLE reflects multi-day droughts. The left-rail min/max CF
+    // limits are honoured throughout sizing (e.g. capping gas at 20% CF).
+    const minCf = parseCfLimits(minCfInputs);
+    const maxCf = parseCfLimits(maxCfInputs);
     return sizeForAdequacy({
       country,
       capacities_gw: capacities,
@@ -297,14 +300,19 @@ export function Dashboard() {
       },
       ess_short_power_gw: storage.shortPowerGw || null,
       ess_long_power_gw: storage.longPowerGw || null,
+      min_cf: Object.keys(minCf).length ? minCf : undefined,
+      max_cf: Object.keys(maxCf).length ? maxCf : undefined,
     });
   }
 
   function handleSizeMixForAdequacy(targetHours: number): Promise<SizeMixForAdequacyResult> {
     // Co-size the least-cost mix. Use the checked expandable set (defaulting to gas + storage if
-    // nothing is checked), and force the block-bootstrap sampler for a drought-aware LOLE.
+    // nothing is checked), and force the block-bootstrap sampler for a drought-aware LOLE. The
+    // left-rail min/max CF limits apply throughout (e.g. cap gas at 20% CF -> build clean+storage).
     const checked = [...expandable];
     const mix = checked.length ? checked : ["gas_ccgt", "storage"];
+    const minCf = parseCfLimits(minCfInputs);
+    const maxCf = parseCfLimits(maxCfInputs);
     return sizeMixForAdequacy({
       country,
       capacities_gw: capacities,
@@ -320,6 +328,8 @@ export function Dashboard() {
       },
       ess_short_power_gw: storage.shortPowerGw || null,
       ess_long_power_gw: storage.longPowerGw || null,
+      min_cf: Object.keys(minCf).length ? minCf : undefined,
+      max_cf: Object.keys(maxCf).length ? maxCf : undefined,
     });
   }
 

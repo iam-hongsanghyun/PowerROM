@@ -535,6 +535,8 @@ def size_firm_capacity_for_reliability(
     annual_demand_twh: float | None = None,
     ess_short_power_gw: float | None = None,
     ess_long_power_gw: float | None = None,
+    min_cf: dict[str, float] | None = None,
+    max_cf: dict[str, float] | None = None,
 ) -> dict[str, Any]:
     """Find the minimum amount of a single firm resource needed to meet a reliability standard
     (loss-of-load expectation ≤ target hours/year, default the 1-day-in-10-year standard of 2.4).
@@ -547,12 +549,15 @@ def size_firm_capacity_for_reliability(
         carbon_price: Carbon price (USD/tCO2).
         annual_demand_twh: Demand to serve (TWh); defaults to the country's real demand.
         ess_short_power_gw / ess_long_power_gw: Existing storage power (GW).
+        min_cf / max_cf: Per-generator CF limits applied during sizing (must-run floor /
+            availability ceiling, 0-1) — e.g. max_cf={"gas_ccgt": 0.2} caps gas at a 20% CF.
     """
     return size_for_adequacy(
         country=country.upper(), capacities=capacities_gw, firm_key=firm_key,
         lole_target_hours=lole_target_hours, carbon_price=carbon_price,
         annual_demand_twh=annual_demand_twh,
         ess_short_power_gw=ess_short_power_gw, ess_long_power_gw=ess_long_power_gw,
+        min_cf=min_cf, max_cf=max_cf,
     )
 
 
@@ -566,6 +571,8 @@ def size_least_cost_mix_for_reliability(
     annual_demand_twh: float | None = None,
     ess_short_power_gw: float | None = None,
     ess_long_power_gw: float | None = None,
+    min_cf: dict[str, float] | None = None,
+    max_cf: dict[str, float] | None = None,
 ) -> dict[str, Any]:
     """Co-size the least-cost combination of the selected resources to meet a reliability standard
     (LOLE ≤ target hours/year), returning the GW added per resource and the resulting LOLE.
@@ -578,12 +585,16 @@ def size_least_cost_mix_for_reliability(
         carbon_price: Carbon price (USD/tCO2).
         annual_demand_twh: Demand to serve (TWh).
         ess_short_power_gw / ess_long_power_gw: Existing storage power (GW).
+        min_cf / max_cf: Per-generator CF limits applied throughout co-sizing (0-1). E.g.
+            max_cf={"gas_ccgt": 0.2} caps gas at a 20% CF so the solver builds solar/wind/storage
+            to cover the reliability gap the capped peaker leaves — the direct "gas as peaker" knob.
     """
     return size_mix_for_adequacy(
         country=country.upper(), capacities=capacities_gw, expandable=expandable,
         lole_target_hours=lole_target_hours, carbon_price=carbon_price,
         annual_demand_twh=annual_demand_twh,
         ess_short_power_gw=ess_short_power_gw, ess_long_power_gw=ess_long_power_gw,
+        min_cf=min_cf, max_cf=max_cf,
     )
 
 

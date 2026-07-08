@@ -132,7 +132,9 @@
         },
         "source": "Default balancing overhead"
       },
-      "variability_factor": 0.0
+      "variability_factor": 0.0,
+      "ramp_up_frac_per_hr": 0.8,
+      "ramp_down_frac_per_hr": 0.8
     },
     "coal": {
       "capex_usd_kw": 2800,
@@ -173,7 +175,9 @@
         },
         "source": "Default system overhead"
       },
-      "variability_factor": 0.1
+      "variability_factor": 0.1,
+      "ramp_up_frac_per_hr": 0.5,
+      "ramp_down_frac_per_hr": 0.5
     },
     "nuclear": {
       "capex_usd_kw": 4500,
@@ -245,7 +249,9 @@
         },
         "source": "Default system overhead"
       },
-      "variability_factor": 0.3
+      "variability_factor": 0.3,
+      "ramp_up_frac_per_hr": 0.7,
+      "ramp_down_frac_per_hr": 0.7
     },
     "wind_offshore": {
       "capex_usd_kw": 3150.0,
@@ -326,7 +332,8 @@
     "Ember Yearly Electricity Data (full release), https://ember-energy.org/data/yearly-electricity-data/ \u2014 demand, installed capacity and generation by fuel (CC-BY-4.0); data year 2024",
     "Technology structure (heat rates, dispatch/curtailment functions, storage): IEA WEO 2024 / IRENA Renewable Power Generation Costs 2024 (shared template)",
     "Regional cost levers \u2014 delivered gas/coal prices, discount rate (WACC) and a VRE capex multiplier \u2014 from IEA WEO 2024 regional assumptions and IRENA 2024 (see COUNTRY_REGION)",
-    "Offshore wind capacity split from GWEC Global Wind Report 2024 / IRENA statistics; offshore costs from IRENA 2024 / NREL ATB 2024"
+    "Offshore wind capacity split from GWEC Global Wind Report 2024 / IRENA statistics; offshore costs from IRENA 2024 / NREL ATB 2024",
+    "Per-technology ramp rates (fraction of nameplate per hour) stylized from IEA/NREL unit-flexibility literature; nuclear runs as flat baseload and VRE is weather-driven (no ramp limit)"
   ],
   "data_year": 2024,
   "annual_demand_twh": 124.17,

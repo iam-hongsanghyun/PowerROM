@@ -49,6 +49,8 @@ const BASIC_FIELDS: Array<{ key: keyof GeneratorConfig; label: string; unit: str
   { key: "fuel_usd_mmbtu", label: "Fuel Cost", unit: "USD/MMBtu" },
   { key: "heat_rate_mmbtu_mwh", label: "Heat Rate", unit: "MMBtu/MWh" },
   { key: "cf_base", label: "Base CF", unit: "(0–1)" },
+  { key: "ramp_up_frac_per_hr", label: "Ramp Up", unit: "frac/h" },
+  { key: "ramp_down_frac_per_hr", label: "Ramp Down", unit: "frac/h" },
   { key: "variability_factor", label: "Variability Factor", unit: "(0–1)" },
 ];
 

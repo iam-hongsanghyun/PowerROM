@@ -475,6 +475,11 @@ export interface GeneratorConfig {
   fuel_usd_mmbtu?: number;
   heat_rate_mmbtu_mwh?: number;
   cf_base?: number;
+  // Ramp limits — the most this unit's output may change per hour, as a fraction of nameplate.
+  // Config default for the flexible thermals (gas/coal/other); editable here. Nuclear runs flat and
+  // VRE follows the weather, so both leave these blank (no ramp modelled).
+  ramp_up_frac_per_hr?: number;
+  ramp_down_frac_per_hr?: number;
   // Capacity factor, curtailment, and integration cost are derived from the country's
   // hourly dispatch pattern — the only fitted curve is thermal part-load efficiency.
   eta_func?: FuncConfig;

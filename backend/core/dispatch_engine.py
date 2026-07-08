@@ -192,6 +192,30 @@ def _simulate_storage_economic(
     )
 
 
+def _resolve_ramp_rates(
+    explicit: dict[str, float] | None,
+    generator_names: list[str],
+    profile: dict[str, Any],
+    field: str,
+) -> dict[str, float]:
+    """Merge a per-generator ramp rate (fraction of nameplate per hour) from two sources.
+
+    An explicit call argument wins per generator; otherwise the value falls back to the profile's
+    generator block (the config default, editable by the user via ``custom_params``). A generator
+    present in neither is left out of the returned mapping, meaning "unconstrained" — so a minimal
+    profile that carries no ramp field dispatches exactly as before.
+    """
+    explicit = explicit or {}
+    generators = profile.get("generators", {})
+    resolved: dict[str, float] = {}
+    for gen in generator_names:
+        if gen in explicit:
+            resolved[gen] = max(0.0, float(explicit[gen]))
+        elif field in generators.get(gen, {}):
+            resolved[gen] = max(0.0, float(generators[gen][field]))
+    return resolved
+
+
 def _marginal_cost_usd_mwh(generator_config: dict[str, Any], carbon_price: float) -> float:
     """Short-run (dispatch) marginal cost of a flexible generator, $/MWh.
 
@@ -257,22 +281,29 @@ def dispatch_hourly(
 
     Both default to no effect when absent, so a call without them dispatches exactly as before.
 
-    Ramp limits (``ramp_up`` / ``ramp_down``, each a ``{generator: fraction_of_capacity_per_hour}``
-    mapping) add inter-hour coupling on the flexible thermals: a unit's output may change by at most
-    ``capacity × rate`` between adjacent hours. When either is given the flexible fill switches from
-    the vectorized per-hour merit order to a sequential pass — a unit that cannot ramp up fast enough
-    leaves residual for storage/unserved to absorb, and one that cannot ramp down fast enough is held
-    above load (the excess spilled). A generator absent from the mapping is unconstrained. Absent
-    entirely, the fast vectorized fill is kept and results are identical to before.
+    Ramp limits add inter-hour coupling on the flexible thermals: a unit's output may change by at
+    most ``capacity × rate`` between adjacent hours. Each rate (fraction of nameplate per hour) is
+    resolved per generator from two sources — an explicit ``ramp_up`` / ``ramp_down`` call argument
+    overrides the per-technology default carried in the profile's generator block
+    (``ramp_up_frac_per_hr`` / ``ramp_down_frac_per_hr``, which the user can edit via
+    ``custom_params``). When any rate resolves, the flexible fill switches from the vectorized
+    per-hour merit order to a sequential pass — a unit that cannot ramp up fast enough leaves residual
+    for storage/unserved to absorb, and one that cannot ramp down fast enough is held above load (the
+    excess spilled). A generator constrained in neither source is unconstrained; a profile carrying no
+    ramp field at all keeps the fast vectorized fill and dispatches identically to before.
     """
     generator_names = _ordered_generators(profile, generator_order)
     normalized_shares = _normalize_shares(shares)
     fixed_capacities = _normalize_capacities(capacities_gw or {})
     min_cf = {k: max(0.0, min(1.0, float(v))) for k, v in (min_cf or {}).items()}
     max_cf = {k: max(0.0, min(1.0, float(v))) for k, v in (max_cf or {}).items()}
-    # Ramp rates: fraction of nameplate a unit can move per hour (>1 ⇒ effectively unconstrained).
-    ramp_up = {k: max(0.0, float(v)) for k, v in (ramp_up or {}).items()}
-    ramp_down = {k: max(0.0, float(v)) for k, v in (ramp_down or {}).items()}
+    # Ramp rates (fraction of nameplate per hour, >1 ⇒ effectively unconstrained): the per-technology
+    # default lives in the profile's generator block (``ramp_up_frac_per_hr`` / ``ramp_down_frac_per_hr``
+    # — config, and user-editable via custom_params); an explicit arg overrides it per generator. A
+    # generator absent from both is unconstrained, so minimal profiles without the field dispatch
+    # exactly as before.
+    ramp_up = _resolve_ramp_rates(ramp_up, generator_names, profile, "ramp_up_frac_per_hr")
+    ramp_down = _resolve_ramp_rates(ramp_down, generator_names, profile, "ramp_down_frac_per_hr")
     hours = len(year_profile.demand_norm)
     if hours != HOURS_PER_YEAR:
         raise ValueError("Dispatch requires an 8760-hour profile.")

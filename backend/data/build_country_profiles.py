@@ -176,6 +176,25 @@ OFFSHORE_CF_BOUNDS = (0.25, 0.60)
 OFFSHORE_CAPEX_USD_KW = 3500  # fixed-bottom offshore capex, IRENA 2024 / NREL ATB 2024
 OFFSHORE_OPEX_USD_KW_YR = 80
 OFFSHORE_VARIABILITY = 0.75   # offshore output is smoother than onshore
+# ── Per-technology ramp rates (fraction of nameplate per hour) ──────────────────────────────────
+# The most a unit's output may move between adjacent hours, as a share of its rated capacity. These
+# are the config-backed DEFAULTS written into every profile's flexible-thermal generator blocks; the
+# user can edit them per country in Parameters, or a caller can override per generator via the
+# ramp_up / ramp_down request fields. Only the dispatchable thermals the merit stack actually ramps
+# carry a rate — nuclear runs as flat must-run baseload (no ramp modelled) and VRE follows the
+# weather, so neither is listed. Values are stylized from unit-flexibility literature (typical hourly
+# ramp capability): CCGT fast, hard coal moderate, the mixed "other" bucket (hydro/bioenergy/peakers)
+# fast. At hourly resolution these bind mainly for slow units on the steep evening net-load ramp.
+RAMP_DEFAULTS: dict[str, dict[str, float]] = {
+    "gas_ccgt": {"up": 0.8, "down": 0.8},   # combined-cycle gas: ~3–8 %/min ⇒ generous at 1 h steps
+    "coal": {"up": 0.5, "down": 0.5},       # hard coal / lignite: slower, chases the cliff worse
+    "other": {"up": 0.7, "down": 0.7},      # hydro/bioenergy/OCGT peaker mix: fairly flexible
+}
+SOURCE_RAMP = (
+    "Per-technology ramp rates (fraction of nameplate per hour) stylized from IEA/NREL unit-"
+    "flexibility literature; nuclear runs as flat baseload and VRE is weather-driven (no ramp limit)"
+)
+
 SOURCE_OFFSHORE = (
     "Offshore wind capacity split from GWEC Global Wind Report 2024 / IRENA statistics; offshore "
     "costs from IRENA 2024 / NREL ATB 2024"
@@ -343,6 +362,12 @@ def build_profile(code: str, iso3: str, name: str, template: dict[str, Any],
 
     _split_offshore_wind(code, profile, template, capacities, shares, data, total_gen, region)
 
+    # Config-backed per-technology ramp rates onto the flexible-thermal blocks (editable in the UI).
+    for tech, rates in RAMP_DEFAULTS.items():
+        if tech in profile["generators"]:
+            profile["generators"][tech]["ramp_up_frac_per_hr"] = rates["up"]
+            profile["generators"][tech]["ramp_down_frac_per_hr"] = rates["down"]
+
     profile["capacities_gw"] = capacities
     profile["shares"] = shares
     profile["sources"] = [
@@ -350,6 +375,7 @@ def build_profile(code: str, iso3: str, name: str, template: dict[str, Any],
         SOURCE_COSTS,
         SOURCE_REGIONAL,
         SOURCE_OFFSHORE,
+        SOURCE_RAMP,
     ]
     return profile
 

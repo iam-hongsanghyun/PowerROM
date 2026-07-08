@@ -255,6 +255,28 @@ def test_ramp_limits_bound_hourly_output_change() -> None:
     assert base_mismatch < 1.0 and ramp_mismatch > base_mismatch + 1.0  # ramp forces a mismatch
 
 
+def test_profile_ramp_default_binds_without_explicit_arg() -> None:
+    # Config-backed default: a ramp rate carried in the profile's generator block (as the real
+    # country profiles now ship) binds even with no ramp argument passed; an explicit arg overrides it.
+    alt = np.resize(np.array([1.5, 0.5]), HOURS_PER_YEAR)
+    year = YearProfile(
+        country="TT", year=2024, demand_norm=alt,
+        solar_cf=np.zeros(HOURS_PER_YEAR), wind_cf=np.zeros(HOURS_PER_YEAR), source="test",
+    )
+    profile = {"generators": {"coal": {
+        "cf_base": 1.0, "ramp_up_frac_per_hr": 0.1, "ramp_down_frac_per_hr": 0.1,
+    }}}
+    kwargs = dict(
+        profile=profile, year_profile=year, shares={"coal": 1.0},
+        annual_demand_twh=5.0 * HOURS_PER_YEAR / 1000, capacities_gw={"coal": 10.0},
+    )
+    default = dispatch_hourly(**kwargs)  # no ramp_up / ramp_down argument -> profile default applies
+    swing = float(np.max(np.abs(np.diff(default.dispatch_gw["coal"]))))
+    assert swing <= 0.1 * 10.0 + 1e-6  # the profile's 10 %/h default bounds the hourly change
+    loose = dispatch_hourly(**kwargs, ramp_up={"coal": 1.0}, ramp_down={"coal": 1.0})  # arg overrides
+    assert float(np.max(np.abs(np.diff(loose.dispatch_gw["coal"])))) > swing
+
+
 def test_ramp_limits_absent_is_a_noop() -> None:
     # No ramp rates ⇒ the fast vectorized fill is kept and results are byte-identical (regression).
     year = _flat_year()

@@ -339,6 +339,8 @@ def _expand_to_meet_load(
     annual_demand_twh: float,
     min_cf: dict[str, float] | None = None,
     max_cf: dict[str, float] | None = None,
+    ramp_up: dict[str, float] | None = None,
+    ramp_down: dict[str, float] | None = None,
 ) -> tuple[dict[str, float], list[dict[str, float]], str]:
     """Grow the checked generators and/or storage to meet 100% of load at least system cost.
 
@@ -399,7 +401,7 @@ def _expand_to_meet_load(
             profile=profile, year_profile=year_profile, shares=caps,
             annual_demand_twh=annual_demand_twh, carbon_price=carbon_price,
             capacities_gw=caps, storage_tiers=trs, economic_storage=False,
-            min_cf=min_cf, max_cf=max_cf,
+            min_cf=min_cf, max_cf=max_cf, ramp_up=ramp_up, ramp_down=ramp_down,
         )
         return float(np.sum(result.unserved_gw)) / 1000, float(np.max(result.unserved_gw))
 
@@ -767,6 +769,8 @@ def _calculate_system_lcoe_dispatch(
     generator_order: list[str] | None = None,
     min_cf: dict[str, float] | None = None,
     max_cf: dict[str, float] | None = None,
+    ramp_up: dict[str, float] | None = None,
+    ramp_down: dict[str, float] | None = None,
     ess_short_power_gw: float | None = None,
     ess_short_duration_hr: float | None = None,
     ess_long_power_gw: float | None = None,
@@ -837,6 +841,8 @@ def _calculate_system_lcoe_dispatch(
             annual_demand_twh=profile["annual_generation_twh"],
             min_cf=min_cf,
             max_cf=max_cf,
+            ramp_up=ramp_up,
+            ramp_down=ramp_down,
         )
         normalized_capacities = {
             key: normalized_capacities.get(key, 0.0) + added.get(key, 0.0)
@@ -868,6 +874,8 @@ def _calculate_system_lcoe_dispatch(
         return_members=True,
         min_cf=min_cf,
         max_cf=max_cf,
+        ramp_up=ramp_up,
+        ramp_down=ramp_down,
     )
 
     current = _calculate_from_dispatch_summary(
@@ -1010,6 +1018,8 @@ def calculate_system_lcoe(
     generator_order: list[str] | None = None,
     min_cf: dict[str, float] | None = None,
     max_cf: dict[str, float] | None = None,
+    ramp_up: dict[str, float] | None = None,
+    ramp_down: dict[str, float] | None = None,
     ess_short_power_gw: float | None = None,
     ess_short_duration_hr: float | None = None,
     ess_long_power_gw: float | None = None,
@@ -1041,6 +1051,8 @@ def calculate_system_lcoe(
         generator_order=generator_order,
         min_cf=min_cf,
         max_cf=max_cf,
+        ramp_up=ramp_up,
+        ramp_down=ramp_down,
         ess_short_power_gw=ess_short_power_gw,
         ess_short_duration_hr=ess_short_duration_hr,
         ess_long_power_gw=ess_long_power_gw,

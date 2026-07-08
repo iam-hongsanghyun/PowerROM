@@ -216,6 +216,8 @@ def calculate_lcoe(
     ev_penetration: float = 0.0,
     min_cf: dict[str, float] | None = None,
     max_cf: dict[str, float] | None = None,
+    ramp_up: dict[str, float] | None = None,
+    ramp_down: dict[str, float] | None = None,
     generator_order: list[str] | None = None,
     ess_short_power_gw: float | None = None,
     ess_short_duration_hr: float | None = None,
@@ -261,6 +263,11 @@ def calculate_lcoe(
         annual_demand_twh: Annual demand to serve (TWh). Defaults to the country's real demand.
         ev_penetration: Fraction of the vehicle fleet electrified (0-0.5).
         min_cf / max_cf: Per-generator must-run floor / availability-ceiling capacity factor (0-1).
+        ramp_up / ramp_down: Per-generator ramp limits as a fraction of nameplate per hour — the
+            most a flexible thermal may change output between adjacent hours, e.g.
+            ramp_up={"coal": 0.4} lets coal move 40%/h. Slow units then can't chase the evening
+            solar cliff, pushing that work onto gas/storage (or unserved). Absent generators ramp
+            freely; setting either switches to a sequential ramp-constrained dispatch.
         generator_order: Manual merit order override (list of generator keys).
         ess_short_power_gw / ess_short_duration_hr: Intraday battery power (GW) and duration (h).
         ess_long_power_gw / ess_long_duration_hr: Seasonal storage power (GW) and duration (h).
@@ -308,6 +315,8 @@ def calculate_lcoe(
         generator_order=generator_order,
         min_cf=min_cf,
         max_cf=max_cf,
+        ramp_up=ramp_up,
+        ramp_down=ramp_down,
         ess_short_power_gw=ess_short_power_gw,
         ess_short_duration_hr=ess_short_duration_hr,
         ess_long_power_gw=ess_long_power_gw,
@@ -336,7 +345,8 @@ def calculate_lcoe(
         summary["inputs"] = _resolved_inputs(country.upper(), result, {
             "capacities_gw": capacities_gw, "shares": shares, "carbon_price": carbon_price,
             "annual_demand_twh": annual_demand_twh, "ev_penetration": ev_penetration,
-            "min_cf": min_cf, "max_cf": max_cf, "generator_order": generator_order,
+            "min_cf": min_cf, "max_cf": max_cf, "ramp_up": ramp_up, "ramp_down": ramp_down,
+            "generator_order": generator_order,
             "ess_short_power_gw": ess_short_power_gw, "ess_short_duration_hr": ess_short_duration_hr,
             "ess_long_power_gw": ess_long_power_gw, "ess_long_duration_hr": ess_long_duration_hr,
             "expandable": expandable, "meet_full_load": meet_full_load,
@@ -360,6 +370,8 @@ def run_dispatch(
     ess_long_power_gw: float | None = None,
     min_cf: dict[str, float] | None = None,
     max_cf: dict[str, float] | None = None,
+    ramp_up: dict[str, float] | None = None,
+    ramp_down: dict[str, float] | None = None,
     dispatch_mode: str = "data",
     ensemble_method: str = "single",
     ensemble_samples: int = 5,
@@ -380,6 +392,9 @@ def run_dispatch(
         ess_short_power_gw / ess_long_power_gw: Storage power (GW).
         min_cf / max_cf: Per-generator CF limits (0-1) — must-run floor / availability ceiling,
             e.g. max_cf={"gas_ccgt": 0.2} caps gas at a 20% CF in the dispatch.
+        ramp_up / ramp_down: Per-generator ramp limits (fraction of nameplate per hour) — the most a
+            flexible thermal may change output between adjacent hours, e.g. ramp_up={"coal": 0.4}.
+            Absent generators ramp freely.
         dispatch_mode: "data" or "parametric".
         ensemble_method: "single", "jitter", "multiyear" or "block_bootstrap".
         ensemble_samples: Ensemble sample count.
@@ -391,6 +406,7 @@ def run_dispatch(
         country=country.upper(), shares=caps or {}, capacities_gw=caps,
         carbon_price=carbon_price, annual_demand_twh=annual_demand_twh,
         dispatch_mode=dispatch_mode, include_ldc=True, min_cf=min_cf, max_cf=max_cf,
+        ramp_up=ramp_up, ramp_down=ramp_down,
         ensemble=_ensemble(ensemble_method, ensemble_samples, 0.04, 42),
         ess_short_power_gw=ess_short_power_gw, ess_long_power_gw=ess_long_power_gw,
     )

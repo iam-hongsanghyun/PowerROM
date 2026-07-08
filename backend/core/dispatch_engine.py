@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Any
 
@@ -223,6 +224,8 @@ def dispatch_hourly(
     economic_storage: bool = True,
     min_cf: dict[str, float] | None = None,
     max_cf: dict[str, float] | None = None,
+    ramp_up: dict[str, float] | None = None,
+    ramp_down: dict[str, float] | None = None,
 ) -> DispatchResult:
     """Screening merit-order dispatch over the hourly (net-load) pattern.
 
@@ -253,12 +256,23 @@ def dispatch_hourly(
       ``cf_base`` baseload level.
 
     Both default to no effect when absent, so a call without them dispatches exactly as before.
+
+    Ramp limits (``ramp_up`` / ``ramp_down``, each a ``{generator: fraction_of_capacity_per_hour}``
+    mapping) add inter-hour coupling on the flexible thermals: a unit's output may change by at most
+    ``capacity × rate`` between adjacent hours. When either is given the flexible fill switches from
+    the vectorized per-hour merit order to a sequential pass — a unit that cannot ramp up fast enough
+    leaves residual for storage/unserved to absorb, and one that cannot ramp down fast enough is held
+    above load (the excess spilled). A generator absent from the mapping is unconstrained. Absent
+    entirely, the fast vectorized fill is kept and results are identical to before.
     """
     generator_names = _ordered_generators(profile, generator_order)
     normalized_shares = _normalize_shares(shares)
     fixed_capacities = _normalize_capacities(capacities_gw or {})
     min_cf = {k: max(0.0, min(1.0, float(v))) for k, v in (min_cf or {}).items()}
     max_cf = {k: max(0.0, min(1.0, float(v))) for k, v in (max_cf or {}).items()}
+    # Ramp rates: fraction of nameplate a unit can move per hour (>1 ⇒ effectively unconstrained).
+    ramp_up = {k: max(0.0, float(v)) for k, v in (ramp_up or {}).items()}
+    ramp_down = {k: max(0.0, float(v)) for k, v in (ramp_down or {}).items()}
     hours = len(year_profile.demand_norm)
     if hours != HOURS_PER_YEAR:
         raise ValueError("Dispatch requires an 8760-hour profile.")
@@ -351,6 +365,7 @@ def dispatch_hourly(
         dispatch_gw[gen] = available_gw[gen] * served_fraction
         curtailed_gw[gen] = available_gw[gen] - dispatch_gw[gen]
     residual_gw = np.maximum(residual_gw - served_vre_gw, 0.0)
+    residual_after_vre = residual_gw.copy()  # net load left for flexibles; the ramp pass re-fills it
 
     # 2.5 Must-run floors (min_cf): each flexible thermal runs at least capacity × min_cf every
     #     hour, ahead of the merit order. Floor output above the residual is spilled (curtailed).
@@ -371,6 +386,59 @@ def dispatch_hourly(
         added = np.minimum(residual_gw, headroom)
         dispatch_gw[gen] = dispatch_gw[gen] + added
         residual_gw = np.maximum(residual_gw - added, 0.0)
+
+    # 3.5 Ramp limits (opt-in): re-dispatch the flexibles sequentially so each unit's output moves
+    #     by at most capacity × ramp rate between adjacent hours. A unit that can't ramp *up* fast
+    #     enough leaves residual for storage/unserved to absorb; one that can't ramp *down* fast
+    #     enough is forced to keep running above load (spilled). Seeded from the unconstrained hour-0
+    #     dispatch so there is no spurious cold-start at midnight Jan 1. Skipped (keeping the fast
+    #     vectorized fill above) when no ramp rate is given, so default behaviour is unchanged.
+    if (ramp_up or ramp_down) and flexible_names:
+        prev = {gen: float(dispatch_gw[gen][0]) for gen in flexible_names}
+        ru = {gen: capacities_gw[gen] * ramp_up.get(gen, math.inf) for gen in flexible_names}
+        rd = {gen: capacities_gw[gen] * ramp_down.get(gen, math.inf) for gen in flexible_names}
+        avail_l = {gen: available_gw[gen].tolist() for gen in flexible_names}
+        floor_l = {
+            gen: np.minimum(capacities_gw[gen] * min_cf.get(gen, 0.0), available_gw[gen]).tolist()
+            for gen in flexible_names
+        }
+        disp_l = {gen: [0.0] * hours for gen in flexible_names}
+        curt_l = {gen: [0.0] * hours for gen in flexible_names}
+        res_l = residual_after_vre.tolist()
+        unserved_l = [0.0] * hours
+        for h in range(hours):
+            want = res_l[h]
+            for gen in flexible_names:
+                a = avail_l[gen][h]
+                p = prev[gen]
+                lo = floor_l[gen][h]
+                ramp_floor = p - rd[gen]
+                if ramp_floor > lo:
+                    lo = ramp_floor
+                if lo > a:
+                    lo = a
+                if lo < 0.0:
+                    lo = 0.0
+                hi = p + ru[gen]
+                if hi > a:
+                    hi = a
+                if hi < lo:
+                    hi = lo
+                d = want
+                if d < lo:
+                    d = lo
+                elif d > hi:
+                    d = hi
+                served = d if d < want else want
+                disp_l[gen][h] = d
+                curt_l[gen][h] = d - served
+                want -= served
+                prev[gen] = d
+            unserved_l[h] = want if want > 0.0 else 0.0
+        for gen in flexible_names:
+            dispatch_gw[gen] = np.array(disp_l[gen], dtype=float)
+            curtailed_gw[gen] = np.array(curt_l[gen], dtype=float)
+        residual_gw = np.array(unserved_l, dtype=float)
 
     unserved_gw = residual_gw
 
@@ -465,6 +533,8 @@ def run_dispatch_ensemble(
     return_members: bool = False,
     min_cf: dict[str, float] | None = None,
     max_cf: dict[str, float] | None = None,
+    ramp_up: dict[str, float] | None = None,
+    ramp_down: dict[str, float] | None = None,
 ) -> dict[str, Any]:
     from backend.core.hourly_profiles import sample_ensemble
 
@@ -481,6 +551,8 @@ def run_dispatch_ensemble(
             storage_tiers=storage_tiers,
             min_cf=min_cf,
             max_cf=max_cf,
+            ramp_up=ramp_up,
+            ramp_down=ramp_down,
         )
         for year_profile in sampled_profiles
     ]

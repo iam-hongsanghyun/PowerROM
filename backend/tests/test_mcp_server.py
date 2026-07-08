@@ -100,7 +100,8 @@ def test_calculate_reports_required_ess_addition() -> None:
     # A VRE-heavy build with thermal throttled must add storage to meet load; the tool reports that
     # required ESS both as power (GW) and energy (GWh), and short energy = power x duration.
     prof = srv.get_country_profile("KR")
-    caps = dict(prof["capacities_gw"]); caps["coal"] = 0.0
+    caps = dict(prof["capacities_gw"])
+    caps["coal"] = 0.0
     r = srv.calculate_lcoe("KR", capacities_gw=caps, carbon_price=50.0,
                            expandable=["solar", "wind_onshore", "storage"], meet_full_load=True,
                            max_cf={"gas_ccgt": 0.2}, ess_short_power_gw=20.0, ess_long_power_gw=5.0,
@@ -109,6 +110,20 @@ def test_calculate_reports_required_ess_addition() -> None:
     assert ess["total_power_gw"] > 0 and ess["total_energy_gwh"] > 0
     # Short energy = short power x duration (4 h for the short tier: 80 GWh / 20 GW).
     assert ess["short_energy_gwh"] == pytest.approx(ess["short_power_gw"] * 4.0, rel=0.02)
+
+
+def test_run_dispatch_accepts_ramp_limits() -> None:
+    # Ramp limits are a valid lever on run_dispatch and hold hour-to-hour gas output changes to the
+    # cap: a tight 8%/h ramp on gas must not produce a larger swing than a loose 80%/h ramp.
+    caps = dict(srv.get_country_profile("KR")["capacities_gw"])
+    import numpy as np
+
+    def max_gas_swing(ramp: float) -> float:
+        d = srv.run_dispatch("KR", capacities_gw=caps, carbon_price=50.0, dispatch_mode="parametric",
+                             ramp_up={"gas_ccgt": ramp}, ramp_down={"gas_ccgt": ramp})
+        return float(np.max(np.abs(np.diff(d["hourly_generation"]["series"]["gas_ccgt"]))))
+
+    assert max_gas_swing(0.08) <= max_gas_swing(0.80) + 1e-6
 
 
 def test_pathway_tool_runs_with_expansion() -> None:

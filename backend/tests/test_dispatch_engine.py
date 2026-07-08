@@ -230,6 +230,52 @@ def test_cf_limits_validation_rejects_min_above_max() -> None:
     CalculateRequest(**common, min_cf={"coal": 0.3}, max_cf={"coal": 0.8})
 
 
+def test_ramp_limits_bound_hourly_output_change() -> None:
+    # An alternating high/low demand forces a large hourly swing. A 10%/h ramp cap on coal (a 10 GW
+    # fleet ⇒ 1 GW/h) means it cannot follow: its hour-to-hour change is bounded and the unfollowable
+    # swing shows up as extra curtailment + unserved that the unconstrained merit dispatch never had.
+    alt = np.resize(np.array([1.5, 0.5]), HOURS_PER_YEAR)  # mean 1.0, swings ±0.5 every hour
+    year = YearProfile(
+        country="TT", year=2024, demand_norm=alt,
+        solar_cf=np.zeros(HOURS_PER_YEAR), wind_cf=np.zeros(HOURS_PER_YEAR), source="test",
+    )
+    kwargs = dict(
+        profile={"generators": {"coal": {"cf_base": 1.0}}}, year_profile=year,
+        shares={"coal": 1.0}, annual_demand_twh=5.0 * HOURS_PER_YEAR / 1000,  # mean 5 GW
+        capacities_gw={"coal": 10.0},
+    )
+    base = dispatch_hourly(**kwargs)
+    ramped = dispatch_hourly(**kwargs, ramp_up={"coal": 0.1}, ramp_down={"coal": 0.1})
+    base_swing = float(np.max(np.abs(np.diff(base.dispatch_gw["coal"]))))
+    ramp_swing = float(np.max(np.abs(np.diff(ramped.dispatch_gw["coal"]))))
+    assert base_swing > 4.0                    # unconstrained coal chases the full ~5 GW swing
+    assert ramp_swing <= 0.1 * 10.0 + 1e-6     # ramp caps the hourly change at 1 GW
+    base_mismatch = float(np.sum(base.curtailed_gw["coal"]) + np.sum(base.unserved_gw))
+    ramp_mismatch = float(np.sum(ramped.curtailed_gw["coal"]) + np.sum(ramped.unserved_gw))
+    assert base_mismatch < 1.0 and ramp_mismatch > base_mismatch + 1.0  # ramp forces a mismatch
+
+
+def test_ramp_limits_absent_is_a_noop() -> None:
+    # No ramp rates ⇒ the fast vectorized fill is kept and results are byte-identical (regression).
+    year = _flat_year()
+    kwargs = dict(
+        profile={"generators": {"solar": {"cf_base": 1.0}, "coal": {"cf_base": 1.0}}},
+        year_profile=year, shares={"solar": 0.5, "coal": 0.5},
+        annual_demand_twh=8.76, capacities_gw={"solar": 1.0, "coal": 1.0},
+    )
+    base = dispatch_hourly(**kwargs)
+    same = dispatch_hourly(**kwargs, ramp_up={}, ramp_down={})
+    for gen in ("solar", "coal"):
+        np.testing.assert_array_equal(base.dispatch_gw[gen], same.dispatch_gw[gen])
+
+
+def test_ramp_validation_rejects_negative_rate() -> None:
+    common = dict(country="KR", shares={"coal": 1.0}, carbon_price=50.0)
+    with pytest.raises(ValidationError):
+        CalculateRequest(**common, ramp_up={"coal": -0.1})
+    CalculateRequest(**common, ramp_up={"coal": 0.3}, ramp_down={"coal": 0.5})  # valid
+
+
 def test_min_max_cf_absent_is_a_noop() -> None:
     # Empty/None limits must dispatch identically to the unconstrained call (backward compatible).
     year = _flat_year()

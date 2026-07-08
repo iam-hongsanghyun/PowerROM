@@ -44,6 +44,11 @@ class CalculateRequest(BaseModel):
     # ceiling. Absent generators are unconstrained.
     min_cf: dict[str, float] | None = None
     max_cf: dict[str, float] | None = None
+    # Per-generator ramp limits (fraction of nameplate per hour): the most a flexible thermal can
+    # change output between adjacent hours. Absent generators ramp freely. When either is set, the
+    # dispatch switches to a sequential ramp-constrained fill.
+    ramp_up: dict[str, float] | None = None
+    ramp_down: dict[str, float] | None = None
     carbon_price: float = Field(ge=0, le=500)
     ev_penetration: float = Field(default=0.0, ge=0.0, le=0.5)
     annual_demand_twh: float | None = Field(default=None, gt=0)
@@ -103,6 +108,9 @@ class CalculateRequest(BaseModel):
             for gen in set(self.min_cf) & set(self.max_cf):
                 if self.min_cf[gen] > self.max_cf[gen]:
                     raise ValueError(f"min_cf[{gen}] cannot exceed max_cf[{gen}].")
+        for name, rates in (("ramp_up", self.ramp_up), ("ramp_down", self.ramp_down)):
+            if rates and any(value < 0.0 for value in rates.values()):
+                raise ValueError(f"{name} values (fraction of capacity per hour) cannot be negative.")
         return self
 
 

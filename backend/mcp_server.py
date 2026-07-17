@@ -32,11 +32,11 @@ from backend.core.lcoe_engine import (
     size_mix_for_adequacy,
 )
 
-# stateless_http lets the Streamable-HTTP transport run without persistent sessions, which suits
-# serverless (each request is independent). streamable_http_path="/" so the app can be mounted at
-# /mcp in the FastAPI server without the path doubling to /mcp/mcp. DNS-rebinding host protection
-# is disabled because this is a hosted public endpoint (that guard is for local-only servers, and
-# it otherwise rejects the Vercel host with "Invalid Host header"). None of this affects stdio.
+# This server runs over stdio; the API no longer serves it over HTTP (see backend/main.py). The
+# Streamable-HTTP settings below are inert under stdio and are kept so the server can be mounted
+# over HTTP again without rework: stateless_http drops persistent sessions, streamable_http_path
+# ="/" stops the path doubling to /mcp/mcp when mounted at /mcp, and DNS-rebinding protection is
+# off because that guard is for local-only servers and rejects a hosted origin's Host header.
 mcp = FastMCP(
     "powerrom",
     stateless_http=True,

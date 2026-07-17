@@ -6,4 +6,3 @@ pandas
 openpyxl
 pydantic
 python-multipart
-mcp>=1.2

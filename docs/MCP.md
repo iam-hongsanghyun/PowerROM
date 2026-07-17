@@ -43,23 +43,15 @@ Run it directly over stdio:
 python -m backend.mcp_server
 ```
 
-## Remote (hosted on Vercel)
+## Remote (not available)
 
-The server is also exposed over MCP's **Streamable-HTTP** transport at:
+There is no hosted endpoint — the server is stdio-only. It was previously served over
+Streamable-HTTP at `/mcp` from the Vercel function, and was withdrawn because that transport holds
+long-lived connections, which a serverless host bills as active compute.
 
-```
-https://power-rom.vercel.app/mcp/
-```
-
-Any MCP client can connect by URL — no local install. With Claude Code:
-
-```bash
-claude mcp add --transport http powerrom https://power-rom.vercel.app/mcp/
-```
-
-It runs stateless inside the same Vercel Python function that serves the API, wired into the app
-lifespan (`backend/main.py`), and routed via `vercel.json`. DNS-rebinding host protection is
-disabled because it is a hosted public endpoint.
+Re-enabling it means adding `mcp` to `requirements.txt`, mounting `mcp.streamable_http_app()` in
+`backend/main.py`, and routing `/mcp` in `vercel.json`. Prefer a persistent host (a VPS or
+container) over a serverless one if you do: MCP's connection model fights per-request timeouts.
 
 ## Register with Claude Code (local stdio)
 

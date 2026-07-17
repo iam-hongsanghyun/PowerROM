@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "powerrom": {
+      "command": "${HOME}/miniforge3/envs/powerrom/bin/python",
+      "args": ["-u", "-m", "backend.mcp_server"]
+    }
+  }
+}

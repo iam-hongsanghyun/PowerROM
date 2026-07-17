@@ -61,16 +61,23 @@ The repo ships a project-scoped [`.mcp.json`](../.mcp.json):
 {
   "mcpServers": {
     "powerrom": {
-      "command": "conda",
-      "args": ["run", "--no-capture-output", "-n", "powerrom", "python", "-u", "-m", "backend.mcp_server"]
+      "command": "${HOME}/miniforge3/envs/powerrom/bin/python",
+      "args": ["-u", "-m", "backend.mcp_server"]
     }
   }
 }
 ```
 
-Restart Claude Code in this directory (and approve the server) to load it. If `conda` isn't on your
-`PATH`, replace `command`/`args` with the absolute interpreter path, e.g.
-`"command": "/path/to/envs/powerrom/bin/python", "args": ["-u", "-m", "backend.mcp_server"]`.
+Restart Claude Code in this directory (and approve the server) to load it.
+
+The interpreter is named by absolute path rather than via `conda run -n powerrom`: `conda run` wraps
+the process in a shell function that fails with `__conda_exe: permission denied` on some setups, and
+it buffers stdio, which the MCP transport needs unbuffered. Point `command` at whichever interpreter
+has `requirements-mcp.txt` installed if your env lives elsewhere.
+
+Keep the scope **project**, not user: the server is launched as `python -m backend.mcp_server`, which
+only resolves when the working directory is this repo. A user-scoped entry would fail to import
+`backend` from any other project.
 
 ## Example
 

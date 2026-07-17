@@ -1,7 +1,7 @@
 {
   "ember_source": "https://storage.googleapis.com/emb-prod-bkt-publicdata/public-downloads/yearly_full_release_long_format.csv",
   "latest_settled_year": 2024,
-  "country_count": 33,
+  "country_count": 164,
   "cost_source": "Regional cost levers \u2014 delivered gas/coal prices, discount rate (WACC) and a VRE capex multiplier \u2014 from IEA WEO 2024 regional assumptions and IRENA 2024 (see COUNTRY_REGION)",
   "countries": {
     "AE": {
@@ -11,12 +11,40 @@
       "region": "middle_east",
       "demand_twh": 177.02
     },
+    "AF": {
+      "name": "Afghanistan",
+      "iso3": "AFG",
+      "data_year": 2024,
+      "region": "south_asia",
+      "demand_twh": 6.82
+    },
+    "AM": {
+      "name": "Armenia",
+      "iso3": "ARM",
+      "data_year": 2024,
+      "region": "emerging_europe",
+      "demand_twh": 7.64
+    },
+    "AO": {
+      "name": "Angola",
+      "iso3": "AGO",
+      "data_year": 2024,
+      "region": "africa",
+      "demand_twh": 15.59
+    },
     "AR": {
       "name": "Argentina",
       "iso3": "ARG",
       "data_year": 2024,
       "region": "lat_am",
       "demand_twh": 161.68
+    },
+    "AT": {
+      "name": "Austria",
+      "iso3": "AUT",
+      "data_year": 2024,
+      "region": "europe",
+      "demand_twh": 71.69
     },
     "AU": {
       "name": "Australia",
@@ -25,12 +53,124 @@
       "region": "oceania",
       "demand_twh": 281.64
     },
+    "AW": {
+      "name": "Aruba",
+      "iso3": "ABW",
+      "data_year": 2024,
+      "region": "lat_am",
+      "demand_twh": 1.0
+    },
+    "AZ": {
+      "name": "Azerbaijan",
+      "iso3": "AZE",
+      "data_year": 2024,
+      "region": "central_asia",
+      "demand_twh": 26.61
+    },
+    "BA": {
+      "name": "Bosnia and Herzegovina",
+      "iso3": "BIH",
+      "data_year": 2024,
+      "region": "emerging_europe",
+      "demand_twh": 13.06
+    },
+    "BB": {
+      "name": "Barbados",
+      "iso3": "BRB",
+      "data_year": 2024,
+      "region": "lat_am",
+      "demand_twh": 1.11
+    },
+    "BD": {
+      "name": "Bangladesh",
+      "iso3": "BGD",
+      "data_year": 2024,
+      "region": "south_asia",
+      "demand_twh": 111.74
+    },
+    "BE": {
+      "name": "Belgium",
+      "iso3": "BEL",
+      "data_year": 2024,
+      "region": "europe",
+      "demand_twh": 86.16
+    },
+    "BF": {
+      "name": "Burkina Faso",
+      "iso3": "BFA",
+      "data_year": 2024,
+      "region": "africa",
+      "demand_twh": 3.19
+    },
+    "BG": {
+      "name": "Bulgaria",
+      "iso3": "BGR",
+      "data_year": 2024,
+      "region": "europe",
+      "demand_twh": 37.31
+    },
+    "BH": {
+      "name": "Bahrain",
+      "iso3": "BHR",
+      "data_year": 2024,
+      "region": "middle_east",
+      "demand_twh": 38.44
+    },
+    "BJ": {
+      "name": "Benin",
+      "iso3": "BEN",
+      "data_year": 2024,
+      "region": "africa",
+      "demand_twh": 2.31
+    },
+    "BN": {
+      "name": "Brunei",
+      "iso3": "BRN",
+      "data_year": 2024,
+      "region": "se_asia",
+      "demand_twh": 5.56
+    },
+    "BO": {
+      "name": "Bolivia",
+      "iso3": "BOL",
+      "data_year": 2024,
+      "region": "lat_am",
+      "demand_twh": 13.53
+    },
     "BR": {
       "name": "Brazil",
       "iso3": "BRA",
       "data_year": 2024,
       "region": "lat_am",
       "demand_twh": 757.31
+    },
+    "BS": {
+      "name": "Bahamas",
+      "iso3": "BHS",
+      "data_year": 2024,
+      "region": "lat_am",
+      "demand_twh": 2.25
+    },
+    "BT": {
+      "name": "Bhutan",
+      "iso3": "BTN",
+      "data_year": 2024,
+      "region": "south_asia",
+      "demand_twh": 12.46
+    },
+    "BW": {
+      "name": "Botswana",
+      "iso3": "BWA",
+      "data_year": 2024,
+      "region": "africa",
+      "demand_twh": 4.67
+    },
+    "BY": {
+      "name": "Belarus",
+      "iso3": "BLR",
+      "data_year": 2024,
+      "region": "emerging_europe",
+      "demand_twh": 45.22
     },
     "CA": {
       "name": "Canada",
@@ -39,6 +179,34 @@
       "region": "north_america",
       "demand_twh": 624.36
     },
+    "CD": {
+      "name": "DR Congo",
+      "iso3": "COD",
+      "data_year": 2024,
+      "region": "africa",
+      "demand_twh": 17.36
+    },
+    "CG": {
+      "name": "Congo",
+      "iso3": "COG",
+      "data_year": 2024,
+      "region": "africa",
+      "demand_twh": 5.38
+    },
+    "CH": {
+      "name": "Switzerland",
+      "iso3": "CHE",
+      "data_year": 2024,
+      "region": "europe",
+      "demand_twh": 63.97
+    },
+    "CI": {
+      "name": "Cote d'Ivoire",
+      "iso3": "CIV",
+      "data_year": 2024,
+      "region": "africa",
+      "demand_twh": 10.06
+    },
     "CL": {
       "name": "Chile",
       "iso3": "CHL",
@@ -46,12 +214,54 @@
       "region": "lat_am",
       "demand_twh": 88.62
     },
+    "CM": {
+      "name": "Cameroon",
+      "iso3": "CMR",
+      "data_year": 2024,
+      "region": "africa",
+      "demand_twh": 7.32
+    },
     "CN": {
       "name": "China",
       "iso3": "CHN",
       "data_year": 2024,
       "region": "china",
       "demand_twh": 10069.88
+    },
+    "CO": {
+      "name": "Colombia",
+      "iso3": "COL",
+      "data_year": 2024,
+      "region": "lat_am",
+      "demand_twh": 89.14
+    },
+    "CR": {
+      "name": "Costa Rica",
+      "iso3": "CRI",
+      "data_year": 2024,
+      "region": "lat_am",
+      "demand_twh": 11.22
+    },
+    "CU": {
+      "name": "Cuba",
+      "iso3": "CUB",
+      "data_year": 2024,
+      "region": "lat_am",
+      "demand_twh": 19.43
+    },
+    "CY": {
+      "name": "Cyprus",
+      "iso3": "CYP",
+      "data_year": 2024,
+      "region": "europe",
+      "demand_twh": 5.79
+    },
+    "CZ": {
+      "name": "Czechia",
+      "iso3": "CZE",
+      "data_year": 2024,
+      "region": "europe",
+      "demand_twh": 66.15
     },
     "DE": {
       "name": "Germany",
@@ -67,12 +277,54 @@
       "region": "europe",
       "demand_twh": 38.96
     },
+    "DO": {
+      "name": "Dominican Republic",
+      "iso3": "DOM",
+      "data_year": 2024,
+      "region": "lat_am",
+      "demand_twh": 24.03
+    },
+    "DZ": {
+      "name": "Algeria",
+      "iso3": "DZA",
+      "data_year": 2024,
+      "region": "africa",
+      "demand_twh": 93.84
+    },
+    "EC": {
+      "name": "Ecuador",
+      "iso3": "ECU",
+      "data_year": 2024,
+      "region": "lat_am",
+      "demand_twh": 33.36
+    },
+    "EE": {
+      "name": "Estonia",
+      "iso3": "EST",
+      "data_year": 2024,
+      "region": "europe",
+      "demand_twh": 9.18
+    },
+    "EG": {
+      "name": "Egypt",
+      "iso3": "EGY",
+      "data_year": 2024,
+      "region": "africa",
+      "demand_twh": 235.99
+    },
     "ES": {
       "name": "Spain",
       "iso3": "ESP",
       "data_year": 2024,
       "region": "europe",
       "demand_twh": 270.71
+    },
+    "ET": {
+      "name": "Ethiopia",
+      "iso3": "ETH",
+      "data_year": 2024,
+      "region": "africa",
+      "demand_twh": 23.44
     },
     "FI": {
       "name": "Finland",
@@ -81,6 +333,13 @@
       "region": "europe",
       "demand_twh": 85.73
     },
+    "FJ": {
+      "name": "Fiji",
+      "iso3": "FJI",
+      "data_year": 2024,
+      "region": "se_asia",
+      "demand_twh": 1.15
+    },
     "FR": {
       "name": "France",
       "iso3": "FRA",
@@ -88,12 +347,110 @@
       "region": "europe",
       "demand_twh": 471.96
     },
+    "GA": {
+      "name": "Gabon",
+      "iso3": "GAB",
+      "data_year": 2024,
+      "region": "africa",
+      "demand_twh": 3.18
+    },
     "GB": {
       "name": "United Kingdom",
       "iso3": "GBR",
       "data_year": 2024,
       "region": "europe",
       "demand_twh": 317.35
+    },
+    "GE": {
+      "name": "Georgia",
+      "iso3": "GEO",
+      "data_year": 2024,
+      "region": "emerging_europe",
+      "demand_twh": 14.11
+    },
+    "GH": {
+      "name": "Ghana",
+      "iso3": "GHA",
+      "data_year": 2024,
+      "region": "africa",
+      "demand_twh": 21.83
+    },
+    "GN": {
+      "name": "Guinea",
+      "iso3": "GIN",
+      "data_year": 2024,
+      "region": "africa",
+      "demand_twh": 4.03
+    },
+    "GP": {
+      "name": "Guadeloupe",
+      "iso3": "GLP",
+      "data_year": 2023,
+      "region": "lat_am",
+      "demand_twh": 1.67
+    },
+    "GQ": {
+      "name": "Equatorial Guinea",
+      "iso3": "GNQ",
+      "data_year": 2024,
+      "region": "africa",
+      "demand_twh": 1.49
+    },
+    "GR": {
+      "name": "Greece",
+      "iso3": "GRC",
+      "data_year": 2024,
+      "region": "europe",
+      "demand_twh": 56.77
+    },
+    "GT": {
+      "name": "Guatemala",
+      "iso3": "GTM",
+      "data_year": 2024,
+      "region": "lat_am",
+      "demand_twh": 16.35
+    },
+    "GU": {
+      "name": "Guam",
+      "iso3": "GUM",
+      "data_year": 2024,
+      "region": "se_asia",
+      "demand_twh": 1.86
+    },
+    "GY": {
+      "name": "Guyana",
+      "iso3": "GUY",
+      "data_year": 2024,
+      "region": "lat_am",
+      "demand_twh": 1.38
+    },
+    "HK": {
+      "name": "Hong Kong",
+      "iso3": "HKG",
+      "data_year": 2024,
+      "region": "ne_asia_adv",
+      "demand_twh": 48.81
+    },
+    "HN": {
+      "name": "Honduras",
+      "iso3": "HND",
+      "data_year": 2024,
+      "region": "lat_am",
+      "demand_twh": 12.63
+    },
+    "HR": {
+      "name": "Croatia",
+      "iso3": "HRV",
+      "data_year": 2024,
+      "region": "europe",
+      "demand_twh": 19.65
+    },
+    "HU": {
+      "name": "Hungary",
+      "iso3": "HUN",
+      "data_year": 2024,
+      "region": "europe",
+      "demand_twh": 48.73
     },
     "ID": {
       "name": "Indonesia",
@@ -109,12 +466,40 @@
       "region": "europe",
       "demand_twh": 36.14
     },
+    "IL": {
+      "name": "Israel",
+      "iso3": "ISR",
+      "data_year": 2024,
+      "region": "middle_east",
+      "demand_twh": 74.0
+    },
     "IN": {
       "name": "India",
       "iso3": "IND",
       "data_year": 2024,
       "region": "south_asia",
       "demand_twh": 2034.22
+    },
+    "IQ": {
+      "name": "Iraq",
+      "iso3": "IRQ",
+      "data_year": 2024,
+      "region": "middle_east",
+      "demand_twh": 156.83
+    },
+    "IR": {
+      "name": "Iran",
+      "iso3": "IRN",
+      "data_year": 2024,
+      "region": "middle_east",
+      "demand_twh": 393.39
+    },
+    "IS": {
+      "name": "Iceland",
+      "iso3": "ISL",
+      "data_year": 2024,
+      "region": "europe",
+      "demand_twh": 19.05
     },
     "IT": {
       "name": "Italy",
@@ -123,6 +508,20 @@
       "region": "europe",
       "demand_twh": 318.56
     },
+    "JM": {
+      "name": "Jamaica",
+      "iso3": "JAM",
+      "data_year": 2024,
+      "region": "lat_am",
+      "demand_twh": 4.92
+    },
+    "JO": {
+      "name": "Jordan",
+      "iso3": "JOR",
+      "data_year": 2024,
+      "region": "middle_east",
+      "demand_twh": 23.73
+    },
     "JP": {
       "name": "Japan",
       "iso3": "JPN",
@@ -130,12 +529,201 @@
       "region": "ne_asia_adv",
       "demand_twh": 1016.39
     },
+    "KE": {
+      "name": "Kenya",
+      "iso3": "KEN",
+      "data_year": 2024,
+      "region": "africa",
+      "demand_twh": 14.75
+    },
+    "KG": {
+      "name": "Kyrgyzstan",
+      "iso3": "KGZ",
+      "data_year": 2024,
+      "region": "central_asia",
+      "demand_twh": 19.25
+    },
+    "KH": {
+      "name": "Cambodia",
+      "iso3": "KHM",
+      "data_year": 2024,
+      "region": "se_asia",
+      "demand_twh": 20.0
+    },
+    "KP": {
+      "name": "North Korea",
+      "iso3": "PRK",
+      "data_year": 2024,
+      "region": "china",
+      "demand_twh": 27.1
+    },
     "KR": {
       "name": "South Korea",
       "iso3": "KOR",
       "data_year": 2024,
       "region": "ne_asia_adv",
       "demand_twh": 625.38
+    },
+    "KW": {
+      "name": "Kuwait",
+      "iso3": "KWT",
+      "data_year": 2024,
+      "region": "middle_east",
+      "demand_twh": 92.49
+    },
+    "KZ": {
+      "name": "Kazakhstan",
+      "iso3": "KAZ",
+      "data_year": 2024,
+      "region": "central_asia",
+      "demand_twh": 120.92
+    },
+    "LA": {
+      "name": "Laos",
+      "iso3": "LAO",
+      "data_year": 2024,
+      "region": "se_asia",
+      "demand_twh": 15.61
+    },
+    "LB": {
+      "name": "Lebanon",
+      "iso3": "LBN",
+      "data_year": 2024,
+      "region": "middle_east",
+      "demand_twh": 5.34
+    },
+    "LK": {
+      "name": "Sri Lanka",
+      "iso3": "LKA",
+      "data_year": 2024,
+      "region": "south_asia",
+      "demand_twh": 17.06
+    },
+    "LT": {
+      "name": "Lithuania",
+      "iso3": "LTU",
+      "data_year": 2024,
+      "region": "europe",
+      "demand_twh": 12.79
+    },
+    "LU": {
+      "name": "Luxembourg",
+      "iso3": "LUX",
+      "data_year": 2024,
+      "region": "europe",
+      "demand_twh": 6.76
+    },
+    "LV": {
+      "name": "Latvia",
+      "iso3": "LVA",
+      "data_year": 2024,
+      "region": "europe",
+      "demand_twh": 7.4
+    },
+    "LY": {
+      "name": "Libya",
+      "iso3": "LBY",
+      "data_year": 2024,
+      "region": "africa",
+      "demand_twh": 34.59
+    },
+    "MA": {
+      "name": "Morocco",
+      "iso3": "MAR",
+      "data_year": 2024,
+      "region": "africa",
+      "demand_twh": 44.94
+    },
+    "MD": {
+      "name": "Moldova",
+      "iso3": "MDA",
+      "data_year": 2024,
+      "region": "emerging_europe",
+      "demand_twh": 6.06
+    },
+    "ME": {
+      "name": "Montenegro",
+      "iso3": "MNE",
+      "data_year": 2024,
+      "region": "emerging_europe",
+      "demand_twh": 3.37
+    },
+    "MG": {
+      "name": "Madagascar",
+      "iso3": "MDG",
+      "data_year": 2024,
+      "region": "africa",
+      "demand_twh": 2.43
+    },
+    "MK": {
+      "name": "North Macedonia",
+      "iso3": "MKD",
+      "data_year": 2024,
+      "region": "emerging_europe",
+      "demand_twh": 7.02
+    },
+    "ML": {
+      "name": "Mali",
+      "iso3": "MLI",
+      "data_year": 2024,
+      "region": "africa",
+      "demand_twh": 5.46
+    },
+    "MM": {
+      "name": "Myanmar",
+      "iso3": "MMR",
+      "data_year": 2024,
+      "region": "se_asia",
+      "demand_twh": 21.92
+    },
+    "MN": {
+      "name": "Mongolia",
+      "iso3": "MNG",
+      "data_year": 2024,
+      "region": "central_asia",
+      "demand_twh": 11.54
+    },
+    "MO": {
+      "name": "Macao",
+      "iso3": "MAC",
+      "data_year": 2024,
+      "region": "ne_asia_adv",
+      "demand_twh": 6.28
+    },
+    "MQ": {
+      "name": "Martinique",
+      "iso3": "MTQ",
+      "data_year": 2023,
+      "region": "lat_am",
+      "demand_twh": 1.51
+    },
+    "MR": {
+      "name": "Mauritania",
+      "iso3": "MRT",
+      "data_year": 2024,
+      "region": "africa",
+      "demand_twh": 2.37
+    },
+    "MT": {
+      "name": "Malta",
+      "iso3": "MLT",
+      "data_year": 2024,
+      "region": "europe",
+      "demand_twh": 3.16
+    },
+    "MU": {
+      "name": "Mauritius",
+      "iso3": "MUS",
+      "data_year": 2024,
+      "region": "africa",
+      "demand_twh": 3.41
+    },
+    "MW": {
+      "name": "Malawi",
+      "iso3": "MWI",
+      "data_year": 2024,
+      "region": "africa",
+      "demand_twh": 1.81
     },
     "MX": {
       "name": "Mexico",
@@ -151,6 +739,48 @@
       "region": "se_asia",
       "demand_twh": 197.04
     },
+    "MZ": {
+      "name": "Mozambique",
+      "iso3": "MOZ",
+      "data_year": 2024,
+      "region": "africa",
+      "demand_twh": 16.49
+    },
+    "NA": {
+      "name": "Namibia",
+      "iso3": "NAM",
+      "data_year": 2024,
+      "region": "africa",
+      "demand_twh": 4.04
+    },
+    "NC": {
+      "name": "New Caledonia",
+      "iso3": "NCL",
+      "data_year": 2024,
+      "region": "se_asia",
+      "demand_twh": 3.12
+    },
+    "NE": {
+      "name": "Niger",
+      "iso3": "NER",
+      "data_year": 2024,
+      "region": "africa",
+      "demand_twh": 2.15
+    },
+    "NG": {
+      "name": "Nigeria",
+      "iso3": "NGA",
+      "data_year": 2024,
+      "region": "africa",
+      "demand_twh": 35.26
+    },
+    "NI": {
+      "name": "Nicaragua",
+      "iso3": "NIC",
+      "data_year": 2024,
+      "region": "lat_am",
+      "demand_twh": 5.42
+    },
     "NL": {
       "name": "Netherlands",
       "iso3": "NLD",
@@ -165,12 +795,61 @@
       "region": "europe",
       "demand_twh": 138.67
     },
+    "NP": {
+      "name": "Nepal",
+      "iso3": "NPL",
+      "data_year": 2024,
+      "region": "south_asia",
+      "demand_twh": 11.03
+    },
+    "NZ": {
+      "name": "New Zealand",
+      "iso3": "NZL",
+      "data_year": 2024,
+      "region": "oceania",
+      "demand_twh": 44.01
+    },
+    "OM": {
+      "name": "Oman",
+      "iso3": "OMN",
+      "data_year": 2024,
+      "region": "middle_east",
+      "demand_twh": 49.1
+    },
+    "PA": {
+      "name": "Panama",
+      "iso3": "PAN",
+      "data_year": 2024,
+      "region": "lat_am",
+      "demand_twh": 13.29
+    },
+    "PE": {
+      "name": "Peru",
+      "iso3": "PER",
+      "data_year": 2024,
+      "region": "lat_am",
+      "demand_twh": 59.32
+    },
+    "PG": {
+      "name": "Papua New Guinea",
+      "iso3": "PNG",
+      "data_year": 2024,
+      "region": "se_asia",
+      "demand_twh": 4.73
+    },
     "PH": {
       "name": "Philippines",
       "iso3": "PHL",
       "data_year": 2024,
       "region": "se_asia",
       "demand_twh": 124.17
+    },
+    "PK": {
+      "name": "Pakistan",
+      "iso3": "PAK",
+      "data_year": 2024,
+      "region": "south_asia",
+      "demand_twh": 157.55
     },
     "PL": {
       "name": "Poland",
@@ -179,12 +858,89 @@
       "region": "europe",
       "demand_twh": 174.09
     },
+    "PR": {
+      "name": "Puerto Rico",
+      "iso3": "PRI",
+      "data_year": 2024,
+      "region": "lat_am",
+      "demand_twh": 20.0
+    },
+    "PS": {
+      "name": "Palestine",
+      "iso3": "PSE",
+      "data_year": 2024,
+      "region": "middle_east",
+      "demand_twh": 7.99
+    },
+    "PT": {
+      "name": "Portugal",
+      "iso3": "PRT",
+      "data_year": 2024,
+      "region": "europe",
+      "demand_twh": 57.74
+    },
+    "PY": {
+      "name": "Paraguay",
+      "iso3": "PRY",
+      "data_year": 2024,
+      "region": "lat_am",
+      "demand_twh": 26.41
+    },
+    "QA": {
+      "name": "Qatar",
+      "iso3": "QAT",
+      "data_year": 2024,
+      "region": "middle_east",
+      "demand_twh": 56.68
+    },
+    "RE": {
+      "name": "Reunion",
+      "iso3": "REU",
+      "data_year": 2023,
+      "region": "africa",
+      "demand_twh": 3.07
+    },
+    "RO": {
+      "name": "Romania",
+      "iso3": "ROU",
+      "data_year": 2024,
+      "region": "europe",
+      "demand_twh": 55.68
+    },
+    "RS": {
+      "name": "Serbia",
+      "iso3": "SRB",
+      "data_year": 2024,
+      "region": "emerging_europe",
+      "demand_twh": 37.48
+    },
+    "RU": {
+      "name": "Russia",
+      "iso3": "RUS",
+      "data_year": 2024,
+      "region": "emerging_europe",
+      "demand_twh": 1192.91
+    },
+    "RW": {
+      "name": "Rwanda",
+      "iso3": "RWA",
+      "data_year": 2024,
+      "region": "africa",
+      "demand_twh": 1.22
+    },
     "SA": {
       "name": "Saudi Arabia",
       "iso3": "SAU",
       "data_year": 2024,
       "region": "middle_east",
       "demand_twh": 454.59
+    },
+    "SD": {
+      "name": "Sudan",
+      "iso3": "SDN",
+      "data_year": 2024,
+      "region": "africa",
+      "demand_twh": 15.57
     },
     "SE": {
       "name": "Sweden",
@@ -193,12 +949,96 @@
       "region": "europe",
       "demand_twh": 138.71
     },
+    "SG": {
+      "name": "Singapore",
+      "iso3": "SGP",
+      "data_year": 2024,
+      "region": "ne_asia_adv",
+      "demand_twh": 59.63
+    },
+    "SI": {
+      "name": "Slovenia",
+      "iso3": "SVN",
+      "data_year": 2024,
+      "region": "europe",
+      "demand_twh": 14.3
+    },
+    "SK": {
+      "name": "Slovakia",
+      "iso3": "SVK",
+      "data_year": 2024,
+      "region": "europe",
+      "demand_twh": 26.57
+    },
+    "SN": {
+      "name": "Senegal",
+      "iso3": "SEN",
+      "data_year": 2024,
+      "region": "africa",
+      "demand_twh": 8.13
+    },
+    "SR": {
+      "name": "Suriname",
+      "iso3": "SUR",
+      "data_year": 2024,
+      "region": "lat_am",
+      "demand_twh": 1.74
+    },
+    "SV": {
+      "name": "El Salvador",
+      "iso3": "SLV",
+      "data_year": 2024,
+      "region": "lat_am",
+      "demand_twh": 6.2
+    },
+    "SY": {
+      "name": "Syria",
+      "iso3": "SYR",
+      "data_year": 2024,
+      "region": "middle_east",
+      "demand_twh": 24.28
+    },
+    "SZ": {
+      "name": "Eswatini",
+      "iso3": "SWZ",
+      "data_year": 2024,
+      "region": "africa",
+      "demand_twh": 1.65
+    },
+    "TG": {
+      "name": "Togo",
+      "iso3": "TGO",
+      "data_year": 2024,
+      "region": "africa",
+      "demand_twh": 2.21
+    },
     "TH": {
       "name": "Thailand",
       "iso3": "THA",
       "data_year": 2024,
       "region": "se_asia",
       "demand_twh": 231.93
+    },
+    "TJ": {
+      "name": "Tajikistan",
+      "iso3": "TJK",
+      "data_year": 2024,
+      "region": "central_asia",
+      "demand_twh": 19.6
+    },
+    "TM": {
+      "name": "Turkmenistan",
+      "iso3": "TKM",
+      "data_year": 2024,
+      "region": "central_asia",
+      "demand_twh": 24.01
+    },
+    "TN": {
+      "name": "Tunisia",
+      "iso3": "TUN",
+      "data_year": 2024,
+      "region": "africa",
+      "demand_twh": 23.96
     },
     "TR": {
       "name": "Turkey",
@@ -207,12 +1047,40 @@
       "region": "emerging_europe",
       "demand_twh": 340.24
     },
+    "TT": {
+      "name": "Trinidad and Tobago",
+      "iso3": "TTO",
+      "data_year": 2024,
+      "region": "lat_am",
+      "demand_twh": 9.55
+    },
     "TW": {
       "name": "Taiwan",
       "iso3": "TWN",
       "data_year": 2024,
       "region": "ne_asia_adv",
       "demand_twh": 288.56
+    },
+    "TZ": {
+      "name": "Tanzania",
+      "iso3": "TZA",
+      "data_year": 2024,
+      "region": "africa",
+      "demand_twh": 9.03
+    },
+    "UA": {
+      "name": "Ukraine",
+      "iso3": "UKR",
+      "data_year": 2022,
+      "region": "emerging_europe",
+      "demand_twh": 111.61
+    },
+    "UG": {
+      "name": "Uganda",
+      "iso3": "UGA",
+      "data_year": 2024,
+      "region": "africa",
+      "demand_twh": 5.37
     },
     "US": {
       "name": "United States",
@@ -221,6 +1089,27 @@
       "region": "north_america",
       "demand_twh": 4404.83
     },
+    "UY": {
+      "name": "Uruguay",
+      "iso3": "URY",
+      "data_year": 2024,
+      "region": "lat_am",
+      "demand_twh": 14.52
+    },
+    "UZ": {
+      "name": "Uzbekistan",
+      "iso3": "UZB",
+      "data_year": 2024,
+      "region": "central_asia",
+      "demand_twh": 84.43
+    },
+    "VE": {
+      "name": "Venezuela",
+      "iso3": "VEN",
+      "data_year": 2024,
+      "region": "lat_am",
+      "demand_twh": 80.13
+    },
     "VN": {
       "name": "Vietnam",
       "iso3": "VNM",
@@ -228,12 +1117,40 @@
       "region": "se_asia",
       "demand_twh": 307.18
     },
+    "XK": {
+      "name": "Kosovo",
+      "iso3": "XKX",
+      "data_year": 2024,
+      "region": "emerging_europe",
+      "demand_twh": 7.29
+    },
+    "YE": {
+      "name": "Yemen",
+      "iso3": "YEM",
+      "data_year": 2024,
+      "region": "middle_east",
+      "demand_twh": 5.25
+    },
     "ZA": {
       "name": "South Africa",
       "iso3": "ZAF",
       "data_year": 2024,
       "region": "africa",
       "demand_twh": 246.22
+    },
+    "ZM": {
+      "name": "Zambia",
+      "iso3": "ZMB",
+      "data_year": 2024,
+      "region": "africa",
+      "demand_twh": 16.6
+    },
+    "ZW": {
+      "name": "Zimbabwe",
+      "iso3": "ZWE",
+      "data_year": 2024,
+      "region": "africa",
+      "demand_twh": 12.1
     }
   },
   "refresh": "python -m backend.data.build_country_profiles --download"

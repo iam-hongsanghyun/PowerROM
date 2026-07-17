@@ -186,6 +186,17 @@ def test_fuel_import_tariff_raises_imported_fuel_only() -> None:
     assert 0.0 <= baseline["import_dependency"] <= 1.0  # energy-security metric reported
 
 
+def test_import_dependency_weights_other_by_fossil_fraction() -> None:
+    # "Other" is a mixed bucket: only its fossil slice (profile import_fuel_fraction, from the
+    # Ember within-bucket split) counts as imported fuel. Paraguay's "other" is ~pure hydro, so
+    # an other-dominated mix must NOT read as import-dependent; Kuwait's is oil-fired, so it must.
+    caps = {"solar": 0.3, "wind_onshore": 0.2, "gas_ccgt": 0.3, "coal": 0.2, "nuclear": 0.0, "other": 9.0}
+    py = calculate_system_lcoe(country="PY", shares=caps, carbon_price=0.0, capacities_gw=caps, ensemble=_SINGLE)
+    kw = calculate_system_lcoe(country="KW", shares=caps, carbon_price=0.0, capacities_gw=caps, ensemble=_SINGLE)
+    assert py["import_dependency"] < 0.25, "hydro-dominated 'other' misread as imported fuel"
+    assert kw["import_dependency"] > 0.60, "oil-fired 'other' must count as imported fuel"
+
+
 def test_rps_target_badge_and_penalty() -> None:
     caps = {"solar": 120, "wind_onshore": 60, "gas_ccgt": 30, "coal": 15, "nuclear": 18, "other": 6}
     base = dict(country="KR", shares=caps, carbon_price=50.0, capacities_gw=caps, ensemble=_SINGLE)

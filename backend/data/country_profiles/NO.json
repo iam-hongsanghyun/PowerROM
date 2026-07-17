@@ -222,8 +222,8 @@
       "opex_fixed_usd_kw_yr": 30,
       "opex_var_usd_mwh": 6,
       "lifetime_yr": 30,
-      "emission_factor_tco2_mwh": 0.12,
-      "fuel_usd_mmbtu": 5.0,
+      "emission_factor_tco2_mwh": 0.0036,
+      "fuel_usd_mmbtu": 0.0055,
       "heat_rate_mmbtu_mwh": 7.5,
       "cf_base": 0.4611,
       "cf_eff_func": {
@@ -253,7 +253,8 @@
       },
       "variability_factor": 0.3,
       "ramp_up_frac_per_hr": 0.7,
-      "ramp_down_frac_per_hr": 0.7
+      "ramp_down_frac_per_hr": 0.7,
+      "import_fuel_fraction": 0.0051
     },
     "wind_offshore": {
       "capex_usd_kw": 3675.0,
@@ -299,7 +300,9 @@
         "x_max": 0.95,
         "source": "Stylized curtailment from VRE share; wind smoother than solar"
       },
-      "variability_factor": 0.75
+      "variability_factor": 0.75,
+      "wind_weibull_k": 1.8,
+      "wind_ar1_rho": 0.93
     }
   },
   "ess": {
@@ -338,6 +341,7 @@
     "Technology structure (heat rates, dispatch/curtailment functions, storage): IEA WEO 2024 / IRENA Renewable Power Generation Costs 2024 (shared template)",
     "Regional cost levers \u2014 delivered gas/coal prices, discount rate (WACC) and a VRE capex multiplier \u2014 from IEA WEO 2024 regional assumptions and IRENA 2024 (see COUNTRY_REGION)",
     "Offshore wind capacity split from GWEC Global Wind Report 2024 / IRENA statistics; offshore costs from IRENA 2024 / NREL ATB 2024",
+    "'Other' bucket (hydro/bioenergy/geothermal/other fossil) emission factor, fuel cost and import-fuel weighting scaled by the bucket's real fossil share from Ember generation by fuel; oil/diesel steam EF 0.70 tCO2/MWh (IPCC 2006 at ~38% efficiency)",
     "Per-technology ramp rates (fraction of nameplate per hour) stylized from IEA/NREL unit-flexibility literature; nuclear runs as flat baseload and VRE is weather-driven (no ramp limit)",
     "Synthetic-profile stress knobs (VRE-drought frequency/duration/depth, wind AR(1) persistence, short-storage arbitrage price-percentile) \u2014 stylized reliability-modelling defaults, editable per country"
   ],

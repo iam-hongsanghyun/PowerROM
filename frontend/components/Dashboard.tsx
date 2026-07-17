@@ -145,6 +145,19 @@ const INITIAL_CAPACITIES = capacitiesFromSummary(
 // per-country reset (handleCountryChange) start from identical values.
 const DEFAULT_RPS_PENALTY_USD_MWH = 50;
 const DEFAULT_STORAGE: StorageInput = { shortPowerGw: 20, longPowerGw: 5 };
+// The illustrative storage default above is anchored to Korea (~625 TWh/yr). With the roster now
+// spanning 1–9000 TWh grids, seed each country's storage proportionally to its demand so a small
+// grid doesn't start with Korea-scale storage dominating its LCOE.
+const STORAGE_SEED_ANCHOR_TWH = 625;
+
+function storageSeedForDemand(demandTwh: number): StorageInput {
+  const scale = demandTwh / STORAGE_SEED_ANCHOR_TWH;
+  const round1 = (x: number) => Math.round(x * 10) / 10;
+  return {
+    shortPowerGw: round1(DEFAULT_STORAGE.shortPowerGw * scale),
+    longPowerGw: round1(DEFAULT_STORAGE.longPowerGw * scale),
+  };
+}
 const DEFAULT_ENSEMBLE: EnsembleConfig = { method: "jitter", n_samples: 5, sigma: 0.04, seed: 42 };
 
 function emptyCfInputs(): Record<(typeof GENERATOR_KEYS)[number], string> {
@@ -244,7 +257,9 @@ export function Dashboard() {
   // Seed the left-panel demand + installed-capacity inputs from a country's real Ember profile.
   function applyCountryDefaults(current: CountrySummary) {
     // Prefer Ember's demand series; fall back to generation for profiles that predate the field.
-    setAnnualDemandTwh(current.annual_demand_twh ?? current.annual_generation_twh);
+    const demandTwh = current.annual_demand_twh ?? current.annual_generation_twh;
+    setAnnualDemandTwh(demandTwh);
+    setStorage(storageSeedForDemand(demandTwh));
     const caps = capacitiesFromSummary(current);
     setCapacities(caps);
     setCapacityInputs(capacityInputDefaults(caps));
@@ -277,7 +292,7 @@ export function Dashboard() {
     setSubsidyPtc(0);
     setFuelImportTariff(0);
     setEvPenetration(DEFAULT_EV_PENETRATION);
-    setStorage({ ...DEFAULT_STORAGE });
+    // Storage is reseeded (demand-scaled) by applyCountryDefaults above.
     setDemandProfile({
       monthly: [...DEFAULT_DEMAND_PROFILE.monthly],
       daily: [...DEFAULT_DEMAND_PROFILE.daily],

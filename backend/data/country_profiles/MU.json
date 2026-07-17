@@ -1,0 +1,377 @@
+{
+  "name": "Mauritius",
+  "annual_generation_twh": 3.41,
+  "discount_rate": 0.1,
+  "generators": {
+    "solar": {
+      "capex_usd_kw": 900.0,
+      "opex_fixed_usd_kw_yr": 15,
+      "opex_var_usd_mwh": 0,
+      "lifetime_yr": 25,
+      "emission_factor_tco2_mwh": 0.0,
+      "cf_base": 0.14,
+      "cf_eff_func": {
+        "type": "logarithmic",
+        "params": {
+          "a": 0.14,
+          "b": 0.08,
+          "c": 3.0
+        },
+        "x_min": 0.05,
+        "x_max": 0.2,
+        "source": "Base CF from Ember; degradation-with-share stylized (IEA/IRENA)"
+      },
+      "eta_func": {
+        "type": "constant",
+        "params": {
+          "a": 1.0
+        },
+        "source": "Default renewable efficiency"
+      },
+      "integration_cost_func": {
+        "type": "quadratic",
+        "params": {
+          "a": 2.0,
+          "b": 0.5,
+          "c": 1.5
+        },
+        "source": "OECD/NEA integration cost stylization"
+      },
+      "curtailment_func": {
+        "type": "power",
+        "params": {
+          "a": 0.6,
+          "b": 1.8
+        },
+        "x_min": 0.0,
+        "x_max": 0.95,
+        "source": "Stylized curtailment from VRE share; IEA island-grid calibration"
+      },
+      "variability_factor": 1.0
+    },
+    "wind_onshore": {
+      "capex_usd_kw": 1400.0,
+      "opex_fixed_usd_kw_yr": 40,
+      "opex_var_usd_mwh": 0,
+      "lifetime_yr": 25,
+      "emission_factor_tco2_mwh": 0.0,
+      "cf_base": 0.1697,
+      "cf_eff_func": {
+        "type": "logarithmic",
+        "params": {
+          "a": 0.1697,
+          "b": 0.07,
+          "c": 2.4
+        },
+        "x_min": 0.08,
+        "x_max": 0.3,
+        "source": "Base CF from Ember; degradation-with-share stylized (IEA/IRENA)"
+      },
+      "eta_func": {
+        "type": "constant",
+        "params": {
+          "a": 1.0
+        },
+        "source": "Default renewable efficiency"
+      },
+      "integration_cost_func": {
+        "type": "quadratic",
+        "params": {
+          "a": 2.5,
+          "b": 0.8,
+          "c": 1.8
+        },
+        "source": "OECD/NEA integration cost stylization"
+      },
+      "curtailment_func": {
+        "type": "power",
+        "params": {
+          "a": 0.35,
+          "b": 1.8
+        },
+        "x_min": 0.0,
+        "x_max": 0.95,
+        "source": "Stylized curtailment from VRE share; wind smoother than solar"
+      },
+      "variability_factor": 0.85,
+      "wind_weibull_k": 1.8,
+      "wind_ar1_rho": 0.93
+    },
+    "gas_ccgt": {
+      "capex_usd_kw": 1100,
+      "opex_fixed_usd_kw_yr": 18,
+      "opex_var_usd_mwh": 4,
+      "lifetime_yr": 30,
+      "emission_factor_tco2_mwh": 0.36,
+      "fuel_usd_mmbtu": 6.0,
+      "heat_rate_mmbtu_mwh": 6.5,
+      "cf_base": 0.4051,
+      "cf_eff_func": {
+        "type": "linear",
+        "params": {
+          "a": 0.75,
+          "b": -0.55
+        },
+        "x_min": 0.1,
+        "x_max": 0.85,
+        "source": "Stylized VRE backup utilization"
+      },
+      "eta_func": {
+        "type": "logarithmic",
+        "params": {
+          "a": 0.55,
+          "b": 0.06,
+          "c": 2.0
+        },
+        "x_min": 0.35,
+        "x_max": 0.58,
+        "source": "Part-load gas efficiency stylization"
+      },
+      "integration_cost_func": {
+        "type": "constant",
+        "params": {
+          "a": 1.0
+        },
+        "source": "Default balancing overhead"
+      },
+      "variability_factor": 0.0,
+      "ramp_up_frac_per_hr": 0.8,
+      "ramp_down_frac_per_hr": 0.8
+    },
+    "coal": {
+      "capex_usd_kw": 2800,
+      "opex_fixed_usd_kw_yr": 45,
+      "opex_var_usd_mwh": 5,
+      "lifetime_yr": 40,
+      "emission_factor_tco2_mwh": 0.92,
+      "fuel_usd_mmbtu": 2.0,
+      "heat_rate_mmbtu_mwh": 9.5,
+      "cf_base": 0.5287,
+      "cf_eff_func": {
+        "type": "piecewise",
+        "params": {
+          "intercept": 0.78,
+          "threshold": 0.25,
+          "slope_before": -0.35,
+          "slope_after": -0.7
+        },
+        "x_min": 0.15,
+        "x_max": 0.8,
+        "source": "Merit-order displacement stylization"
+      },
+      "eta_func": {
+        "type": "logarithmic",
+        "params": {
+          "a": 0.41,
+          "b": 0.05,
+          "c": 2.0
+        },
+        "x_min": 0.28,
+        "x_max": 0.43,
+        "source": "Part-load coal efficiency stylization"
+      },
+      "integration_cost_func": {
+        "type": "constant",
+        "params": {
+          "a": 0.8
+        },
+        "source": "Default system overhead"
+      },
+      "variability_factor": 0.1,
+      "ramp_up_frac_per_hr": 0.5,
+      "ramp_down_frac_per_hr": 0.5
+    },
+    "nuclear": {
+      "capex_usd_kw": 4500,
+      "opex_fixed_usd_kw_yr": 110,
+      "opex_var_usd_mwh": 3,
+      "lifetime_yr": 40,
+      "emission_factor_tco2_mwh": 0.0,
+      "fuel_usd_mmbtu": 0.7,
+      "heat_rate_mmbtu_mwh": 10.0,
+      "cf_base": 0.8271,
+      "cf_eff_func": {
+        "type": "constant",
+        "params": {
+          "a": 0.87
+        },
+        "x_min": 0.8,
+        "x_max": 0.92,
+        "source": "Policy-managed nuclear utilization"
+      },
+      "eta_func": {
+        "type": "constant",
+        "params": {
+          "a": 0.33
+        },
+        "x_min": 0.3,
+        "x_max": 0.36,
+        "source": "Default nuclear thermal efficiency"
+      },
+      "integration_cost_func": {
+        "type": "constant",
+        "params": {
+          "a": 0.3
+        },
+        "source": "Default system overhead"
+      },
+      "variability_factor": 0.2
+    },
+    "other": {
+      "capex_usd_kw": 1800,
+      "opex_fixed_usd_kw_yr": 30,
+      "opex_var_usd_mwh": 6,
+      "lifetime_yr": 30,
+      "emission_factor_tco2_mwh": 0.5407,
+      "fuel_usd_mmbtu": 0.8334,
+      "heat_rate_mmbtu_mwh": 7.5,
+      "cf_base": 0.3537,
+      "cf_eff_func": {
+        "type": "constant",
+        "params": {
+          "a": 0.5
+        },
+        "x_min": 0.3,
+        "x_max": 0.65,
+        "source": "Default dispatchable bucket"
+      },
+      "eta_func": {
+        "type": "constant",
+        "params": {
+          "a": 0.42
+        },
+        "x_min": 0.35,
+        "x_max": 0.45,
+        "source": "Default dispatchable bucket"
+      },
+      "integration_cost_func": {
+        "type": "constant",
+        "params": {
+          "a": 1.0
+        },
+        "source": "Default system overhead"
+      },
+      "variability_factor": 0.3,
+      "ramp_up_frac_per_hr": 0.7,
+      "ramp_down_frac_per_hr": 0.7,
+      "import_fuel_fraction": 0.7725
+    },
+    "wind_offshore": {
+      "capex_usd_kw": 3500.0,
+      "opex_fixed_usd_kw_yr": 80,
+      "opex_var_usd_mwh": 0,
+      "lifetime_yr": 25,
+      "emission_factor_tco2_mwh": 0.0,
+      "cf_base": 0.42,
+      "cf_eff_func": {
+        "type": "logarithmic",
+        "params": {
+          "a": 0.42,
+          "b": 0.07,
+          "c": 2.4
+        },
+        "x_min": 0.08,
+        "x_max": 0.3,
+        "source": "Base CF from Ember; degradation-with-share stylized (IEA/IRENA)"
+      },
+      "eta_func": {
+        "type": "constant",
+        "params": {
+          "a": 1.0
+        },
+        "source": "Default renewable efficiency"
+      },
+      "integration_cost_func": {
+        "type": "quadratic",
+        "params": {
+          "a": 2.5,
+          "b": 0.8,
+          "c": 1.8
+        },
+        "source": "OECD/NEA integration cost stylization"
+      },
+      "curtailment_func": {
+        "type": "power",
+        "params": {
+          "a": 0.35,
+          "b": 1.8
+        },
+        "x_min": 0.0,
+        "x_max": 0.95,
+        "source": "Stylized curtailment from VRE share; wind smoother than solar"
+      },
+      "variability_factor": 0.75,
+      "wind_weibull_k": 1.8,
+      "wind_ar1_rho": 0.93
+    }
+  },
+  "ess": {
+    "short_dur": {
+      "capex_usd_kwh": 280,
+      "lifetime_yr": 15,
+      "cycles_per_year": 300,
+      "dod": 0.85,
+      "duration_hr": 4,
+      "ev_offset_gwh_per_unit": 18000,
+      "solar_absorption_fraction": 0.55,
+      "wind_onshore_absorption_fraction": 0.3,
+      "round_trip_efficiency": 0.85,
+      "arbitrage_price_percentile": 75.0
+    },
+    "long_dur": {
+      "capex_usd_kwh": 400,
+      "lifetime_yr": 25,
+      "cycles_per_year": 30,
+      "dod": 0.9,
+      "duration_hr": 168,
+      "threshold": 0.65,
+      "requirement_func": {
+        "type": "power",
+        "params": {
+          "a": 3.07,
+          "b": 3.6
+        },
+        "source": "Last-gap seasonal storage; kicks in above 65% VRE"
+      },
+      "round_trip_efficiency": 0.45
+    }
+  },
+  "sources": [
+    "Ember Yearly Electricity Data (full release), https://ember-energy.org/data/yearly-electricity-data/ \u2014 demand, installed capacity and generation by fuel (CC-BY-4.0); data year 2024",
+    "Technology structure (heat rates, dispatch/curtailment functions, storage): IEA WEO 2024 / IRENA Renewable Power Generation Costs 2024 (shared template)",
+    "Regional cost levers \u2014 delivered gas/coal prices, discount rate (WACC) and a VRE capex multiplier \u2014 from IEA WEO 2024 regional assumptions and IRENA 2024 (see COUNTRY_REGION)",
+    "Offshore wind capacity split from GWEC Global Wind Report 2024 / IRENA statistics; offshore costs from IRENA 2024 / NREL ATB 2024",
+    "'Other' bucket (hydro/bioenergy/geothermal/other fossil) emission factor, fuel cost and import-fuel weighting scaled by the bucket's real fossil share from Ember generation by fuel; oil/diesel steam EF 0.70 tCO2/MWh (IPCC 2006 at ~38% efficiency)",
+    "Per-technology ramp rates (fraction of nameplate per hour) stylized from IEA/NREL unit-flexibility literature; nuclear runs as flat baseload and VRE is weather-driven (no ramp limit)",
+    "Synthetic-profile stress knobs (VRE-drought frequency/duration/depth, wind AR(1) persistence, short-storage arbitrage price-percentile) \u2014 stylized reliability-modelling defaults, editable per country"
+  ],
+  "data_year": 2024,
+  "annual_demand_twh": 3.41,
+  "capacities_gw": {
+    "solar": 0.16,
+    "wind_onshore": 0.01,
+    "gas_ccgt": 0.0,
+    "coal": 0.19,
+    "nuclear": 0.0,
+    "other": 0.61,
+    "wind_offshore": 0.0
+  },
+  "shares": {
+    "solar": 0.0499,
+    "wind_onshore": 0.0029,
+    "gas_ccgt": 0.0,
+    "coal": 0.393,
+    "nuclear": 0.0,
+    "other": 0.5543,
+    "wind_offshore": 0.0
+  },
+  "region": "africa",
+  "latitude": -20.16,
+  "vre_drought": {
+    "events": 3,
+    "min_duration_hr": 36,
+    "max_duration_hr": 72,
+    "wind_floor": 0.05,
+    "solar_floor": 0.15
+  }
+}

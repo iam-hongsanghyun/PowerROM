@@ -1,6 +1,7 @@
 "use client";
 
 import type { CountrySummary } from "@/lib/api";
+import { CountrySelector } from "@/components/CountrySelector";
 import { InfoTip } from "@/components/InfoTip";
 
 /** User-set storage rated power (GW) per tier. Duration is set in the Parameters ESS section. */
@@ -36,21 +37,22 @@ export function ControlPanel({
   onStorageExpandableToggle: (value: boolean) => void;
   onAnnualDemandChange: (value: number) => void;
 }) {
+  // Demand-slider bounds anchored to the selected country's real annual demand, so the range is
+  // meaningful for a 2 TWh island grid and a 9000 TWh giant alike (a fixed 50–1200 TWh was not).
+  const summary = countries.find((item) => item.code === country);
+  const seedTwh = summary ? (summary.annual_demand_twh ?? summary.annual_generation_twh) : annualDemandTwh;
+  const demandMin = Math.max(1, Math.round(seedTwh * 0.25));
+  const demandMax = Math.max(10, Math.round(seedTwh * 2.5));
+  const demandStep = Math.max(1, Math.round(seedTwh / 100));
   return (
     <div className="space-y-5">
       <div className="space-y-2">
         <label className="text-sm font-medium text-slate-800">Country</label>
-        <select
-          value={country}
-          onChange={(event) => onCountryChange(event.target.value)}
-          className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-slate-400"
-        >
-          {countries.map((item) => (
-            <option key={item.code} value={item.code}>
-              {item.code} · {item.name}
-            </option>
-          ))}
-        </select>
+        <CountrySelector countries={countries} value={country} onChange={onCountryChange} />
+        <p className="text-[10px] text-slate-400">
+          Demand &amp; installed capacity seeded from Ember Yearly Electricity Data
+          {summary?.data_year ? ` (${summary.data_year})` : ""}
+        </p>
       </div>
 
       <div className="space-y-2">
@@ -63,9 +65,9 @@ export function ControlPanel({
         </div>
         <input
           type="range"
-          min={50}
-          max={1200}
-          step={10}
+          min={demandMin}
+          max={demandMax}
+          step={demandStep}
           value={annualDemandTwh}
           onChange={(event) => onAnnualDemandChange(Number(event.target.value))}
           className="h-2 w-full cursor-pointer appearance-none rounded-full bg-slate-200"

@@ -958,8 +958,13 @@ def _calculate_system_lcoe_dispatch(
     # Energy-security metric: the share of generation met by imported fuel (gas/coal/other).
     # A higher share means more exposure to fuel-price and supply shocks — the lever the
     # fuel-import tariff pushes against by pricing that exposure into the merit order.
+    # "Other" is a mixed bucket (hydro/bioenergy/geothermal/oil): only its fossil slice burns
+    # imported fuel, so each generator's share is weighted by its profile-declared
+    # import_fuel_fraction (1.0 for gas/coal and for older profiles without the field).
     current["import_dependency"] = sum(
-        _median_metric(dispatch_summary, "realized_share", gen) for gen in _IMPORTED_FUEL_GENERATORS
+        _median_metric(dispatch_summary, "realized_share", gen)
+        * float(profile["generators"].get(gen, {}).get("import_fuel_fraction", 1.0))
+        for gen in _IMPORTED_FUEL_GENERATORS
     )
 
     # The 0→100% VRE-share sweep (curve_data) was an arbitrary interpolated path used

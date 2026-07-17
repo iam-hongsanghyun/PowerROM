@@ -56,38 +56,169 @@ TEMPLATE_COUNTRY = "KR"  # structural template: schema + global cost/function fi
 # ── Country roster: 2-letter code → (Ember ISO-3, display name) ──────────────────
 COUNTRIES: dict[str, tuple[str, str]] = {
     "AE": ("ARE", "United Arab Emirates"),
+    "AF": ("AFG", "Afghanistan"),
+    "AM": ("ARM", "Armenia"),
+    "AO": ("AGO", "Angola"),
     "AR": ("ARG", "Argentina"),
+    "AT": ("AUT", "Austria"),
     "AU": ("AUS", "Australia"),
+    "AW": ("ABW", "Aruba"),
+    "AZ": ("AZE", "Azerbaijan"),
+    "BA": ("BIH", "Bosnia and Herzegovina"),
+    "BB": ("BRB", "Barbados"),
+    "BD": ("BGD", "Bangladesh"),
+    "BE": ("BEL", "Belgium"),
+    "BF": ("BFA", "Burkina Faso"),
+    "BG": ("BGR", "Bulgaria"),
+    "BH": ("BHR", "Bahrain"),
+    "BJ": ("BEN", "Benin"),
+    "BN": ("BRN", "Brunei"),
+    "BO": ("BOL", "Bolivia"),
     "BR": ("BRA", "Brazil"),
+    "BS": ("BHS", "Bahamas"),
+    "BT": ("BTN", "Bhutan"),
+    "BW": ("BWA", "Botswana"),
+    "BY": ("BLR", "Belarus"),
     "CA": ("CAN", "Canada"),
+    "CD": ("COD", "DR Congo"),
+    "CG": ("COG", "Congo"),
+    "CH": ("CHE", "Switzerland"),
+    "CI": ("CIV", "Cote d'Ivoire"),
     "CL": ("CHL", "Chile"),
+    "CM": ("CMR", "Cameroon"),
     "CN": ("CHN", "China"),
+    "CO": ("COL", "Colombia"),
+    "CR": ("CRI", "Costa Rica"),
+    "CU": ("CUB", "Cuba"),
+    "CY": ("CYP", "Cyprus"),
+    "CZ": ("CZE", "Czechia"),
     "DE": ("DEU", "Germany"),
     "DK": ("DNK", "Denmark"),
+    "DO": ("DOM", "Dominican Republic"),
+    "DZ": ("DZA", "Algeria"),
+    "EC": ("ECU", "Ecuador"),
+    "EE": ("EST", "Estonia"),
+    "EG": ("EGY", "Egypt"),
     "ES": ("ESP", "Spain"),
+    "ET": ("ETH", "Ethiopia"),
     "FI": ("FIN", "Finland"),
+    "FJ": ("FJI", "Fiji"),
     "FR": ("FRA", "France"),
+    "GA": ("GAB", "Gabon"),
     "GB": ("GBR", "United Kingdom"),
+    "GE": ("GEO", "Georgia"),
+    "GH": ("GHA", "Ghana"),
+    "GN": ("GIN", "Guinea"),
+    "GP": ("GLP", "Guadeloupe"),
+    "GQ": ("GNQ", "Equatorial Guinea"),
+    "GR": ("GRC", "Greece"),
+    "GT": ("GTM", "Guatemala"),
+    "GU": ("GUM", "Guam"),
+    "GY": ("GUY", "Guyana"),
+    "HK": ("HKG", "Hong Kong"),
+    "HN": ("HND", "Honduras"),
+    "HR": ("HRV", "Croatia"),
+    "HU": ("HUN", "Hungary"),
     "ID": ("IDN", "Indonesia"),
     "IE": ("IRL", "Ireland"),
+    "IL": ("ISR", "Israel"),
     "IN": ("IND", "India"),
+    "IQ": ("IRQ", "Iraq"),
+    "IR": ("IRN", "Iran"),
+    "IS": ("ISL", "Iceland"),
     "IT": ("ITA", "Italy"),
+    "JM": ("JAM", "Jamaica"),
+    "JO": ("JOR", "Jordan"),
     "JP": ("JPN", "Japan"),
+    "KE": ("KEN", "Kenya"),
+    "KG": ("KGZ", "Kyrgyzstan"),
+    "KH": ("KHM", "Cambodia"),
+    "KP": ("PRK", "North Korea"),
     "KR": ("KOR", "South Korea"),
+    "KW": ("KWT", "Kuwait"),
+    "KZ": ("KAZ", "Kazakhstan"),
+    "LA": ("LAO", "Laos"),
+    "LB": ("LBN", "Lebanon"),
+    "LK": ("LKA", "Sri Lanka"),
+    "LT": ("LTU", "Lithuania"),
+    "LU": ("LUX", "Luxembourg"),
+    "LV": ("LVA", "Latvia"),
+    "LY": ("LBY", "Libya"),
+    "MA": ("MAR", "Morocco"),
+    "MD": ("MDA", "Moldova"),
+    "ME": ("MNE", "Montenegro"),
+    "MG": ("MDG", "Madagascar"),
+    "MK": ("MKD", "North Macedonia"),
+    "ML": ("MLI", "Mali"),
+    "MM": ("MMR", "Myanmar"),
+    "MN": ("MNG", "Mongolia"),
+    "MO": ("MAC", "Macao"),
+    "MQ": ("MTQ", "Martinique"),
+    "MR": ("MRT", "Mauritania"),
+    "MT": ("MLT", "Malta"),
+    "MU": ("MUS", "Mauritius"),
+    "MW": ("MWI", "Malawi"),
     "MX": ("MEX", "Mexico"),
     "MY": ("MYS", "Malaysia"),
+    "MZ": ("MOZ", "Mozambique"),
+    "NA": ("NAM", "Namibia"),
+    "NC": ("NCL", "New Caledonia"),
+    "NE": ("NER", "Niger"),
+    "NG": ("NGA", "Nigeria"),
+    "NI": ("NIC", "Nicaragua"),
     "NL": ("NLD", "Netherlands"),
     "NO": ("NOR", "Norway"),
+    "NP": ("NPL", "Nepal"),
+    "NZ": ("NZL", "New Zealand"),
+    "OM": ("OMN", "Oman"),
+    "PA": ("PAN", "Panama"),
+    "PE": ("PER", "Peru"),
+    "PG": ("PNG", "Papua New Guinea"),
     "PH": ("PHL", "Philippines"),
+    "PK": ("PAK", "Pakistan"),
     "PL": ("POL", "Poland"),
+    "PR": ("PRI", "Puerto Rico"),
+    "PS": ("PSE", "Palestine"),
+    "PT": ("PRT", "Portugal"),
+    "PY": ("PRY", "Paraguay"),
+    "QA": ("QAT", "Qatar"),
+    "RE": ("REU", "Reunion"),
+    "RO": ("ROU", "Romania"),
+    "RS": ("SRB", "Serbia"),
+    "RU": ("RUS", "Russia"),
+    "RW": ("RWA", "Rwanda"),
     "SA": ("SAU", "Saudi Arabia"),
+    "SD": ("SDN", "Sudan"),
     "SE": ("SWE", "Sweden"),
+    "SG": ("SGP", "Singapore"),
+    "SI": ("SVN", "Slovenia"),
+    "SK": ("SVK", "Slovakia"),
+    "SN": ("SEN", "Senegal"),
+    "SR": ("SUR", "Suriname"),
+    "SV": ("SLV", "El Salvador"),
+    "SY": ("SYR", "Syria"),
+    "SZ": ("SWZ", "Eswatini"),
+    "TG": ("TGO", "Togo"),
     "TH": ("THA", "Thailand"),
+    "TJ": ("TJK", "Tajikistan"),
+    "TM": ("TKM", "Turkmenistan"),
+    "TN": ("TUN", "Tunisia"),
     "TR": ("TUR", "Turkey"),
+    "TT": ("TTO", "Trinidad and Tobago"),
     "TW": ("TWN", "Taiwan"),
+    "TZ": ("TZA", "Tanzania"),
+    "UA": ("UKR", "Ukraine"),
+    "UG": ("UGA", "Uganda"),
     "US": ("USA", "United States"),
+    "UY": ("URY", "Uruguay"),
+    "UZ": ("UZB", "Uzbekistan"),
+    "VE": ("VEN", "Venezuela"),
     "VN": ("VNM", "Vietnam"),
+    "XK": ("XKX", "Kosovo"),
+    "YE": ("YEM", "Yemen"),
     "ZA": ("ZAF", "South Africa"),
+    "ZM": ("ZMB", "Zambia"),
+    "ZW": ("ZWE", "Zimbabwe"),
 }
 
 # ── Ember "Fuel" → model generator bucket ───────────────────────────────────────
@@ -105,6 +236,15 @@ FUEL_TO_BUCKET: dict[str, str] = {
     "Other Renewables": "other",  # geothermal etc. — without this, shares miss ~3% for TR/ID/IT/PH
 }
 BUCKETS = ["solar", "wind_onshore", "gas_ccgt", "coal", "nuclear", "other"]
+
+# Within the "other" bucket only "Other Fossil" (oil/diesel steam and misc thermal) emits CO2 and
+# burns imported fuel; hydro, geothermal and (by grid-accounting convention, as in Ember's own
+# clean/fossil split) bioenergy do not. Each country's "other" block is therefore scaled by its
+# *real* fossil fraction within the bucket — a flat template value would overstate emissions,
+# fuel cost and import exposure for hydro/geothermal grids (KE, PY, NP, ...) and understate them
+# for oil-fired ones (SA, KW, LB, ...).
+EF_OTHER_FOSSIL_TCO2_MWH = 0.70  # oil/diesel steam turbine: IPCC 2006 oil EF at ~38% efficiency
+MIN_OTHER_GEN_TWH = 0.05  # below this the fossil fraction is numerically meaningless → template
 
 # Physical capacity-factor bands. Ember gen÷cap is clipped into these so a country
 # with a tiny/new fleet (division blow-ups) or a partial reporting year can't emit an
@@ -128,16 +268,57 @@ MIN_CAPACITY_GW = 0.20  # below this, CF is numerically unreliable → use templ
 # Each country's region. Regions group markets with similar delivered fuel prices and cost of
 # capital.
 COUNTRY_REGION: dict[str, str] = {
-    "US": "north_america", "CA": "north_america", "MX": "north_america",
-    "DE": "europe", "FR": "europe", "GB": "europe", "ES": "europe", "IT": "europe",
-    "NL": "europe", "PL": "europe", "SE": "europe", "FI": "europe", "DK": "europe",
-    "NO": "europe", "IE": "europe",
-    "KR": "ne_asia_adv", "JP": "ne_asia_adv", "TW": "ne_asia_adv",
-    "CN": "china", "IN": "south_asia",
-    "ID": "se_asia", "MY": "se_asia", "PH": "se_asia", "TH": "se_asia", "VN": "se_asia",
-    "AE": "middle_east", "SA": "middle_east",
-    "AU": "oceania", "TR": "emerging_europe",
-    "BR": "lat_am", "AR": "lat_am", "CL": "lat_am", "ZA": "africa",
+    # africa
+    "AO": "africa", "BF": "africa", "BJ": "africa", "BW": "africa", "CD": "africa",
+    "CG": "africa", "CI": "africa", "CM": "africa", "DZ": "africa", "EG": "africa",
+    "ET": "africa", "GA": "africa", "GH": "africa", "GN": "africa", "GQ": "africa",
+    "KE": "africa", "LY": "africa", "MA": "africa", "MG": "africa", "ML": "africa",
+    "MR": "africa", "MU": "africa", "MW": "africa", "MZ": "africa", "NA": "africa",
+    "NE": "africa", "NG": "africa", "RE": "africa", "RW": "africa", "SD": "africa",
+    "SN": "africa", "SZ": "africa", "TG": "africa", "TN": "africa", "TZ": "africa",
+    "UG": "africa", "ZA": "africa", "ZM": "africa", "ZW": "africa",
+    # central_asia
+    "AZ": "central_asia", "KG": "central_asia", "KZ": "central_asia", "MN": "central_asia", "TJ": "central_asia",
+    "TM": "central_asia", "UZ": "central_asia",
+    # china
+    "CN": "china", "KP": "china",
+    # emerging_europe
+    "AM": "emerging_europe", "BA": "emerging_europe", "BY": "emerging_europe", "GE": "emerging_europe", "MD": "emerging_europe",
+    "ME": "emerging_europe", "MK": "emerging_europe", "RS": "emerging_europe", "RU": "emerging_europe", "TR": "emerging_europe",
+    "UA": "emerging_europe", "XK": "emerging_europe",
+    # europe
+    "AT": "europe", "BE": "europe", "BG": "europe", "CH": "europe", "CY": "europe",
+    "CZ": "europe", "DE": "europe", "DK": "europe", "EE": "europe", "ES": "europe",
+    "FI": "europe", "FR": "europe", "GB": "europe", "GR": "europe", "HR": "europe",
+    "HU": "europe", "IE": "europe", "IS": "europe", "IT": "europe", "LT": "europe",
+    "LU": "europe", "LV": "europe", "MT": "europe", "NL": "europe", "NO": "europe",
+    "PL": "europe", "PT": "europe", "RO": "europe", "SE": "europe", "SI": "europe",
+    "SK": "europe",
+    # lat_am
+    "AR": "lat_am", "AW": "lat_am", "BB": "lat_am", "BO": "lat_am", "BR": "lat_am",
+    "BS": "lat_am", "CL": "lat_am", "CO": "lat_am", "CR": "lat_am", "CU": "lat_am",
+    "DO": "lat_am", "EC": "lat_am", "GP": "lat_am", "GT": "lat_am", "GY": "lat_am",
+    "HN": "lat_am", "JM": "lat_am", "MQ": "lat_am", "NI": "lat_am", "PA": "lat_am",
+    "PE": "lat_am", "PR": "lat_am", "PY": "lat_am", "SR": "lat_am", "SV": "lat_am",
+    "TT": "lat_am", "UY": "lat_am", "VE": "lat_am",
+    # middle_east
+    "AE": "middle_east", "BH": "middle_east", "IL": "middle_east", "IQ": "middle_east", "IR": "middle_east",
+    "JO": "middle_east", "KW": "middle_east", "LB": "middle_east", "OM": "middle_east", "PS": "middle_east",
+    "QA": "middle_east", "SA": "middle_east", "SY": "middle_east", "YE": "middle_east",
+    # ne_asia_adv
+    "HK": "ne_asia_adv", "JP": "ne_asia_adv", "KR": "ne_asia_adv", "MO": "ne_asia_adv", "SG": "ne_asia_adv",
+    "TW": "ne_asia_adv",
+    # north_america
+    "CA": "north_america", "MX": "north_america", "US": "north_america",
+    # oceania
+    "AU": "oceania", "NZ": "oceania",
+    # se_asia
+    "BN": "se_asia", "FJ": "se_asia", "GU": "se_asia", "ID": "se_asia", "KH": "se_asia",
+    "LA": "se_asia", "MM": "se_asia", "MY": "se_asia", "NC": "se_asia", "PG": "se_asia",
+    "PH": "se_asia", "TH": "se_asia", "VN": "se_asia",
+    # south_asia
+    "AF": "south_asia", "BD": "south_asia", "BT": "south_asia", "IN": "south_asia", "LK": "south_asia",
+    "NP": "south_asia", "PK": "south_asia",
 }
 
 # Regional cost levers. Fuel prices (USD/MMBtu, delivered) and WACC follow IEA WEO 2024 regional
@@ -155,6 +336,7 @@ REGIONS: dict[str, dict[str, float]] = {
     "middle_east":    {"gas": 3.0,  "coal": 5.0, "wacc": 0.070, "vre_mult": 0.95},
     "oceania":        {"gas": 8.5,  "coal": 2.0, "wacc": 0.060, "vre_mult": 1.05},
     "lat_am":         {"gas": 7.0,  "coal": 4.0, "wacc": 0.090, "vre_mult": 1.00},
+    "central_asia":   {"gas": 4.0,  "coal": 2.5, "wacc": 0.100, "vre_mult": 0.90},
     "africa":         {"gas": 6.0,  "coal": 2.0, "wacc": 0.100, "vre_mult": 1.00},
     "emerging_europe": {"gas": 11.0, "coal": 4.5, "wacc": 0.100, "vre_mult": 1.00},
 }
@@ -165,7 +347,7 @@ REGIONS: dict[str, dict[str, float]] = {
 # attribute generation at an assumed offshore capacity factor and leave the remainder to onshore.
 # Countries not listed have no material offshore fleet (offshore capacity 0).
 OFFSHORE_CAPACITY_GW: dict[str, float] = {
-    "CN": 38.0, "GB": 14.7, "DE": 8.5, "NL": 4.7, "DK": 2.7, "TW": 2.4, "FR": 1.5,
+    "CN": 38.0, "GB": 14.7, "DE": 8.5, "NL": 4.7, "DK": 2.7, "TW": 2.4, "BE": 2.3, "FR": 1.5,
     "VN": 0.9, "JP": 0.2, "SE": 0.19, "KR": 0.14, "NO": 0.09, "FI": 0.07, "US": 0.04,
     "IE": 0.03, "IT": 0.03,
 }
@@ -223,6 +405,11 @@ SOURCE_SYNTHESIS = (
 SOURCE_OFFSHORE = (
     "Offshore wind capacity split from GWEC Global Wind Report 2024 / IRENA statistics; offshore "
     "costs from IRENA 2024 / NREL ATB 2024"
+)
+SOURCE_OTHER = (
+    "'Other' bucket (hydro/bioenergy/geothermal/other fossil) emission factor, fuel cost and "
+    "import-fuel weighting scaled by the bucket's real fossil share from Ember generation by "
+    "fuel; oil/diesel steam EF 0.70 tCO2/MWh (IPCC 2006 at ~38% efficiency)"
 )
 
 SOURCE_EMBER = (
@@ -294,6 +481,7 @@ def extract_country(rows: list[dict[str, str]], iso3: str, year_cap: int) -> dic
     total_gen: dict[int, float] = {}
     cap: dict[int, dict[str, float]] = defaultdict(lambda: defaultdict(float))
     gen: dict[int, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+    other_fossil: dict[int, float] = defaultdict(float)
 
     for row in rows:
         if row["ISO 3 code"] != iso3:
@@ -309,6 +497,8 @@ def extract_country(rows: list[dict[str, str]], iso3: str, year_cap: int) -> dic
             cap[year][FUEL_TO_BUCKET[var]] += val
         elif cat == "Electricity generation" and sub == "Fuel" and unit == "TWh" and var in FUEL_TO_BUCKET:
             gen[year][FUEL_TO_BUCKET[var]] += val
+            if var == "Other Fossil":  # the only emitting / imported-fuel slice of "other"
+                other_fossil[year] += val
 
     # Latest *settled* year with demand + total generation + some capacity reported.
     # `year_cap` excludes Ember's provisional current-year release: that year is present for
@@ -328,6 +518,7 @@ def extract_country(rows: list[dict[str, str]], iso3: str, year_cap: int) -> dic
         "total_gen_twh": total_gen[year],
         "capacity_gw": {b: cap[year].get(b, 0.0) for b in BUCKETS},
         "generation_twh": {b: gen[year].get(b, 0.0) for b in BUCKETS},
+        "other_fossil_twh": other_fossil.get(year, 0.0),
     }
 
 
@@ -391,6 +582,7 @@ def build_profile(code: str, iso3: str, name: str, template: dict[str, Any],
                 func["source"] = "Base CF from Ember; degradation-with-share stylized (IEA/IRENA)"
 
     _split_offshore_wind(code, profile, template, capacities, shares, data, total_gen, region)
+    _scale_other_bucket(profile, data)
 
     # Config-backed per-technology ramp rates onto the flexible-thermal blocks (editable in the UI).
     for tech, rates in RAMP_DEFAULTS.items():
@@ -412,10 +604,37 @@ def build_profile(code: str, iso3: str, name: str, template: dict[str, Any],
         SOURCE_COSTS,
         SOURCE_REGIONAL,
         SOURCE_OFFSHORE,
+        SOURCE_OTHER,
         SOURCE_RAMP,
         SOURCE_SYNTHESIS,
     ]
     return profile
+
+
+def _scale_other_bucket(profile: dict[str, Any], data: dict[str, Any]) -> None:
+    """Scale the "other" bucket's emissions, fuel cost and import exposure by its fossil share.
+
+    Algorithm:
+        $$f = G_{other\\ fossil} / G_{other}$$
+        $$EF_{other} = 0.70 \\cdot f \\quad [tCO_2/MWh], \\qquad
+          p_{fuel,other} = p_{template} \\cdot f \\quad [USD/MMBtu]$$
+    ASCII: f = other-fossil TWh / other TWh; EF = 0.70*f; fuel price and the imported-fuel
+    weighting both scale by f.
+
+    ``G`` are Ember generation figures (TWh) for the data year. Hydro, geothermal and (by
+    grid-accounting convention) bioenergy are carbon-free and domestic, so only the "Other
+    Fossil" slice (oil/diesel steam, EF 0.70 tCO2/MWh at ~38% efficiency) emits, pays for fuel
+    and counts toward import dependency. ``import_fuel_fraction`` is read by the LCOE engine's
+    energy-security metric. Buckets with < ``MIN_OTHER_GEN_TWH`` keep the stylized template block.
+    """
+    other_gen_twh = data["generation_twh"]["other"]
+    if other_gen_twh < MIN_OTHER_GEN_TWH:
+        return
+    f = min(max(data["other_fossil_twh"] / other_gen_twh, 0.0), 1.0)
+    gen_block = profile["generators"]["other"]
+    gen_block["emission_factor_tco2_mwh"] = round(EF_OTHER_FOSSIL_TCO2_MWH * f, 4)
+    gen_block["fuel_usd_mmbtu"] = round(float(gen_block["fuel_usd_mmbtu"]) * f, 4)
+    gen_block["import_fuel_fraction"] = round(f, 4)
 
 
 def _anchor_cf_func(gen_block: dict[str, Any], cf: float) -> None:

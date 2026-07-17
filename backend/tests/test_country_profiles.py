@@ -8,6 +8,7 @@ implausible value slipping in when the profiles are regenerated.
 from __future__ import annotations
 
 import csv
+import json
 from collections import defaultdict
 from pathlib import Path
 
@@ -32,17 +33,16 @@ _FUEL_TO_BUCKET = {
     "Nuclear": "nuclear", "Hydro": "other", "Bioenergy": "other", "Other Fossil": "other",
     "Other Renewables": "other",
 }
+# code → Ember ISO-3, from the build's provenance manifest (regenerated with the profiles).
+_MANIFEST = Path(__file__).resolve().parents[1] / "data" / "country_profiles_manifest.json"
 _ISO3 = {
-    "AE": "ARE", "AR": "ARG", "AU": "AUS", "BR": "BRA", "CA": "CAN", "CL": "CHL", "CN": "CHN",
-    "DE": "DEU", "DK": "DNK", "ES": "ESP", "FI": "FIN", "FR": "FRA", "GB": "GBR", "ID": "IDN",
-    "IE": "IRL", "IN": "IND", "IT": "ITA", "JP": "JPN", "KR": "KOR", "MX": "MEX", "MY": "MYS",
-    "NL": "NLD", "NO": "NOR", "PH": "PHL", "PL": "POL", "SA": "SAU", "SE": "SWE", "TH": "THA",
-    "TR": "TUR", "TW": "TWN", "US": "USA", "VN": "VNM", "ZA": "ZAF",
+    code: meta["iso3"]
+    for code, meta in json.loads(_MANIFEST.read_text())["countries"].items()
 }
 
 
 def test_at_least_the_core_countries_ship() -> None:
-    assert len(_COUNTRY_CODES) >= 30
+    assert len(_COUNTRY_CODES) >= 160  # global roster: every Ember country with demand ≥ 1 TWh
     assert {"KR", "US", "CN", "DE", "GB", "IN"}.issubset(_COUNTRY_CODES)
 
 
@@ -89,6 +89,7 @@ def _ember_country(iso3: str, year_cap: int) -> dict | None:
     total: dict[int, float] = {}
     cap: dict[int, dict[str, float]] = defaultdict(lambda: defaultdict(float))
     gen: dict[int, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+    other_fossil: dict[int, float] = defaultdict(float)
     with _EMBER_CSV.open(newline="") as f:
         for row in csv.DictReader(f):
             if row["ISO 3 code"] != iso3:
@@ -104,11 +105,13 @@ def _ember_country(iso3: str, year_cap: int) -> dict | None:
                 cap[y][_FUEL_TO_BUCKET[var]] += val
             elif cat == "Electricity generation" and sub == "Fuel" and unit == "TWh" and var in _FUEL_TO_BUCKET:
                 gen[y][_FUEL_TO_BUCKET[var]] += val
+                if var == "Other Fossil":
+                    other_fossil[y] += val
     years = sorted(y for y in total if y <= year_cap and y in demand and y in cap and sum(cap[y].values()) > 0)
     if not years:
         return None
     y = years[-1]
-    return {"year": y, "total": total[y], "cap": cap[y], "gen": gen[y]}
+    return {"year": y, "total": total[y], "cap": cap[y], "gen": gen[y], "other_fossil": other_fossil[y]}
 
 
 @pytest.mark.skipif(not _EMBER_CSV.exists(), reason="Ember source CSV not present (git-ignored)")
@@ -129,3 +132,14 @@ def test_profile_matches_ember_source(code: str) -> None:
         assert shipped == pytest.approx(expected, abs=0.01), (
             f"{code} {bucket} capacity mismatch vs Ember"
         )
+
+    # The "other" bucket's emissions and import-fuel weighting must follow the bucket's real
+    # fossil share (Ember "Other Fossil" ÷ bucket generation): EF = 0.70 * f, weight = f.
+    other_gen = ember["gen"].get("other", 0.0)
+    if other_gen >= 0.05:
+        f = min(max(ember["other_fossil"] / other_gen, 0.0), 1.0)
+        other_block = p["generators"]["other"]
+        assert other_block["emission_factor_tco2_mwh"] == pytest.approx(0.70 * f, abs=1e-3), (
+            f"{code} other-bucket EF does not match Ember fossil share {f:.3f}"
+        )
+        assert other_block["import_fuel_fraction"] == pytest.approx(f, abs=1e-3)

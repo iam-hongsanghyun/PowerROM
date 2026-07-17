@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Noto_Sans_KR, Roboto, Roboto_Condensed, Roboto_Mono } from "next/font/google";
+import { Analytics } from "@vercel/analytics/next";
 import "./globals.css";
 
 // PLANiT brand typography: Roboto (sans), Roboto Condensed (display), Noto Sans KR (Korean).
@@ -42,7 +43,10 @@ export default function RootLayout({
       lang="en"
       className={`${roboto.variable} ${robotoCondensed.variable} ${robotoMono.variable} ${notoSansKr.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">
+        {children}
+        <Analytics />
+      </body>
     </html>
   );
 }

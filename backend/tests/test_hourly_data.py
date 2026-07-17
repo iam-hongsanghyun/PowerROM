@@ -32,9 +32,63 @@ def test_data_mode_loads_and_conserves_annual_cf(code: str) -> None:
     for yp in years:
         assert yp.source.startswith("data:"), f"{code}: fell back to {yp.source}"
         assert len(yp.solar_cf) == HOURS_PER_YEAR
-        # Real shape, but its annual mean must still equal the Ember-derived solar CF (± a small
+        # Real shapes, but annual means must still equal the Ember-derived CFs (± a small
         # tolerance from normalisation/clipping), so switching modes changes shape, not energy.
         assert yp.solar_cf.mean() == pytest.approx(profile["generators"]["solar"]["cf_base"], abs=0.01)
+        # Wind gets a slightly wider band: for KE the Ember CF belongs to the Lake Turkana wind
+        # corridor while the load-centre point is calm ~half the year — no speed calibration can
+        # add energy to zero-wind hours, so it lands ~0.02 short (all other countries hit 0.01).
+        assert yp.wind_cf.mean() == pytest.approx(
+            profile["generators"]["wind_onshore"]["cf_base"], abs=0.03
+        ), f"{code}: wind annual energy not conserved"
+        assert yp.demand_norm.mean() == pytest.approx(1.0, abs=1e-6)
+
+
+@pytest.mark.skipif(not {"AE", "DE"}.issubset(_CODES_WITH_DATA), reason="AE/DE data not present")
+def test_demand_seasonality_follows_real_climate() -> None:
+    """Demand is temperature-driven (ERA5 T2m degree-hours): a Gulf grid must peak in summer
+    (cooling) and a northern-European grid in winter (heating) — from the data files alone."""
+
+    def monthly_demand(code: str) -> np.ndarray:
+        yp = load_hourly_profiles(code, load_country_profile(code), mode="data")[0]
+        return np.array([yp.demand_norm[m * 730:(m + 1) * 730].mean() for m in range(12)])
+
+    ae, de = monthly_demand("AE"), monthly_demand("DE")
+    assert int(np.argmax(ae)) + 1 in (6, 7, 8, 9), "UAE demand must peak in summer (cooling)"
+    assert int(np.argmax(de)) + 1 in (11, 12, 1, 2), "German demand must peak in winter (heating)"
+
+
+def test_wind_power_curve_is_physical() -> None:
+    """The speed→CF map must be monotone through the ramp: calm < mid-ramp < rated wind hours."""
+    from backend.data.build_hourly_profiles import wind_cf_from_speed
+
+    third = HOURS_PER_YEAR // 3
+    ws10m = np.concatenate([
+        np.full(third, 1.0),                        # below cut-in at hub height → ~0
+        np.full(third, 5.0),                        # mid-ramp
+        np.full(HOURS_PER_YEAR - 2 * third, 10.0),  # ≥ rated at hub height → max
+    ])
+    cf = wind_cf_from_speed(ws10m, wind_cf_base=0.30)
+    calm, mid, rated = cf[:third].mean(), cf[third:2 * third].mean(), cf[2 * third:].mean()
+    assert calm < mid < rated
+    assert calm < 0.02
+    assert cf.mean() == pytest.approx(0.30, abs=0.01)  # mean-scaled to the Ember annual CF
+
+
+def test_demand_thermal_response_is_monotone() -> None:
+    """Hotter-than-comfort and colder-than-comfort hours must both raise load vs mild hours."""
+    from backend.data.build_hourly_profiles import demand_norm_from_temperature
+
+    third = HOURS_PER_YEAR // 3
+    t2m = np.concatenate([
+        np.full(third, -5.0),                       # deep heating
+        np.full(third, 19.0),                       # comfort band → base load only
+        np.full(HOURS_PER_YEAR - 2 * third, 35.0),  # deep cooling
+    ])
+    d = demand_norm_from_temperature(t2m, year=2018, seed=7)
+    cold, mild, hot = d[:third].mean(), d[third:2 * third].mean(), d[2 * third:].mean()
+    assert cold > mild and hot > mild
+    assert d.mean() == pytest.approx(1.0, abs=1e-9)
 
 
 @pytest.mark.skipif("KR" not in _CODES_WITH_DATA, reason="KR data not present")

@@ -4,14 +4,17 @@ Writes ``backend/data/hourly/<CC>/<year>.csv.gz`` with three 8760-hour columns �
 ``demand_norm`` (load shape, mean 1), ``solar_cf`` and ``wind_cf`` (capacity factors in
 [0, 1]) — which ``backend/core/hourly_profiles.py`` loads directly.
 
-Coverage tiers (best data available per country):
+All three columns derive from one **PVGIS/ERA5** request per country-year (EU JRC reanalysis,
+no token) at the country's load-centre coordinates, whose hourly response carries PV power,
+2 m air temperature (``T2m``) and 10 m wind speed (``WS10m``):
 
-* **Solar, every country** — real hourly PV capacity factor from **PVGIS** (EU JRC,
-  SARAH/ERA5 reanalysis) at the country's load-centre coordinates. No token.
-* **Load + wind, EU + US** — real observed hourly series (added in a later pass from OPSD /
-  EIA); until then load and wind use the physics-based synthesizer.
-* **Load + wind, elsewhere** — the parametric synthesizer, calibrated to the country's real
-  Ember annual capacity factor.
+* **Solar** — PVGIS's own hourly PV capacity factor for a 1 kWp system.
+* **Wind** — ``WS10m`` extrapolated to hub height (power law) through a fleet power curve,
+  lightly time-smoothed to proxy the spatial diversity of a national fleet vs a single point.
+* **Demand** — degree-hour thermal response to the country's real hourly temperature (heating
+  below 16 °C, cooling above 22 °C) on top of the synthesizer's diurnal/weekend structure, so
+  Gulf grids peak in summer afternoons and European grids in winter evenings because their
+  actual weather says so.
 
 Every series is mean-scaled so its annual average equals the profile's Ember-derived
 ``cf_base`` (solar/wind) or 1.0 (demand), so switching a country from synthetic to real
@@ -25,6 +28,7 @@ Run:
 from __future__ import annotations
 
 import argparse
+import datetime
 import gzip
 import io
 import sys
@@ -35,7 +39,7 @@ from pathlib import Path
 
 import numpy as np
 
-from backend.core.hourly_profiles import HOURS_PER_YEAR, synthesize_parametric
+from backend.core.hourly_profiles import HOURS_PER_YEAR, _ar1_noise, synthesize_parametric
 from backend.core.lcoe_engine import load_country_profile
 
 HOURLY_DIR = Path(__file__).resolve().parent / "hourly"
@@ -44,6 +48,43 @@ HOURLY_DIR = Path(__file__).resolve().parent / "hourly"
 WEATHER_YEARS = (2017, 2018, 2019)
 PVGIS_URL = "https://re.jrc.ec.europa.eu/api/v5_2/seriescalc"
 PVGIS_THROTTLE_S = 1.2  # spacing between PVGIS calls — bursts of ~100 requests get rate-limited (400)
+# Raw PVGIS responses, keyed by (lat, lon, year) — git-ignored. Lets the wind/demand derivation
+# be reworked and re-run offline instead of re-fetching ~500 responses each time.
+PVGIS_CACHE_DIR = Path(__file__).resolve().parent / "pvgis_cache"
+
+# ── Wind: ERA5 10 m speed → fleet capacity factor ────────────────────────────────
+# v_hub = WS10m · (h_hub/10)^α (neutral-shear power law), then a fleet power curve:
+# cf = ((v−v_ci)/(v_r−v_ci))³ clipped to [0,1] below rated, 1 to cut-out, 0 beyond. The cubic
+# ramp and the parameters are standard fleet-aggregate stylizations (e.g. NREL/DTU power-curve
+# literature); a light moving average proxies the spatial smoothing of a national fleet relative
+# to a single reanalysis point. The result is mean-scaled to the country's Ember annual CF, so
+# only the *shape* (diurnal/synoptic/seasonal timing) comes from the weather.
+WIND_HUB_HEIGHT_M = 100.0
+WIND_SHEAR_ALPHA = 0.14          # neutral-stability power-law exponent over open terrain
+WIND_V_CUTIN_MS = 3.0
+WIND_V_RATED_MS = 12.0
+WIND_V_CUTOUT_MS = 25.0
+WIND_FLEET_SMOOTH_H = 3          # centred moving average (h) ≈ national-fleet spatial diversity
+# Wind farms are sited at the windiest locations, not at load centres, so the load-centre
+# reanalysis point systematically under-reads the national fleet. Calibrate in the SPEED domain
+# (the renewables.ninja bias-correction approach): v' = β·v with β solved by bisection so the
+# power-curve output matches the Ember annual CF — moving to a windier site with the same
+# synoptic timing. Post-hoc CF scaling cannot do this: it adds no energy to below-cut-in hours.
+WIND_SPEED_CAL_MIN = 0.3
+WIND_SPEED_CAL_MAX = 8.0  # KE needs ~6: Ember's 0.55 CF is Lake Turkana; Nairobi's point is calm
+
+# ── Demand: real temperature → thermal load ─────────────────────────────────────
+# Load responds linearly to degree-hours outside a comfort band: heating below 16 °C, cooling
+# above 22 °C — the classic degree-day model with sensitivities in the range reported for
+# temperature-sensitive power demand (~1–2 % of average load per °C). Diurnal (evening peak,
+# business hours) and weekend terms mirror the parametric synthesizer so switching a country
+# between modes changes the weather realism, not the anatomy of the shape.
+DEMAND_HEAT_REF_C = 16.0
+DEMAND_COOL_REF_C = 22.0
+DEMAND_HEAT_SENS_PER_C = 0.012   # per-unit load per heating degree (°C below 16)
+DEMAND_COOL_SENS_PER_C = 0.018   # per-unit load per cooling degree (°C above 22) — AC is steeper
+DEMAND_NOISE_SIGMA = 0.02        # small AR(1) residual for non-thermal load variation
+DEMAND_NOISE_RHO = 0.78
 
 # Representative load-centre coordinates (lat, lon) per country — a national proxy for the
 # solar diurnal/seasonal shape, which is driven mostly by latitude.
@@ -136,55 +177,158 @@ def _mean_scale(shape: np.ndarray, target_mean: float, upper: float) -> np.ndarr
     return x
 
 
-def fetch_pvgis_solar_cf(lat: float, lon: float, year: int) -> np.ndarray:
-    """Hourly PV capacity factor (0–1) for a 1 kWp system at ``(lat, lon)`` from PVGIS.
+def fetch_pvgis_series(lat: float, lon: float, year: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Hourly ``(pv_cf, t2m_c, ws10m)`` at ``(lat, lon)`` from one PVGIS/ERA5 request.
 
-    Returns exactly ``HOURS_PER_YEAR`` values (leap years are trimmed to 8760).
+    ``pv_cf`` is the capacity factor of a 1 kWp system (0–1), ``t2m_c`` the 2 m air temperature
+    (°C) and ``ws10m`` the 10 m wind speed (m/s). Each has exactly ``HOURS_PER_YEAR`` values
+    (leap years are trimmed to 8760). All in UTC — callers roll to local time.
     """
-    query = urllib.parse.urlencode({
-        "lat": lat, "lon": lon, "startyear": year, "endyear": year,
-        "pvcalculation": 1, "peakpower": 1, "loss": 14, "outputformat": "csv",
-        "raddatabase": "PVGIS-ERA5",  # global coverage (SARAH is EU/Africa/Asia only)
-    })
-    text = ""
-    for attempt in range(4):
-        time.sleep(PVGIS_THROTTLE_S * (attempt + 1))  # throttle + exponential backoff on retry
-        try:
-            with urllib.request.urlopen(f"{PVGIS_URL}?{query}", timeout=90) as response:  # noqa: S310
-                text = response.read().decode("utf-8", errors="replace")
-            break
-        except Exception:  # noqa: BLE001 — transient PVGIS hiccup / rate limit; back off and retry
-            if attempt == 3:
-                raise
+    cache = PVGIS_CACHE_DIR / f"{lat:.2f}_{lon:.2f}_{year}.csv.gz"
+    if cache.exists():
+        text = gzip.decompress(cache.read_bytes()).decode("utf-8")
+    else:
+        query = urllib.parse.urlencode({
+            "lat": lat, "lon": lon, "startyear": year, "endyear": year,
+            "pvcalculation": 1, "peakpower": 1, "loss": 14, "outputformat": "csv",
+            "raddatabase": "PVGIS-ERA5",  # global coverage (SARAH is EU/Africa/Asia only)
+        })
+        text = ""
+        for attempt in range(4):
+            time.sleep(PVGIS_THROTTLE_S * (attempt + 1))  # throttle + backoff on retry
+            try:
+                with urllib.request.urlopen(f"{PVGIS_URL}?{query}", timeout=90) as response:  # noqa: S310
+                    text = response.read().decode("utf-8", errors="replace")
+                break
+            except Exception:  # noqa: BLE001 — transient PVGIS hiccup / rate limit; retry
+                if attempt == 3:
+                    raise
+        PVGIS_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        cache.write_bytes(gzip.compress(text.encode("utf-8")))
 
-    values: list[float] = []
+    pv: list[float] = []
+    t2m: list[float] = []
+    ws: list[float] = []
     for line in text.splitlines():
-        # Data rows look like "20190101:0010,83.64,...": timestamp then P (W) in column 2.
+        # Data rows: "20190101:0010,83.64,<G(i)>,<H_sun>,<T2m>,<WS10m>,<Int>" (header: time,P,...).
         if len(line) > 9 and line[:8].isdigit() and line[8] == ":":
             parts = line.split(",")
-            if len(parts) >= 2:
+            if len(parts) >= 6:
                 try:
-                    values.append(float(parts[1]) / 1000.0)  # W per 1 kWp → capacity factor
+                    pv.append(float(parts[1]) / 1000.0)  # W per 1 kWp → capacity factor
+                    t2m.append(float(parts[4]))
+                    ws.append(float(parts[5]))
                 except ValueError:
                     continue
-    cf = np.asarray(values, dtype=float)
-    if cf.size < HOURS_PER_YEAR:
-        raise ValueError(f"PVGIS returned only {cf.size} hours for ({lat},{lon},{year})")
-    return cf[:HOURS_PER_YEAR]
+    if len(pv) < HOURS_PER_YEAR:
+        raise ValueError(f"PVGIS returned only {len(pv)} hours for ({lat},{lon},{year})")
+    trim = slice(0, HOURS_PER_YEAR)
+    return (np.asarray(pv[trim]), np.asarray(t2m[trim]), np.asarray(ws[trim]))
+
+
+def _fleet_power_curve(v_hub: np.ndarray) -> np.ndarray:
+    """Fleet-aggregate power curve: cubic ramp between cut-in and rated, zero beyond cut-out."""
+    ramp = np.clip((v_hub - WIND_V_CUTIN_MS) / (WIND_V_RATED_MS - WIND_V_CUTIN_MS), 0.0, 1.0)
+    return np.where(v_hub >= WIND_V_CUTOUT_MS, 0.0, ramp**3)
+
+
+def wind_cf_from_speed(ws10m: np.ndarray, wind_cf_base: float) -> np.ndarray:
+    """Hourly wind capacity factor from ERA5 10 m wind speed, calibrated to the Ember annual CF.
+
+    Algorithm:
+        $$v = \\beta \\, v_{10}\\,(h_{hub}/10)^{\\alpha}, \\qquad
+          cf_{raw} = \\mathrm{clip}\\!\\left(\\frac{v - v_{ci}}{v_r - v_{ci}}, 0, 1\\right)^{3}
+          \\cdot \\mathbb{1}[v < v_{co}]$$
+    ASCII: v = beta * ws10m * (100/10)^0.14; cf = clip((v-3)/(12-3),0,1)^3, 0 above 25 m/s;
+    then a 3 h moving average (fleet spatial diversity) and a small residual mean-scale.
+
+    Symbols: v_10 = 10 m speed (m/s); h_hub = 100 m hub height; α = 0.14 shear exponent;
+    v_ci/v_r/v_co = 3/12/25 m/s cut-in/rated/cut-out; β = speed-calibration factor (bisection
+    in [0.3, 5.0]) so the annual mean CF equals ``wind_cf_base`` — bias-correcting the
+    load-centre point to the (windier) fleet sites while keeping real synoptic timing.
+
+    Raises ``ValueError`` when the point is so calm that even β = 5 cannot reach the target
+    (deep valley calm) — callers fall back to the calibrated synthesizer.
+    """
+    v_base = ws10m * (WIND_HUB_HEIGHT_M / 10.0) ** WIND_SHEAR_ALPHA
+
+    def mean_cf(beta: float) -> float:
+        return float(np.mean(_fleet_power_curve(beta * v_base)))
+
+    # mean_cf(β) is not globally monotone (large β pushes storm hours past cut-out), so scan
+    # upward for the FIRST bracket that crosses the target — the smallest, most physical
+    # correction — then bisect inside it.
+    lo = hi = None
+    grid = np.linspace(WIND_SPEED_CAL_MIN, WIND_SPEED_CAL_MAX, 48)
+    for prev, beta in zip(grid[:-1], grid[1:]):
+        if mean_cf(prev) < wind_cf_base <= mean_cf(beta):
+            lo, hi = float(prev), float(beta)
+            break
+    if lo is None:
+        if mean_cf(float(grid[0])) >= wind_cf_base:
+            lo, hi = WIND_SPEED_CAL_MIN, WIND_SPEED_CAL_MIN  # already at/above target
+        else:
+            raise ValueError("wind speed series has no usable energy content")
+    for _ in range(60):  # bisection within the bracket (endpoints straddle the target)
+        mid = 0.5 * (lo + hi)
+        if mean_cf(mid) < wind_cf_base:
+            lo = mid
+        else:
+            hi = mid
+    kernel = np.ones(WIND_FLEET_SMOOTH_H) / WIND_FLEET_SMOOTH_H
+    cf_smooth = np.convolve(_fleet_power_curve(hi * v_base), kernel, mode="same")
+    return _mean_scale(cf_smooth, wind_cf_base, upper=0.98)  # residual exactness after smoothing
+
+
+def demand_norm_from_temperature(t2m_c: np.ndarray, year: int, seed: int) -> np.ndarray:
+    """Hourly demand shape (mean 1) from real temperature via the degree-hour model.
+
+    Algorithm:
+        $$d_h = 1 + k_H \\max(0, T_{ref,H} - T_h) + k_C \\max(0, T_h - T_{ref,C})
+                + e_h + b_h - w_h + \\varepsilon_h$$
+    ASCII: d = 1 + 0.012*max(0,16-T) + 0.018*max(0,T-22) + evening + business - weekend + AR1;
+    then normalised to mean 1.
+
+    Symbols: T_h = 2 m temperature (°C); k_H/k_C = heating/cooling sensitivity (per-unit load
+    per °C); e_h/b_h = the synthesizer's evening-peak/business-hours Gaussians; w_h = 0.055
+    weekend dip (real calendar weekday of ``year``); ε_h = AR(1) residual, σ = 0.02, ρ = 0.78.
+    """
+    hour_of_day = np.arange(HOURS_PER_YEAR) % 24
+    day_of_year = np.arange(HOURS_PER_YEAR) // 24
+
+    heating = DEMAND_HEAT_SENS_PER_C * np.maximum(0.0, DEMAND_HEAT_REF_C - t2m_c)
+    cooling = DEMAND_COOL_SENS_PER_C * np.maximum(0.0, t2m_c - DEMAND_COOL_REF_C)
+    evening_peak = 0.08 * np.exp(-(((hour_of_day - 19) / 4.2) ** 2))
+    business_hours = 0.05 * np.exp(-(((hour_of_day - 13) / 5.0) ** 2))
+    first_weekday = datetime.date(year, 1, 1).weekday()  # real calendar: 0 = Monday
+    weekend = (((day_of_year + first_weekday) % 7) >= 5).astype(float)
+    noise = _ar1_noise(np.random.default_rng(seed), HOURS_PER_YEAR,
+                       sigma=DEMAND_NOISE_SIGMA, rho=DEMAND_NOISE_RHO)
+
+    demand = 1.0 + heating + cooling + evening_peak + business_hours - 0.055 * weekend + noise
+    demand = np.clip(demand, 0.05, None)
+    return demand / float(np.mean(demand))
 
 
 def _write_year(code: str, year: int, profile: dict, lat: float, lon: float) -> dict[str, float]:
     solar_cf_base = float(profile["generators"]["solar"]["cf_base"])
     wind_cf_base = float(profile["generators"]["wind_onshore"]["cf_base"])
 
-    # Real solar shape from PVGIS (UTC), rolled to local time, scaled to the Ember annual solar CF.
-    solar_shape = np.roll(fetch_pvgis_solar_cf(lat, lon, year), UTC_OFFSET[code])
-    solar_cf = _mean_scale(solar_shape, solar_cf_base, upper=0.96)
-
-    # Demand + wind from the calibrated synthesizer (mean-scaled to cf_base / 1.0). A per-year
-    # seed gives each weather year a distinct load/wind realisation for the ensemble.
-    synth = synthesize_parametric(code, profile, seed=42 + year, year=year)
-    demand_norm, wind_cf = synth.demand_norm, synth.wind_cf
+    # One PVGIS/ERA5 request per year carries PV power, temperature and wind speed (UTC);
+    # roll each to local time so midday/evening land on the model's local-hour indexing.
+    pv, t2m, ws10m = (np.roll(series, UTC_OFFSET[code])
+                      for series in fetch_pvgis_series(lat, lon, year))
+    solar_cf = _mean_scale(pv, solar_cf_base, upper=0.96)
+    try:
+        wind_cf = wind_cf_from_speed(ws10m, wind_cf_base)
+    except ValueError:
+        # High-altitude valley load centres (BT, EC, NP, TJ) sit in near-permanent ERA5 calm —
+        # a single point can't carry a national wind shape there, so fall back to the
+        # calibrated synthetic wind (these countries have ~0 GW of wind fleet anyway).
+        wind_cf = synthesize_parametric(code, load_country_profile(code),
+                                        seed=42 + year, year=year).wind_cf
+    # A per-year seed gives each weather year a distinct non-thermal load residual.
+    demand_norm = demand_norm_from_temperature(t2m, year, seed=42 + year)
 
     out_dir = HOURLY_DIR / code
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -226,7 +370,7 @@ def main() -> int:
             s = build_country(code, years=years)
             ok += 1
             print(f"{code:<5}{s['solar_mean']:>11.4f}{s['solar_base']:>11.4f}"
-                  f"{s['wind_mean']:>10.4f}{s['wind_base']:>10.4f}  PVGIS solar + synth load/wind")
+                  f"{s['wind_mean']:>10.4f}{s['wind_base']:>10.4f}  ERA5 solar/wind/temp-demand")
         except Exception as exc:  # noqa: BLE001 — report and continue the batch
             print(f"{code:<5}  ERROR: {exc}", file=sys.stderr)
     print(f"\nBuilt {ok}/{len(codes)} countries × {len(years)} years into {HOURLY_DIR}")

@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { HourlyMixChart } from "@/components/charts/HourlyMixChart";
 import { LoadDurationCurveChart } from "@/components/charts/LoadDurationCurveChart";
+import { SystemRadarChart } from "@/components/charts/SystemRadarChart";
 import { GENERATOR_LABELS } from "@/lib/constants";
 import type {
   Adequacy,
@@ -290,6 +291,8 @@ export function ProfileAnalysis({
           sub="Generation from imported fuel"
         />
       </div>
+
+      {result.radar ? <SystemRadarChart radar={result.radar} /> : null}
 
       {result.adequacy && result.adequacy.n_scenarios > 1 ? (
         <AdequacyPanel

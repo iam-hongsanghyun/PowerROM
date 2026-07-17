@@ -8,6 +8,7 @@ from typing import Any
 import numpy as np
 
 from backend.core.adequacy import estimate_adequacy
+from backend.core.radar import build_radar
 from backend.core.dispatch_engine import (
     VRE_GENERATORS as _DISPATCH_VRE,
     _marginal_cost_usd_mwh,
@@ -1023,6 +1024,8 @@ def _calculate_system_lcoe_dispatch(
         result["rps"] = rps
     if adequacy is not None:
         result["adequacy"] = adequacy
+    # System Radar: six trilemma axes scored from the numbers assembled above (see core.radar).
+    result["radar"] = build_radar(result)
     return result
 
 

@@ -401,12 +401,18 @@ export function Dashboard() {
     const custom_params = buildCustomParams();
     const minCf = parseCfLimits(minCfInputs);
     const maxCf = parseCfLimits(maxCfInputs);
+    // Only send the demand shape when the user actually edited it — an untouched editor means
+    // "use the country's own demand profile" (real ERA5 temperature-driven demand in data mode),
+    // not the generic archetype the editor displays as its starting point.
+    const demandEdited =
+      demandProfile.monthly.some((v, i) => v !== DEFAULT_DEMAND_PROFILE.monthly[i]) ||
+      demandProfile.daily.some((v, i) => v !== DEFAULT_DEMAND_PROFILE.daily[i]);
     const essPayload = {
       // Duration comes from the profile (Parameters -> ESS); only power is set here.
       ess_short_power_gw: storage.shortPowerGw,
       ess_long_power_gw: storage.longPowerGw,
-      demand_monthly: demandProfile.monthly,
-      demand_daily: demandProfile.daily,
+      demand_monthly: demandEdited ? demandProfile.monthly : null,
+      demand_daily: demandEdited ? demandProfile.daily : null,
       expandable: [...expandable],
       meet_full_load: meetFullLoad,
       rps_target_share: rpsTarget > 0 ? rpsTarget : null,

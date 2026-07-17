@@ -114,6 +114,10 @@ def _summarize_calculation(result: dict[str, Any]) -> dict[str, Any]:
             for gen, vals in (result.get("lcoe_by_generator") or {}).items()
         },
     }
+    # System Radar: six 0–100 trilemma axes (+ WEC-style pillars) with the sourced raw value
+    # and scoring anchor behind each score, plus the country's real-mix baseline polygon.
+    if result.get("radar"):
+        summary["radar"] = result["radar"]
     if result.get("expansion"):
         summary["expansion"] = result["expansion"]
         added = (result["expansion"].get("added_capacities_gw") or {})

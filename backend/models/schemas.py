@@ -178,6 +178,35 @@ class ChronologicalPayload(BaseModel):
     resource_order: list[str]
 
 
+class RadarAxis(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    key: str
+    label: str
+    score: float  # 0–100
+    value: float  # the raw sourced number behind the score
+    unit: str
+    detail: str   # how the value became the score (anchor + scale)
+
+
+class RadarBaseline(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    axes: list[RadarAxis]
+    note: str = ""
+
+
+class RadarPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    axes: list[RadarAxis]
+    # security = mean(reliability, resilience, independence); equity = mean(affordability,
+    # price_stability); sustainability = climate — the WEC-comparable trilemma headline.
+    pillars: dict[str, float]
+    baseline: RadarBaseline | None = None
+    method: str
+
+
 class DataQuality(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -226,6 +255,7 @@ class CalculateResponse(BaseModel):
     expansion: dict[str, Any] | None = None
     rps: dict[str, Any] | None = None
     adequacy: dict[str, Any] | None = None
+    radar: RadarPayload | None = None
     data_quality: DataQuality
 
 

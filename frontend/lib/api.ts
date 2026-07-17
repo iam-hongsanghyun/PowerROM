@@ -82,6 +82,32 @@ export interface DataQuality {
   notes: string[];
 }
 
+export interface RadarAxis {
+  key: string;
+  label: string;
+  /** 0–100. */
+  score: number;
+  /** The raw sourced number behind the score. */
+  value: number;
+  unit: string;
+  /** How the value became the score (anchor + scale). */
+  detail: string;
+}
+
+export interface RadarBaseline {
+  axes: RadarAxis[];
+  note: string;
+}
+
+export interface RadarPayload {
+  axes: RadarAxis[];
+  /** security / equity / sustainability (WEC-comparable trilemma pillars, 0–100). */
+  pillars: Record<string, number>;
+  /** The country's real-mix baseline polygon (precomputed benchmarks); null if unavailable. */
+  baseline?: RadarBaseline | null;
+  method: string;
+}
+
 export interface CalculateResponse {
   country: string;
   shares: Record<string, number>;
@@ -116,6 +142,7 @@ export interface CalculateResponse {
   ldc?: LdcPayload | null;
   chronological?: ChronologicalPayload | null;
   adequacy?: Adequacy | null;
+  radar?: RadarPayload | null;
   expansion?: {
     requested: string[];
     added_capacities_gw: Record<string, number>;

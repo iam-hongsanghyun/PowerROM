@@ -14,6 +14,7 @@ meaningful there.
 | Demand, installed capacity by tech, generation mix, annual capacity factors | **Ember Yearly Electricity Data** (CC-BY-4.0), latest *settled* year (provisional current-year releases excluded) |
 | Delivered gas/coal price, discount rate (WACC), VRE capex multiplier | **Regional** levers from IEA WEO 2024 + IRENA 2024, keyed by `COUNTRY_REGION` |
 | Heat rates, emission factors, dispatch/curtailment functions, storage, base capex/opex | Shared literature template (IEA WEO 2024 / IRENA 2024) |
+| Energy dependency (`import_fuel_fraction` per generator) | **UN Comtrade** net fuel imports (coal 2701, oil 2709+2710, gas 271111+271121; net weight × IPCC 2006 NCVs) ÷ the power sector's Ember-derived fuel burn — net exporters score 0; drives the import-dependency metric and the fuel-import tariff |
 
 Provenance (Ember source, settled year, per-country data year + region) is recorded in
 `backend/data/country_profiles_manifest.json`.
@@ -23,6 +24,7 @@ Refresh:
 ```bash
 make data          # rebuild from the cached Ember CSV
 make data-refresh  # download the latest Ember release, then rebuild
+python -m backend.data.build_energy_dependency   # refresh UN Comtrade net-import data first
 ```
 
 The 49 MB Ember CSV is git-ignored (`backend/data/ember/`); `--download` fetches it. A test

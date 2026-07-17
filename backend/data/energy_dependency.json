@@ -1,0 +1,1217 @@
+{
+  "source": "UN Comtrade public preview API (annual HS trade, world-partner totals): coal 2701, oil 2709+2710, natural gas 271111+271121; net weight \u00d7 IPCC 2006 default NCVs",
+  "url": "https://comtradeapi.un.org/public/v1/preview/C/A/HS",
+  "years_preferred": [
+    2024,
+    2023,
+    2022
+  ],
+  "manual_overrides": {
+    "XK": {
+      "coal": 0.0
+    },
+    "KP": {
+      "coal": 0.0
+    },
+    "RU": {
+      "coal": 0.0,
+      "gas": 0.0,
+      "oil": 0.0
+    },
+    "TM": {
+      "gas": 0.0,
+      "oil": 0.0
+    },
+    "LY": {
+      "gas": 0.0,
+      "oil": 0.0
+    },
+    "VE": {
+      "gas": 0.0,
+      "oil": 0.0
+    },
+    "GQ": {
+      "gas": 0.0,
+      "oil": 0.0
+    },
+    "BD": {
+      "gas": 0.25
+    }
+  },
+  "missing": [
+    "AF",
+    "BD",
+    "BY",
+    "CU",
+    "GN",
+    "GP",
+    "GQ",
+    "GU",
+    "KP",
+    "LY",
+    "MQ",
+    "NC",
+    "PR",
+    "RE",
+    "RU",
+    "SD",
+    "SY",
+    "TM",
+    "VE",
+    "XK"
+  ],
+  "countries": {
+    "AE": {
+      "year": 2023,
+      "net_imports_pj": {
+        "coal": -1.946,
+        "gas": -0.002,
+        "oil": -2977.504
+      }
+    },
+    "AM": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 0.106,
+        "gas": 93.953,
+        "oil": 21.028
+      }
+    },
+    "AO": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 0.002,
+        "gas": -220.136,
+        "oil": -2679.144
+      }
+    },
+    "AR": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 25.714,
+        "gas": 11.812,
+        "oil": -354.036
+      }
+    },
+    "AT": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 42.064,
+        "gas": 232.909,
+        "oil": 481.822
+      }
+    },
+    "AU": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": -9334.624,
+        "gas": -3901.223,
+        "oil": 2573.179
+      }
+    },
+    "AW": {
+      "year": 2023,
+      "net_imports_pj": {
+        "coal": 0.0,
+        "gas": 0.0,
+        "oil": 4.021
+      }
+    },
+    "AZ": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 0.575,
+        "gas": -885.698,
+        "oil": -900.854
+      }
+    },
+    "BA": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 20.221,
+        "gas": 7.673,
+        "oil": 66.842
+      }
+    },
+    "BB": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 0.002,
+        "gas": 0.898,
+        "oil": 15.435
+      }
+    },
+    "BE": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 0.0,
+        "gas": 1273.337,
+        "oil": -809.795
+      }
+    },
+    "BF": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 0.004,
+        "gas": 0.003,
+        "oil": 87.811
+      }
+    },
+    "BG": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 6.673,
+        "gas": 66.248,
+        "oil": 176.534
+      }
+    },
+    "BH": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 1.582,
+        "gas": 0.0,
+        "oil": 1.21
+      }
+    },
+    "BJ": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 3.59,
+        "gas": 0.001,
+        "oil": 22.069
+      }
+    },
+    "BN": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 32.13,
+        "gas": 0.0,
+        "oil": -49.406
+      }
+    },
+    "BO": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 0.236,
+        "gas": -229.644,
+        "oil": 89.666
+      }
+    },
+    "BR": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 449.828,
+        "gas": 346.346,
+        "oil": -3107.113
+      }
+    },
+    "BS": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 0.092,
+        "gas": 0.329,
+        "oil": -31.814
+      }
+    },
+    "BT": {
+      "year": 2023,
+      "net_imports_pj": {
+        "coal": 2.732,
+        "gas": 0.001,
+        "oil": 9.478
+      }
+    },
+    "BW": {
+      "year": 2023,
+      "net_imports_pj": {
+        "coal": -18.921,
+        "gas": 0.181,
+        "oil": 49.196
+      }
+    },
+    "CA": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": -782.155,
+        "gas": -380.066,
+        "oil": -7149.321
+      }
+    },
+    "CD": {
+      "year": 2023,
+      "net_imports_pj": {
+        "coal": 17.102,
+        "gas": 0.384,
+        "oil": -7.596
+      }
+    },
+    "CG": {
+      "year": 2023,
+      "net_imports_pj": {
+        "coal": 0.075,
+        "gas": 0.0,
+        "oil": -591.738
+      }
+    },
+    "CH": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 0.551,
+        "gas": 101.282,
+        "oil": 339.344
+      }
+    },
+    "CI": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": -0.0,
+        "gas": 0.0,
+        "oil": 87.739
+      }
+    },
+    "CL": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": -0.0,
+        "gas": 90.673,
+        "oil": 671.417
+      }
+    },
+    "CM": {
+      "year": 2023,
+      "net_imports_pj": {
+        "coal": 0.023,
+        "gas": -65.31,
+        "oil": -49.707
+      }
+    },
+    "CN": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 9087.494,
+        "gas": 5652.432,
+        "oil": 22887.469
+      }
+    },
+    "CO": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": -1563.824,
+        "gas": 78.015,
+        "oil": -1006.047
+      }
+    },
+    "CR": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 0.006,
+        "gas": 0.0,
+        "oil": 122.583
+      }
+    },
+    "CY": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 0.447,
+        "gas": 0.0,
+        "oil": 46.233
+      }
+    },
+    "CZ": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 42.484,
+        "gas": 197.742,
+        "oil": 356.124
+      }
+    },
+    "DE": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 618.046,
+        "gas": 1527.222,
+        "oil": 3737.991
+      }
+    },
+    "DK": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 9.803,
+        "gas": 46.865,
+        "oil": 211.099
+      }
+    },
+    "DO": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": -0.002,
+        "gas": 88.401,
+        "oil": 48.872
+      }
+    },
+    "DZ": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 2.432,
+        "gas": -1795.156,
+        "oil": -1427.774
+      }
+    },
+    "EC": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 0.375,
+        "gas": 0.004,
+        "oil": -597.58
+      }
+    },
+    "EE": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 0.035,
+        "gas": 12.284,
+        "oil": 31.343
+      }
+    },
+    "EG": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 68.346,
+        "gas": 420.533,
+        "oil": 323.774
+      }
+    },
+    "ES": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 79.309,
+        "gas": 780.617,
+        "oil": 2398.243
+      }
+    },
+    "ET": {
+      "year": 2023,
+      "net_imports_pj": {
+        "coal": 13.83,
+        "gas": 0.0,
+        "oil": -0.0
+      }
+    },
+    "FI": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 54.318,
+        "gas": 52.535,
+        "oil": 258.983
+      }
+    },
+    "FJ": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 0.0,
+        "gas": -0.0,
+        "oil": -15.892
+      }
+    },
+    "FR": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 113.365,
+        "gas": 1707.891,
+        "oil": 3072.503
+      }
+    },
+    "GA": {
+      "year": 2023,
+      "net_imports_pj": {
+        "coal": 0.0,
+        "gas": 0.0,
+        "oil": -461.044
+      }
+    },
+    "GB": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 14.446,
+        "gas": 781.254,
+        "oil": -44.82
+      }
+    },
+    "GE": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 2.957,
+        "gas": 34.537,
+        "oil": 63.035
+      }
+    },
+    "GH": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 0.65,
+        "gas": 0.001,
+        "oil": -245.39
+      }
+    },
+    "GR": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 1.747,
+        "gas": 292.476,
+        "oil": 132.897
+      }
+    },
+    "GT": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 42.771,
+        "gas": 0.0,
+        "oil": 205.008
+      }
+    },
+    "GY": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 0.0,
+        "gas": 0.032,
+        "oil": -645.065
+      }
+    },
+    "HK": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 123.045,
+        "gas": 197.4,
+        "oil": 745.859
+      }
+    },
+    "HN": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 0.71,
+        "gas": 0.0,
+        "oil": 138.711
+      }
+    },
+    "HR": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 7.108,
+        "gas": 54.59,
+        "oil": 15.749
+      }
+    },
+    "HU": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 4.154,
+        "gas": 269.456,
+        "oil": 246.834
+      }
+    },
+    "ID": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": -9996.235,
+        "gas": -743.554,
+        "oil": 817.719
+      }
+    },
+    "IE": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 6.439,
+        "gas": 191.467,
+        "oil": 214.575
+      }
+    },
+    "IL": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 103.484,
+        "gas": 0.001,
+        "oil": 533.436
+      }
+    },
+    "IN": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 6344.442,
+        "gas": 1333.885,
+        "oil": 6700.002
+      }
+    },
+    "IQ": {
+      "year": 2023,
+      "net_imports_pj": {
+        "coal": 0.041,
+        "gas": 0.009,
+        "oil": -7359.015
+      }
+    },
+    "IR": {
+      "year": 2022,
+      "net_imports_pj": {
+        "coal": 6.425,
+        "gas": -378.732,
+        "oil": -1916.058
+      }
+    },
+    "IS": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 4.3,
+        "gas": 0.0,
+        "oil": 46.307
+      }
+    },
+    "IT": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 97.236,
+        "gas": 2018.05,
+        "oil": 1944.459
+      }
+    },
+    "JM": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 0.537,
+        "gas": 16.548,
+        "oil": 71.773
+      }
+    },
+    "JO": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 2.063,
+        "gas": 18.622,
+        "oil": 153.407
+      }
+    },
+    "JP": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 4276.666,
+        "gas": 3162.73,
+        "oil": 5435.633
+      }
+    },
+    "KE": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 45.513,
+        "gas": -0.002,
+        "oil": 166.354
+      }
+    },
+    "KG": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": -16.445,
+        "gas": 8.403,
+        "oil": 52.702
+      }
+    },
+    "KH": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 150.757,
+        "gas": 23.225,
+        "oil": 135.846
+      }
+    },
+    "KR": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 2982.045,
+        "gas": 2222.517,
+        "oil": 4580.198
+      }
+    },
+    "KW": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 6.787,
+        "gas": 0.004,
+        "oil": -4200.507
+      }
+    },
+    "KZ": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": -690.623,
+        "gas": -125.242,
+        "oil": -3069.228
+      }
+    },
+    "LA": {
+      "year": 2023,
+      "net_imports_pj": {
+        "coal": -45.004,
+        "gas": 0.207,
+        "oil": 64.268
+      }
+    },
+    "LB": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 0.408,
+        "gas": 0.0,
+        "oil": 123.579
+      }
+    },
+    "LK": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 49.66,
+        "gas": 0.0,
+        "oil": 205.048
+      }
+    },
+    "LT": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 3.266,
+        "gas": 65.447,
+        "oil": 177.371
+      }
+    },
+    "LU": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 0.743,
+        "gas": 0.059,
+        "oil": 102.082
+      }
+    },
+    "LV": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 0.589,
+        "gas": 22.58,
+        "oil": 61.591
+      }
+    },
+    "MA": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 240.387,
+        "gas": 465.751,
+        "oil": 403.122
+      }
+    },
+    "MD": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 2.098,
+        "gas": 31.114,
+        "oil": 12.614
+      }
+    },
+    "ME": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 0.0,
+        "gas": 0.082,
+        "oil": 16.111
+      }
+    },
+    "MG": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 11.019,
+        "gas": 0.0,
+        "oil": 42.408
+      }
+    },
+    "MK": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 4.454,
+        "gas": 11.547,
+        "oil": 40.643
+      }
+    },
+    "ML": {
+      "year": 2023,
+      "net_imports_pj": {
+        "coal": 1.546,
+        "gas": 0.0,
+        "oil": 95.624
+      }
+    },
+    "MM": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 1.552,
+        "gas": -320.457,
+        "oil": 279.731
+      }
+    },
+    "MN": {
+      "year": 2023,
+      "net_imports_pj": {
+        "coal": -1720.617,
+        "gas": 0.047,
+        "oil": 72.056
+      }
+    },
+    "MO": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 0.0,
+        "gas": 0.0,
+        "oil": 3.507
+      }
+    },
+    "MR": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 0.0,
+        "gas": 0.001,
+        "oil": 73.676
+      }
+    },
+    "MT": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 0.0,
+        "gas": 0.0,
+        "oil": 92.021
+      }
+    },
+    "MU": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 19.931,
+        "gas": 0.0,
+        "oil": 82.965
+      }
+    },
+    "MW": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 1.131,
+        "gas": 0.055,
+        "oil": 12.975
+      }
+    },
+    "MX": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 1.951,
+        "gas": 3180399.803,
+        "oil": -1726.848
+      }
+    },
+    "MY": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 950.864,
+        "gas": -1185.907,
+        "oil": 494.34
+      }
+    },
+    "MZ": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": -356.618,
+        "gas": -163.643,
+        "oil": 67.588
+      }
+    },
+    "NA": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 0.473,
+        "gas": 0.109,
+        "oil": 61.089
+      }
+    },
+    "NE": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 8.402,
+        "gas": 0.0,
+        "oil": -65.67
+      }
+    },
+    "NG": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": -0.607,
+        "gas": 0.003,
+        "oil": -0.61
+      }
+    },
+    "NI": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 0.0,
+        "gas": 0.0,
+        "oil": 70.911
+      }
+    },
+    "NL": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 134.11,
+        "gas": 758.473,
+        "oil": 639.262
+      }
+    },
+    "NO": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 12.607,
+        "gas": -4506.438,
+        "oil": -3264.534
+      }
+    },
+    "NP": {
+      "year": 2022,
+      "net_imports_pj": {
+        "coal": 36.144,
+        "gas": 0.0,
+        "oil": 63.92
+      }
+    },
+    "NZ": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": -2.322,
+        "gas": -0.0,
+        "oil": 344.715
+      }
+    },
+    "OM": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 3.275,
+        "gas": -490.275,
+        "oil": -2249.514
+      }
+    },
+    "PA": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 0.008,
+        "gas": 0.0,
+        "oil": 116.488
+      }
+    },
+    "PE": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 5.221,
+        "gas": -191.129,
+        "oil": 303.413
+      }
+    },
+    "PG": {
+      "year": 2023,
+      "net_imports_pj": {
+        "coal": 0.337,
+        "gas": -825.497,
+        "oil": -1.939
+      }
+    },
+    "PH": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": -234.129,
+        "gas": 56.88,
+        "oil": 876.134
+      }
+    },
+    "PK": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 152.838,
+        "gas": 362.158,
+        "oil": 809.031
+      }
+    },
+    "PL": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 94.238,
+        "gas": 0.0,
+        "oil": 1348.661
+      }
+    },
+    "PS": {
+      "year": 2023,
+      "net_imports_pj": {
+        "coal": 0.001,
+        "gas": 7.886,
+        "oil": 26.799
+      }
+    },
+    "PT": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 0.276,
+        "gas": 120.773,
+        "oil": 320.356
+      }
+    },
+    "PY": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 0.0,
+        "gas": 0.0,
+        "oil": -0.006
+      }
+    },
+    "QA": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 0.0,
+        "gas": 0.0,
+        "oil": -938.324
+      }
+    },
+    "RO": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 7.974,
+        "gas": 0.399,
+        "oil": 383.547
+      }
+    },
+    "RS": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 4.725,
+        "gas": 86.306,
+        "oil": 129.691
+      }
+    },
+    "RW": {
+      "year": 2022,
+      "net_imports_pj": {
+        "coal": 1.647,
+        "gas": -0.002,
+        "oil": 26.944
+      }
+    },
+    "SA": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 3.294,
+        "gas": -166.04,
+        "oil": -11840.642
+      }
+    },
+    "SE": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 53.813,
+        "gas": 29.092,
+        "oil": 533.831
+      }
+    },
+    "SG": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 12.588,
+        "gas": 538.382,
+        "oil": 2426.771
+      }
+    },
+    "SI": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 0.414,
+        "gas": 21.127,
+        "oil": 99.494
+      }
+    },
+    "SK": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 0.262,
+        "gas": 214.143,
+        "oil": 172.503
+      }
+    },
+    "SN": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 36.454,
+        "gas": 3.047,
+        "oil": 70.02
+      }
+    },
+    "SR": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 0.0,
+        "gas": 0.0,
+        "oil": 7.047
+      }
+    },
+    "SV": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 0.046,
+        "gas": 16.804,
+        "oil": 85.254
+      }
+    },
+    "SZ": {
+      "year": 2023,
+      "net_imports_pj": {
+        "coal": -0.253,
+        "gas": 0.251,
+        "oil": 18.383
+      }
+    },
+    "TG": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 7.648,
+        "gas": 1.248,
+        "oil": 5.214
+      }
+    },
+    "TH": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 472.399,
+        "gas": 547.659,
+        "oil": 7387.595
+      }
+    },
+    "TJ": {
+      "year": 2023,
+      "net_imports_pj": {
+        "coal": -1.624,
+        "gas": 2.62,
+        "oil": 114.586
+      }
+    },
+    "TN": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 0.055,
+        "gas": 0.002,
+        "oil": 46.176
+      }
+    },
+    "TR": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 1024.434,
+        "gas": 0.0,
+        "oil": 459.721
+      }
+    },
+    "TT": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 0.002,
+        "gas": -36.502,
+        "oil": -143.838
+      }
+    },
+    "TW": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 1302.128,
+        "gas": 957.321,
+        "oil": 1612.69
+      }
+    },
+    "TZ": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": -65.191,
+        "gas": -0.034,
+        "oil": 175.684
+      }
+    },
+    "UA": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 36.514,
+        "gas": 4.18,
+        "oil": 324.73
+      }
+    },
+    "UG": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 5.271,
+        "gas": 0.004,
+        "oil": 94.014
+      }
+    },
+    "US": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": -2558.44,
+        "gas": -2174.799,
+        "oil": 1656.755
+      }
+    },
+    "UY": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 0.0,
+        "gas": 4.159,
+        "oil": 62.683
+      }
+    },
+    "UZ": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 52.784,
+        "gas": 82.654,
+        "oil": 111.634
+      }
+    },
+    "VN": {
+      "year": 2023,
+      "net_imports_pj": {
+        "coal": 1173.016,
+        "gas": 2.969,
+        "oil": 720.87
+      }
+    },
+    "YE": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 7.423,
+        "gas": 0.0,
+        "oil": 11.404
+      }
+    },
+    "ZA": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": -1784.847,
+        "gas": 141.335,
+        "oil": 1042.416
+      }
+    },
+    "ZM": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": 1.226,
+        "gas": -0.001,
+        "oil": 96.783
+      }
+    },
+    "ZW": {
+      "year": 2024,
+      "net_imports_pj": {
+        "coal": -12.547,
+        "gas": 0.003,
+        "oil": 73.377
+      }
+    }
+  }
+}

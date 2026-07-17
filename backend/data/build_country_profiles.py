@@ -246,6 +246,17 @@ BUCKETS = ["solar", "wind_onshore", "gas_ccgt", "coal", "nuclear", "other"]
 EF_OTHER_FOSSIL_TCO2_MWH = 0.70  # oil/diesel steam turbine: IPCC 2006 oil EF at ~38% efficiency
 MIN_OTHER_GEN_TWH = 0.05  # below this the fossil fraction is numerically meaningless → template
 
+# ── Energy dependency: UN Comtrade net fuel imports → import_fuel_fraction ──────
+# Produced by build_energy_dependency.py (net imported PJ of coal/gas/oil per country from the
+# UN Comtrade preview API). Each generator's import_fuel_fraction is the share of its fuel burn
+# met by net imports: f = clip(max(0, M − X) / burn, 0, 1), with burn = generation × heat rate.
+# Assumes imported fuel is available to the power sector pro-rata up to its total burn; net
+# exporters get 0. Countries without a usable Comtrade report fall back to fully-imported (the
+# pre-Comtrade stylization) unless a sourced manual override says otherwise.
+DEPENDENCY_JSON = DATA_DIR / "energy_dependency.json"
+GJ_PER_MMBTU = 1.055056  # exact definition (1 MMBtu = 1.055056 GJ)
+MIN_FUEL_BURN_PJ = 0.5   # below this the ratio is numerically meaningless → net-importer flag
+
 # Physical capacity-factor bands. Ember gen÷cap is clipped into these so a country
 # with a tiny/new fleet (division blow-ups) or a partial reporting year can't emit an
 # absurd CF. Outside the band → clip; near-zero capacity → keep the template default.
@@ -411,6 +422,11 @@ SOURCE_OTHER = (
     "import-fuel weighting scaled by the bucket's real fossil share from Ember generation by "
     "fuel; oil/diesel steam EF 0.70 tCO2/MWh (IPCC 2006 at ~38% efficiency)"
 )
+SOURCE_DEPENDENCY = (
+    "Energy dependency (import_fuel_fraction per generator) from UN Comtrade net fuel imports "
+    "(coal HS 2701, oil HS 2709+2710, natural gas HS 271111+271121; net weight x IPCC 2006 "
+    "NCVs) vs the power sector's Ember-derived fuel burn; net exporters count as 0"
+)
 
 SOURCE_EMBER = (
     "Ember Yearly Electricity Data (full release), "
@@ -536,7 +552,7 @@ def real_capacity_factor(bucket: str, gen_twh: float, cap_gw: float, template_cf
 
 
 def build_profile(code: str, iso3: str, name: str, template: dict[str, Any],
-                  data: dict[str, Any]) -> dict[str, Any]:
+                  data: dict[str, Any], dependency: dict[str, Any] | None = None) -> dict[str, Any]:
     profile = json.loads(json.dumps(template))  # deep copy of structural template
     profile["name"] = name
     profile["data_year"] = data["year"]
@@ -583,6 +599,7 @@ def build_profile(code: str, iso3: str, name: str, template: dict[str, Any],
 
     _split_offshore_wind(code, profile, template, capacities, shares, data, total_gen, region)
     _scale_other_bucket(profile, data)
+    _apply_import_fractions(code, profile, data, dependency or _load_energy_dependency())
 
     # Config-backed per-technology ramp rates onto the flexible-thermal blocks (editable in the UI).
     for tech, rates in RAMP_DEFAULTS.items():
@@ -605,6 +622,7 @@ def build_profile(code: str, iso3: str, name: str, template: dict[str, Any],
         SOURCE_REGIONAL,
         SOURCE_OFFSHORE,
         SOURCE_OTHER,
+        SOURCE_DEPENDENCY,
         SOURCE_RAMP,
         SOURCE_SYNTHESIS,
     ]
@@ -634,7 +652,64 @@ def _scale_other_bucket(profile: dict[str, Any], data: dict[str, Any]) -> None:
     gen_block = profile["generators"]["other"]
     gen_block["emission_factor_tco2_mwh"] = round(EF_OTHER_FOSSIL_TCO2_MWH * f, 4)
     gen_block["fuel_usd_mmbtu"] = round(float(gen_block["fuel_usd_mmbtu"]) * f, 4)
+    gen_block["fossil_fraction"] = round(f, 4)
+    # Import exposure = fossil slice × how much of that oil is imported (Comtrade); refined in
+    # _apply_import_fractions once the country's net-import data is known.
     gen_block["import_fuel_fraction"] = round(f, 4)
+
+
+def _load_energy_dependency() -> dict[str, Any]:
+    if DEPENDENCY_JSON.exists():
+        return json.loads(DEPENDENCY_JSON.read_text())
+    return {"countries": {}, "manual_overrides": {}, "missing": []}
+
+
+def _import_fraction(net_pj: float, burn_pj: float) -> float:
+    """Share of a fuel burn met by net imports.
+
+    Algorithm:
+        $$f = \\mathrm{clip}\\!\\left(\\frac{\\max(0, M - X)}{B}, 0, 1\\right)$$
+    ASCII: f = clip(max(0, net imports PJ) / burn PJ, 0, 1).
+
+    ``M − X`` = net imported energy (PJ, from Comtrade); ``B`` = the power sector's fuel burn
+    (PJ). Net exporters → 0. When the burn is too small for the ratio to mean anything the
+    country's net-trade sign decides (importer → 1, else 0), so a generator added later in the
+    UI still carries the right exposure.
+    """
+    if burn_pj < MIN_FUEL_BURN_PJ:
+        return 1.0 if net_pj > 0.0 else 0.0
+    return round(min(max(net_pj, 0.0) / burn_pj, 1.0), 4)
+
+
+def _apply_import_fractions(code: str, profile: dict[str, Any], data: dict[str, Any],
+                            dependency: dict[str, Any]) -> None:
+    """Stamp Comtrade-derived ``import_fuel_fraction`` onto gas, coal and the other bucket."""
+    gens = profile["generators"]
+    entry = dependency["countries"].get(code)
+    overrides = dependency.get("manual_overrides", {}).get(code, {})
+    if entry is None and not overrides:
+        return  # no Comtrade report → keep the fully-imported default (documented fallback)
+    net = (entry or {}).get("net_imports_pj", {})
+
+    burns = {
+        "gas": data["generation_twh"]["gas_ccgt"]
+        * float(gens["gas_ccgt"]["heat_rate_mmbtu_mwh"]) * GJ_PER_MMBTU,
+        "coal": data["generation_twh"]["coal"]
+        * float(gens["coal"]["heat_rate_mmbtu_mwh"]) * GJ_PER_MMBTU,
+        "oil": data["other_fossil_twh"]
+        * float(gens["other"]["heat_rate_mmbtu_mwh"]) * GJ_PER_MMBTU,
+    }
+    fractions = {
+        fuel: overrides.get(fuel, _import_fraction(float(net.get(fuel, 0.0)), burns[fuel]))
+        if (entry is not None or fuel in overrides) else 1.0
+        for fuel in ("gas", "coal", "oil")
+    }
+    gens["gas_ccgt"]["import_fuel_fraction"] = fractions["gas"]
+    gens["coal"]["import_fuel_fraction"] = fractions["coal"]
+    fossil_fraction = float(gens["other"].get("fossil_fraction",
+                                              gens["other"].get("import_fuel_fraction", 1.0)))
+    gens["other"]["import_fuel_fraction"] = round(fossil_fraction * fractions["oil"], 4)
+    profile["energy_dependency_year"] = (entry or {}).get("year")
 
 
 def _anchor_cf_func(gen_block: dict[str, Any], cf: float) -> None:
@@ -710,6 +785,10 @@ def main() -> int:
 
     rows = load_ember()
     template = json.loads((PROFILE_DIR / f"{TEMPLATE_COUNTRY}.json").read_text())
+    dependency = _load_energy_dependency()
+    if not dependency["countries"]:
+        print("note: energy_dependency.json missing — import fractions default to 1.0 "
+              "(run build_energy_dependency first)", file=sys.stderr)
     year_cap = latest_settled_year(rows)
     print(f"Latest settled Ember year (provisional years excluded): {year_cap}\n")
 
@@ -719,7 +798,7 @@ def main() -> int:
     manifest_countries: dict[str, dict[str, Any]] = {}
     for code, (iso3, name) in sorted(COUNTRIES.items()):
         data = extract_country(rows, iso3, year_cap)
-        profile = build_profile(code, iso3, name, template, data)
+        profile = build_profile(code, iso3, name, template, data, dependency)
         cf = profile["generators"]
         cg = profile["capacities_gw"]
         print(f"{code:<5}{data['year']:<6}{profile['annual_generation_twh']:>9.1f}"

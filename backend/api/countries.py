@@ -31,8 +31,9 @@ def countries() -> CountriesResponse:
         data_quality=DataQuality(
             notes=[
                 "Demand, installed capacity and generation mix are per-country actuals from "
-                "Ember; technology costs are a shared literature-based template. All fields can "
-                "be overridden at request time."
+                "Ember; technology costs are a shared literature-based template; import-fuel "
+                "fractions are from UN Comtrade net fuel trade. All fields can be overridden "
+                "at request time."
             ]
         ),
     )

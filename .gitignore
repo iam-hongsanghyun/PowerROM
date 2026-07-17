@@ -104,3 +104,4 @@ Archive/
 backend/data/ember/
 ~$*.xlsx
 backend/data/pvgis_cache/
+backend/data/comtrade_cache/

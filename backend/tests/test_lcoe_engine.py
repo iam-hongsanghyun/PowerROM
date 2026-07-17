@@ -186,15 +186,29 @@ def test_fuel_import_tariff_raises_imported_fuel_only() -> None:
     assert 0.0 <= baseline["import_dependency"] <= 1.0  # energy-security metric reported
 
 
-def test_import_dependency_weights_other_by_fossil_fraction() -> None:
-    # "Other" is a mixed bucket: only its fossil slice (profile import_fuel_fraction, from the
-    # Ember within-bucket split) counts as imported fuel. Paraguay's "other" is ~pure hydro, so
-    # an other-dominated mix must NOT read as import-dependent; Kuwait's is oil-fired, so it must.
+def test_import_dependency_weights_other_by_fossil_and_trade() -> None:
+    # "Other" is a mixed bucket: only its fossil slice counts, and only to the extent the fuel
+    # is actually imported (UN Comtrade net trade). Paraguay's "other" is ~pure hydro → low;
+    # Kuwait's is oil-fired but burns DOMESTIC oil (net exporter) → low; Lebanon's is oil-fired
+    # on imported oil → high.
     caps = {"solar": 0.3, "wind_onshore": 0.2, "gas_ccgt": 0.3, "coal": 0.2, "nuclear": 0.0, "other": 9.0}
     py = calculate_system_lcoe(country="PY", shares=caps, carbon_price=0.0, capacities_gw=caps, ensemble=_SINGLE)
     kw = calculate_system_lcoe(country="KW", shares=caps, carbon_price=0.0, capacities_gw=caps, ensemble=_SINGLE)
+    lb = calculate_system_lcoe(country="LB", shares=caps, carbon_price=0.0, capacities_gw=caps, ensemble=_SINGLE)
     assert py["import_dependency"] < 0.25, "hydro-dominated 'other' misread as imported fuel"
-    assert kw["import_dependency"] > 0.60, "oil-fired 'other' must count as imported fuel"
+    assert kw["import_dependency"] < 0.35, "domestic-oil 'other' misread as imported fuel"
+    assert lb["import_dependency"] > 0.60, "imported-oil 'other' must count as imported fuel"
+
+
+def test_fuel_import_tariff_skips_domestic_fuel() -> None:
+    # Australia's power coal is domestic (top exporter; Comtrade import fraction ~0), so a fuel-
+    # import tariff must leave its coal fuel cost untouched — unlike Japan's (all imported).
+    caps = {"solar": 5, "wind_onshore": 5, "gas_ccgt": 10, "coal": 20, "nuclear": 0, "other": 2}
+    for country, expect_ratio in (("AU", 1.0), ("JP", 1.5)):
+        base = dict(country=country, shares=caps, carbon_price=0.0, capacities_gw=caps, ensemble=_SINGLE)
+        fuel0 = calculate_system_lcoe(**base)["lcoe_by_generator"]["coal"]["fuel"]
+        fuel1 = calculate_system_lcoe(**base, fuel_import_tariff_pct=0.5)["lcoe_by_generator"]["coal"]["fuel"]
+        assert fuel1 == pytest.approx(fuel0 * expect_ratio, rel=1e-3), country
 
 
 def test_rps_target_badge_and_penalty() -> None:

@@ -628,13 +628,24 @@ def _apply_fuel_import_tariff(profile: dict[str, Any], tariff_fraction: float) -
     merit order (via short-run marginal cost, so a high tariff can reorder the stack) and the LCOE
     fuel component — no separate plumbing needed. Applied to a deep-merged profile copy, so the
     on-disk profile is untouched.
+
+    Only the imported share of each generator's fuel bears the tariff: the effective surcharge is
+    ``tariff × import_fuel_fraction`` (UN-Comtrade-derived, 1.0 for older profiles without the
+    field), so a domestic-coal or fuel-exporting grid is untouched by design.
     """
     tariff = max(0.0, float(tariff_fraction))
     if tariff <= 0.0:
         return
     for name, cfg in profile["generators"].items():
         if name in _IMPORTED_FUEL_GENERATORS and float(cfg.get("fuel_usd_mmbtu", 0.0)) > 0.0:
-            cfg["fuel_usd_mmbtu"] = float(cfg["fuel_usd_mmbtu"]) * (1.0 + tariff)
+            # import_fuel_fraction is a share of GENERATION; the tariff applies to fuel COST.
+            # For the mixed "other" bucket the fuel price is already scaled by fossil_fraction,
+            # so the imported share of the *cost* is import_fuel_fraction ÷ fossil_fraction
+            # (identical for gas/coal, whose fossil_fraction is 1).
+            imported = float(cfg.get("import_fuel_fraction", 1.0))
+            fossil = float(cfg.get("fossil_fraction", 1.0))
+            cost_share = min(1.0, imported / fossil) if fossil > 0.0 else 0.0
+            cfg["fuel_usd_mmbtu"] = float(cfg["fuel_usd_mmbtu"]) * (1.0 + tariff * cost_share)
 
 
 def _calculate_from_dispatch_summary(

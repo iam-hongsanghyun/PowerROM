@@ -133,8 +133,9 @@ def test_profile_matches_ember_source(code: str) -> None:
             f"{code} {bucket} capacity mismatch vs Ember"
         )
 
-    # The "other" bucket's emissions and import-fuel weighting must follow the bucket's real
-    # fossil share (Ember "Other Fossil" ÷ bucket generation): EF = 0.70 * f, weight = f.
+    # The "other" bucket's emissions must follow the bucket's real fossil share (Ember "Other
+    # Fossil" ÷ bucket generation): EF = 0.70 * f. Its import weighting is that fossil share
+    # times the oil-import fraction (UN Comtrade), so it can never exceed f.
     other_gen = ember["gen"].get("other", 0.0)
     if other_gen >= 0.05:
         f = min(max(ember["other_fossil"] / other_gen, 0.0), 1.0)
@@ -142,4 +143,30 @@ def test_profile_matches_ember_source(code: str) -> None:
         assert other_block["emission_factor_tco2_mwh"] == pytest.approx(0.70 * f, abs=1e-3), (
             f"{code} other-bucket EF does not match Ember fossil share {f:.3f}"
         )
-        assert other_block["import_fuel_fraction"] == pytest.approx(f, abs=1e-3)
+        assert other_block["fossil_fraction"] == pytest.approx(f, abs=1e-3)
+        assert 0.0 <= other_block["import_fuel_fraction"] <= f + 1e-3
+
+
+_DEPENDENCY_JSON = Path(__file__).resolve().parents[1] / "data" / "energy_dependency.json"
+
+
+@pytest.mark.skipif(not _DEPENDENCY_JSON.exists(), reason="energy_dependency.json not built")
+def test_import_fractions_match_real_fuel_trade() -> None:
+    """import_fuel_fraction comes from UN Comtrade net trade: fuel exporters burn domestic fuel
+    (fraction ~0), all-import grids burn imported fuel (fraction ~1), and every fraction is a
+    valid share."""
+    for code in _COUNTRY_CODES:
+        p = load_country_profile(code)
+        for gen in ("gas_ccgt", "coal", "other"):
+            frac = p["generators"][gen].get("import_fuel_fraction", 1.0)
+            assert 0.0 <= frac <= 1.0, f"{code} {gen} import_fuel_fraction {frac}"
+
+    anchors = {
+        ("AU", "coal"): (0.0, 0.05),   # top coal exporter — power coal is domestic
+        ("US", "gas_ccgt"): (0.0, 0.05),  # net gas exporter
+        ("JP", "coal"): (0.95, 1.0),   # imports essentially all coal
+        ("KR", "gas_ccgt"): (0.95, 1.0),  # imports all gas (LNG)
+    }
+    for (code, gen), (lo, hi) in anchors.items():
+        frac = load_country_profile(code)["generators"][gen]["import_fuel_fraction"]
+        assert lo <= frac <= hi, f"{code} {gen} expected [{lo},{hi}], got {frac}"

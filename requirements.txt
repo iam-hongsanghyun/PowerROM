@@ -1,8 +1,10 @@
+# Local development set. The serverless runtime installs api/requirements.txt instead — keep
+# that one lean (no uvicorn; Vercel serves ASGI itself) so the function bundle stays under
+# Vercel's 250 MB fast-cold-start limit. pandas and scipy were removed from the runtime
+# entirely (numpy CSV reads; hand-rolled Levenberg–Marquardt in backend/core/curve_fitter.py).
 fastapi
 uvicorn[standard]
 numpy
-scipy
-pandas
 openpyxl
 pydantic
 python-multipart

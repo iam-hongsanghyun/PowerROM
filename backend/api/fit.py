@@ -22,6 +22,6 @@ def fit(payload: FitRequest) -> FitResponse:
         sufficient_data=result.sufficient_data,
         error_message=result.error_message,
         data_quality=DataQuality(
-            notes=["R-squared and 95% confidence intervals are based on scipy curve_fit."]
+            notes=["R-squared and 95% confidence intervals from bounded Levenberg-Marquardt least squares (Gauss-Newton covariance)."]
         ),
     )

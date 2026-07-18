@@ -12,13 +12,12 @@ Sheet layout (PyPSA-inspired):
 from __future__ import annotations
 
 import json
+from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import openpyxl
-from openpyxl import Workbook
-from openpyxl.styles import Alignment, Font, PatternFill
-from openpyxl.utils import get_column_letter
+if TYPE_CHECKING:  # openpyxl is imported lazily — only Excel endpoints pay its import cost
+    from openpyxl import Workbook
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -41,25 +40,36 @@ FUNC_PARAM_COLS: list[str] = ["a", "b", "c", "intercept", "threshold", "slope_be
 
 FUNC_SHEETS: list[str] = ["cf_eff_func", "eta_func", "integration_cost_func", "curtailment_func"]
 
-# Styling
-HEADER_FILL = PatternFill("solid", fgColor="1E293B")
-HEADER_FONT = Font(color="FFFFFF", bold=True)
-SUBHEADER_FILL = PatternFill("solid", fgColor="E2E8F0")
-SUBHEADER_FONT = Font(bold=True)
+# Styling — built lazily so importing this module (app startup) never imports openpyxl.
+@lru_cache(maxsize=1)
+def _styles() -> dict[str, Any]:
+    from openpyxl.styles import Alignment, Font, PatternFill
+
+    return {
+        "header_fill": PatternFill("solid", fgColor="1E293B"),
+        "header_font": Font(color="FFFFFF", bold=True),
+        "subheader_fill": PatternFill("solid", fgColor="E2E8F0"),
+        "subheader_font": Font(bold=True),
+        "center": Alignment(horizontal="center"),
+    }
 
 
 def _style_header(cell: Any) -> None:
-    cell.fill = HEADER_FILL
-    cell.font = HEADER_FONT
-    cell.alignment = Alignment(horizontal="center")
+    styles = _styles()
+    cell.fill = styles["header_fill"]
+    cell.font = styles["header_font"]
+    cell.alignment = styles["center"]
 
 
 def _style_subheader(cell: Any) -> None:
-    cell.fill = SUBHEADER_FILL
-    cell.font = SUBHEADER_FONT
+    styles = _styles()
+    cell.fill = styles["subheader_fill"]
+    cell.font = styles["subheader_font"]
 
 
 def _autofit(ws: Any, padding: int = 2) -> None:
+    from openpyxl.utils import get_column_letter
+
     for col in ws.columns:
         max_len = max((len(str(c.value or "")) for c in col), default=0)
         ws.column_dimensions[get_column_letter(col[0].column)].width = max_len + padding
@@ -70,6 +80,8 @@ def _autofit(ws: Any, padding: int = 2) -> None:
 # ---------------------------------------------------------------------------
 
 def profile_to_workbook(profile: dict) -> Workbook:
+    from openpyxl import Workbook
+
     wb = Workbook()
     wb.remove(wb.active)  # remove default empty sheet
 
@@ -393,6 +405,8 @@ def load_excel_as_profile(code: str) -> dict:
     path = excel_path(code)
     if not path.exists():
         raise FileNotFoundError(f"No Excel profile for {code}. Generate it first.")
+    import openpyxl
+
     wb = openpyxl.load_workbook(path)
     return workbook_to_profile(wb)
 
@@ -402,6 +416,8 @@ def parse_excel_bytes(file_bytes: bytes) -> dict:
     Safe to call on read-only / ephemeral filesystems (e.g. Vercel).
     """
     import io
+
+    import openpyxl
     wb = openpyxl.load_workbook(io.BytesIO(file_bytes))
     return workbook_to_profile(wb)
 
@@ -412,6 +428,8 @@ def save_uploaded_excel(code: str, file_bytes: bytes) -> dict:
     Prefer the parse-only endpoint when disk persistence is not needed.
     """
     import io
+
+    import openpyxl
     wb = openpyxl.load_workbook(io.BytesIO(file_bytes))
     profile = workbook_to_profile(wb)
     # Persist both Excel and JSON (no-op on read-only filesystems)

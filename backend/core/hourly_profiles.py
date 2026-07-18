@@ -1,14 +1,25 @@
 from __future__ import annotations
 
+import gzip
+import math
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal
 
 import numpy as np
-import pandas as pd
-from scipy.special import ndtr
 
 HOURS_PER_YEAR = 8760
+
+# Vectorised standard-normal CDF via the exact identity ndtr(z) = (1 + erf(z/√2))/2.
+# Replaces scipy.special.ndtr — scipy's only use on this hot path, and its ~110 MB Linux
+# wheel was what pushed the serverless bundle past Vercel's fast-cold-start size limit.
+_erf = np.frompyfunc(math.erf, 1, 1)
+_SQRT2 = math.sqrt(2.0)
+
+
+def ndtr(z: np.ndarray) -> np.ndarray:
+    return 0.5 * (1.0 + _erf(np.asarray(z, dtype=float) / _SQRT2).astype(float))
 
 # Weibull shape for the synthetic wind capacity factor. k≈1.8 reproduces the ~0.6 coefficient of
 # variation of real onshore wind — frequent near-calm hours and a fat high-output tail — instead of
@@ -321,6 +332,27 @@ def sample_ensemble(
     return samples
 
 
+@lru_cache(maxsize=64)
+def _read_hourly_csv(path_str: str, mtime_ns: int) -> dict[str, np.ndarray]:
+    """Parse one hourly weather CSV (.csv or .csv.gz) into named float columns.
+
+    Plain gzip + ``np.loadtxt`` — the files are numeric with one header row, so pandas
+    (a ~70 MB dependency) is not needed. Cached per (path, mtime) so warm serverless
+    instances skip re-reading the same weather years on every request; callers must
+    ``.copy()`` any column they mutate.
+    """
+    path = Path(path_str)
+    opener = gzip.open if path.name.endswith(".gz") else open
+    with opener(path, "rt", newline="") as handle:  # type: ignore[operator]
+        header = [name.strip() for name in handle.readline().strip().split(",")]
+        data = np.loadtxt(handle, delimiter=",", ndmin=2, dtype=float)
+    required = {"demand_norm", "solar_cf", "wind_cf"}
+    missing = required.difference(header)
+    if missing:
+        raise ValueError(f"{path} is missing hourly columns: {sorted(missing)}")
+    return {name: np.ascontiguousarray(data[:, i]) for i, name in enumerate(header)}
+
+
 def _load_data_profiles(country: str, years: list[int] | None) -> list[YearProfile]:
     data_dir = HOURLY_DATA_DIR / country
     if not data_dir.exists():
@@ -339,16 +371,11 @@ def _load_data_profiles(country: str, years: list[int] | None) -> list[YearProfi
     for path in paths:
         if not path.exists():
             continue
-        frame = pd.read_csv(path)  # pandas reads .gz transparently by extension
-        required = {"demand_norm", "solar_cf", "wind_cf"}
-        missing = required.difference(frame.columns)
-        if missing:
-            raise ValueError(f"{path} is missing hourly columns: {sorted(missing)}")
-
+        columns = _read_hourly_csv(str(path), path.stat().st_mtime_ns)
         demand_norm, solar_cf, wind_cf = normalize_hourly_profile(
-            frame["demand_norm"].to_numpy(),
-            frame["solar_cf"].to_numpy(),
-            frame["wind_cf"].to_numpy(),
+            columns["demand_norm"].copy(),
+            columns["solar_cf"].copy(),
+            columns["wind_cf"].copy(),
         )
         # Filename stem is like "2019" or "2019.csv" (compound suffix) — take the leading digits.
         stem = path.name.split(".")[0]

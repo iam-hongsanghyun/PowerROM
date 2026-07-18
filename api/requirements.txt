@@ -1,0 +1,11 @@
+# Serverless runtime dependencies ONLY (Vercel scopes this file to the api/ functions).
+# Deliberately excludes the dev/build extras in the root requirements.txt: uvicorn (Vercel
+# serves ASGI itself), pandas and scipy (removed from the runtime code paths). Keeping the
+# installed set small keeps the function bundle under Vercel's 250 MB fast-cold-start limit —
+# above it, dependencies page in on demand from network storage and cold starts take minutes
+# (seen in production as FUNCTION_INVOCATION_TIMEOUT).
+fastapi
+numpy
+pydantic
+python-multipart
+openpyxl

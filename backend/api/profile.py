@@ -8,14 +8,11 @@ from pydantic import BaseModel
 
 from backend.utils.excel_io import (
     generate_excel_from_json,
-    excel_path,
     load_profile_json,
     parse_excel_bytes,
     profile_to_workbook,
     save_uploaded_excel,
-    workbook_to_profile,
 )
-import openpyxl
 
 router = APIRouter()
 
@@ -118,7 +115,7 @@ def update_profile(code: str, body: ProfileUpdateRequest) -> dict:
     """Save a profile dict (from the GUI editor) back to the JSON file
     and regenerate the Excel file.
     """
-    from backend.utils.excel_io import save_profile_json, generate_excel_from_json
+    from backend.utils.excel_io import save_profile_json
     code = code.upper()
     try:
         save_profile_json(code, body.profile)

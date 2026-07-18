@@ -663,8 +663,8 @@ def _calculate_from_dispatch_summary(
 
     all_generators = sorted(
         set(profile["generators"].keys()).union(normalized_shares.keys()),
-        key=lambda name: ["solar", "wind_onshore", "gas_ccgt", "coal", "nuclear", "other", name].index(name)
-        if name in {"solar", "wind_onshore", "gas_ccgt", "coal", "nuclear", "other"}
+        key=lambda name: ["solar", "wind_onshore", "gas_ccgt", "coal", "nuclear", "hydro", "other", name].index(name)
+        if name in {"solar", "wind_onshore", "gas_ccgt", "coal", "nuclear", "hydro", "other"}
         else 99,
     )
     realized_weights = {

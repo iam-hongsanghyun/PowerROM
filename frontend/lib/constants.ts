@@ -20,6 +20,7 @@ export const ALL_GENERATOR_KEYS = [
   "other",
   "gas_ccgt",
   "coal",
+  "hydro",
   "nuclear",
   "wind_offshore",
   "wind_onshore",
@@ -34,6 +35,7 @@ export const GENERATOR_LABELS: Record<string, string> = {
   gas_ccgt: "Gas CCGT",
   coal: "Coal",
   nuclear: "Nuclear",
+  hydro: "Hydro",
   other: "Other",
 };
 
@@ -45,6 +47,7 @@ export const GENERATOR_COLORS: Record<string, string> = {
   wind_onshore: "#0174BE", // bright blue (wind / VRE)
   wind_offshore: "#014D80", // deep ocean blue (offshore wind)
   nuclear: "#0C356A",      // deep navy (firm baseload)
+  hydro: "#00A6C0",        // cyan (flowing water — clean, dispatchable)
   coal: "#8D8D8D",         // warm grey (coal)
   gas_ccgt: "#EC8305",     // orange (fossil / thermal)
   other: "#004D40",        // deep teal (misc thermal)
@@ -79,8 +82,9 @@ export const DEFAULT_SHARES = {
   wind_onshore: 0.10,
   wind_offshore: 0.0,
   gas_ccgt: 0.30,
-  coal: 0.25,
+  coal: 0.23,
   nuclear: 0.18,
+  hydro: 0.02,
   other: 0.02,
 } as const;
 
@@ -96,6 +100,7 @@ export const DEFAULT_CAPACITIES_GW = {
   gas_ccgt: 27,
   coal: 24,
   nuclear: 14,
+  hydro: 6,
   other: 5,
 } as const;
 

@@ -5,6 +5,7 @@ export type GeneratorKey =
   | "gas_ccgt"
   | "coal"
   | "nuclear"
+  | "hydro"
   | "other";
 
 export type Shares = Record<GeneratorKey, number>;

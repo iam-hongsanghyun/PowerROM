@@ -136,7 +136,8 @@
       },
       "variability_factor": 0.0,
       "ramp_up_frac_per_hr": 0.8,
-      "ramp_down_frac_per_hr": 0.8
+      "ramp_down_frac_per_hr": 0.8,
+      "import_fuel_fraction": 1.0
     },
     "coal": {
       "capex_usd_kw": 2800,
@@ -179,7 +180,8 @@
       },
       "variability_factor": 0.1,
       "ramp_up_frac_per_hr": 0.5,
-      "ramp_down_frac_per_hr": 0.5
+      "ramp_down_frac_per_hr": 0.5,
+      "import_fuel_fraction": 1.0
     },
     "nuclear": {
       "capex_usd_kw": 4500,
@@ -222,10 +224,10 @@
       "opex_fixed_usd_kw_yr": 30,
       "opex_var_usd_mwh": 6,
       "lifetime_yr": 30,
-      "emission_factor_tco2_mwh": 0.6537,
-      "fuel_usd_mmbtu": 0.2174,
+      "emission_factor_tco2_mwh": 0.6981,
+      "fuel_usd_mmbtu": 0.0501,
       "heat_rate_mmbtu_mwh": 7.5,
-      "cf_base": 0.6169,
+      "cf_base": 0.85,
       "cf_eff_func": {
         "type": "constant",
         "params": {
@@ -254,8 +256,8 @@
       "variability_factor": 0.3,
       "ramp_up_frac_per_hr": 0.7,
       "ramp_down_frac_per_hr": 0.7,
-      "import_fuel_fraction": 0.9338,
-      "fossil_fraction": 0.9338
+      "import_fuel_fraction": 0.9973,
+      "fossil_fraction": 0.9973
     },
     "wind_offshore": {
       "capex_usd_kw": 3325.0,
@@ -304,6 +306,45 @@
       "variability_factor": 0.75,
       "wind_weibull_k": 1.8,
       "wind_ar1_rho": 0.93
+    },
+    "hydro": {
+      "capex_usd_kw": 2800,
+      "opex_fixed_usd_kw_yr": 55,
+      "opex_var_usd_mwh": 1.0,
+      "lifetime_yr": 60,
+      "emission_factor_tco2_mwh": 0.0,
+      "fuel_usd_mmbtu": 0.0,
+      "heat_rate_mmbtu_mwh": 0.0,
+      "cf_base": 0.1,
+      "cf_eff_func": {
+        "type": "constant",
+        "params": {
+          "a": 0.1
+        },
+        "x_min": 0.1,
+        "x_max": 0.65,
+        "source": "Base CF from Ember generation / capacity"
+      },
+      "eta_func": {
+        "type": "constant",
+        "params": {
+          "a": 0.9
+        },
+        "x_min": 0.85,
+        "x_max": 0.95,
+        "source": "Hydro turbine efficiency (no fuel conversion)"
+      },
+      "integration_cost_func": {
+        "type": "constant",
+        "params": {
+          "a": 0.5
+        },
+        "source": "Dispatchable renewable \u2014 minimal system overhead"
+      },
+      "variability_factor": 0.2,
+      "import_fuel_fraction": 0.0,
+      "ramp_up_frac_per_hr": 1.0,
+      "ramp_down_frac_per_hr": 1.0
     }
   },
   "ess": {
@@ -342,7 +383,8 @@
     "Technology structure (heat rates, dispatch/curtailment functions, storage): IEA WEO 2024 / IRENA Renewable Power Generation Costs 2024 (shared template)",
     "Regional cost levers \u2014 delivered gas/coal prices, discount rate (WACC) and a VRE capex multiplier \u2014 from IEA WEO 2024 regional assumptions and IRENA 2024 (see COUNTRY_REGION)",
     "Offshore wind capacity split from GWEC Global Wind Report 2024 / IRENA statistics; offshore costs from IRENA 2024 / NREL ATB 2024",
-    "'Other' bucket (hydro/bioenergy/geothermal/other fossil) emission factor, fuel cost and import-fuel weighting scaled by the bucket's real fossil share from Ember generation by fuel; oil/diesel steam EF 0.70 tCO2/MWh (IPCC 2006 at ~38% efficiency)",
+    "Hydro split out of 'other' into its own bucket: Ember capacity and generation; costs from IRENA Renewable Power Generation Costs 2024 (~2,800 USD/kW, ~2%/yr O&M, 60-yr life); dispatched as a flexible zero-fuel, zero-emission unit in the merit order (reservoir peaking preserved, no flat availability cap)",
+    "'Other' bucket (bioenergy/geothermal/other fossil) emission factor, fuel cost and import-fuel weighting scaled by the bucket's real fossil share from Ember generation by fuel; oil/diesel steam EF 0.70 tCO2/MWh (IPCC 2006 at ~38% efficiency)",
     "Energy dependency (import_fuel_fraction per generator) from UN Comtrade net fuel imports (coal HS 2701, oil HS 2709+2710, natural gas HS 271111+271121; net weight x IPCC 2006 NCVs) vs the power sector's Ember-derived fuel burn; net exporters count as 0",
     "Per-technology ramp rates (fraction of nameplate per hour) stylized from IEA/NREL unit-flexibility literature; nuclear runs as flat baseload and VRE is weather-driven (no ramp limit)",
     "Synthetic-profile stress knobs (VRE-drought frequency/duration/depth, wind AR(1) persistence, short-storage arbitrage price-percentile) \u2014 stylized reliability-modelling defaults, editable per country"
@@ -355,7 +397,8 @@
     "gas_ccgt": 7.83,
     "coal": 0.06,
     "nuclear": 0.0,
-    "other": 2.18,
+    "hydro": 1.49,
+    "other": 0.69,
     "wind_offshore": 0.0
   },
   "shares": {
@@ -364,7 +407,8 @@
     "gas_ccgt": 0.5225,
     "coal": 0.0,
     "nuclear": 0.0,
-    "other": 0.4735,
+    "hydro": 0.0301,
+    "other": 0.4433,
     "wind_offshore": 0.0
   },
   "region": "middle_east",
@@ -375,5 +419,6 @@
     "max_duration_hr": 72,
     "wind_floor": 0.05,
     "solar_floor": 0.15
-  }
+  },
+  "energy_dependency_year": 2024
 }

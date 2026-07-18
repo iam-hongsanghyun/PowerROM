@@ -41,6 +41,7 @@ const EMPTY_SHARES: Shares = {
   gas_ccgt: 0,
   coal: 0,
   nuclear: 0,
+  hydro: 0,
   other: 0,
 };
 

@@ -222,20 +222,73 @@ COUNTRIES: dict[str, tuple[str, str]] = {
 }
 
 # ── Ember "Fuel" → model generator bucket ───────────────────────────────────────
-# The model has six buckets; "other" absorbs hydro, bioenergy and residual fossil,
-# which the model treats as a dispatchable catch-all.
+# The model has seven buckets. Hydro is first-class (Ember reports it separately, and it
+# dominates entire grids — NO, BR, CA, PY, ...); "other" absorbs bioenergy and residual
+# fossil, which the model treats as a dispatchable catch-all.
 FUEL_TO_BUCKET: dict[str, str] = {
     "Solar": "solar",
     "Wind": "wind_onshore",
     "Gas": "gas_ccgt",
     "Coal": "coal",
     "Nuclear": "nuclear",
-    "Hydro": "other",
+    "Hydro": "hydro",
     "Bioenergy": "other",
     "Other Fossil": "other",
     "Other Renewables": "other",  # geothermal etc. — without this, shares miss ~3% for TR/ID/IT/PH
 }
-BUCKETS = ["solar", "wind_onshore", "gas_ccgt", "coal", "nuclear", "other"]
+BUCKETS = ["solar", "wind_onshore", "gas_ccgt", "coal", "nuclear", "hydro", "other"]
+
+# ── Hydro bucket ─────────────────────────────────────────────────────────────────
+# Costs: IRENA Renewable Power Generation Costs 2024 (global weighted-average hydropower:
+# installed cost ~2,800 USD/kW, O&M ~2%/yr of capex, 60-yr economic life). Zero fuel, zero
+# direct CO2. Dispatch: hydro bids into the merit order as a flexible zero-fuel, zero-emission
+# unit (cheapest flexible ⇒ dispatched ahead of gas/coal). It is deliberately NOT given a flat
+# per-hour availability ceiling: reservoir hydro peaks far above its average output (a flat cap
+# at the annual CF strips that peaking and manufactures blackouts for reservoir-dominated grids —
+# NO/PY LOLE would jump into the thousands of hours). This is the same free-dispatch treatment
+# hydro already had while it lived inside the "other" bucket, so reliability behaviour is
+# unchanged; only the cost, emissions and share attribution are corrected. ``cf_base`` is the
+# real Ember capacity factor, used for capacity sizing when a run is share-based and for display —
+# not as a hard hourly cap.
+HYDRO_TEMPLATE_BLOCK: dict[str, Any] = {
+    "capex_usd_kw": 2800,
+    "opex_fixed_usd_kw_yr": 55,
+    "opex_var_usd_mwh": 1.0,
+    "lifetime_yr": 60,
+    "emission_factor_tco2_mwh": 0.0,
+    "fuel_usd_mmbtu": 0.0,
+    "heat_rate_mmbtu_mwh": 0.0,
+    "cf_base": 0.40,
+    "cf_eff_func": {
+        "type": "constant",
+        "params": {"a": 0.40},
+        "x_min": 0.1,
+        "x_max": 0.65,
+        "source": "Base CF from Ember generation / capacity",
+    },
+    "eta_func": {
+        "type": "constant",
+        "params": {"a": 0.9},
+        "x_min": 0.85,
+        "x_max": 0.95,
+        "source": "Hydro turbine efficiency (no fuel conversion)",
+    },
+    "integration_cost_func": {
+        "type": "constant",
+        "params": {"a": 0.5},
+        "source": "Dispatchable renewable — minimal system overhead",
+    },
+    # Mostly dispatchable; the nonzero factor reflects the run-of-river slice and seasonal
+    # inflow the operator cannot schedule.
+    "variability_factor": 0.2,
+    "import_fuel_fraction": 0.0,
+}
+SOURCE_HYDRO = (
+    "Hydro split out of 'other' into its own bucket: Ember capacity and generation; costs from "
+    "IRENA Renewable Power Generation Costs 2024 (~2,800 USD/kW, ~2%/yr O&M, 60-yr life); "
+    "dispatched as a flexible zero-fuel, zero-emission unit in the merit order (reservoir "
+    "peaking preserved, no flat availability cap)"
+)
 
 # Within the "other" bucket only "Other Fossil" (oil/diesel steam and misc thermal) emits CO2 and
 # burns imported fuel; hydro, geothermal and (by grid-accounting convention, as in Ember's own
@@ -266,6 +319,7 @@ CF_BOUNDS: dict[str, tuple[float, float]] = {
     "gas_ccgt": (0.10, 0.90),
     "coal": (0.10, 0.90),
     "nuclear": (0.40, 0.95),
+    "hydro": (0.10, 0.65),  # global fleet CFs: ~15% (peaking/dry) to ~60% (wet tropics/Nordics)
     "other": (0.10, 0.85),
 }
 MIN_CAPACITY_GW = 0.20  # below this, CF is numerically unreliable → use template default
@@ -381,7 +435,8 @@ OFFSHORE_VARIABILITY = 0.75   # offshore output is smoother than onshore
 RAMP_DEFAULTS: dict[str, dict[str, float]] = {
     "gas_ccgt": {"up": 0.8, "down": 0.8},   # combined-cycle gas: ~3–8 %/min ⇒ generous at 1 h steps
     "coal": {"up": 0.5, "down": 0.5},       # hard coal / lignite: slower, chases the cliff worse
-    "other": {"up": 0.7, "down": 0.7},      # hydro/bioenergy/OCGT peaker mix: fairly flexible
+    "hydro": {"up": 1.0, "down": 1.0},      # reservoir turbines ramp full range in minutes
+    "other": {"up": 0.7, "down": 0.7},      # bioenergy/OCGT peaker mix: fairly flexible
 }
 SOURCE_RAMP = (
     "Per-technology ramp rates (fraction of nameplate per hour) stylized from IEA/NREL unit-"
@@ -418,7 +473,7 @@ SOURCE_OFFSHORE = (
     "costs from IRENA 2024 / NREL ATB 2024"
 )
 SOURCE_OTHER = (
-    "'Other' bucket (hydro/bioenergy/geothermal/other fossil) emission factor, fuel cost and "
+    "'Other' bucket (bioenergy/geothermal/other fossil) emission factor, fuel cost and "
     "import-fuel weighting scaled by the bucket's real fossil share from Ember generation by "
     "fuel; oil/diesel steam EF 0.70 tCO2/MWh (IPCC 2006 at ~38% efficiency)"
 )
@@ -577,6 +632,11 @@ def build_profile(code: str, iso3: str, name: str, template: dict[str, Any],
         base_capex = float(template["generators"][vre]["capex_usd_kw"])
         profile["generators"][vre]["capex_usd_kw"] = round(base_capex * region["vre_mult"], 1)
 
+    # Hydro block: always stamped fresh from the literature template so a stale block in the
+    # structural template (KR.json is both a profile and the template) can never leak one
+    # country's water budget into another's.
+    profile["generators"]["hydro"] = json.loads(json.dumps(HYDRO_TEMPLATE_BLOCK))
+
     total_gen = data["total_gen_twh"] or 1.0
     capacities: dict[str, float] = {}
     shares: dict[str, float] = {}
@@ -596,6 +656,11 @@ def build_profile(code: str, iso3: str, name: str, template: dict[str, Any],
             if func.get("type") == "logarithmic" and "params" in func:
                 func["params"]["a"] = cf
                 func["source"] = "Base CF from Ember; degradation-with-share stylized (IEA/IRENA)"
+
+    # Anchor the hydro CF-display function at the country's real Ember CF (see HYDRO_TEMPLATE_BLOCK
+    # for why hydro carries no flat availability cap).
+    hydro_block = profile["generators"]["hydro"]
+    hydro_block["cf_eff_func"]["params"]["a"] = hydro_block["cf_base"]
 
     _split_offshore_wind(code, profile, template, capacities, shares, data, total_gen, region)
     _scale_other_bucket(profile, data)
@@ -621,6 +686,7 @@ def build_profile(code: str, iso3: str, name: str, template: dict[str, Any],
         SOURCE_COSTS,
         SOURCE_REGIONAL,
         SOURCE_OFFSHORE,
+        SOURCE_HYDRO,
         SOURCE_OTHER,
         SOURCE_DEPENDENCY,
         SOURCE_RAMP,
@@ -639,11 +705,12 @@ def _scale_other_bucket(profile: dict[str, Any], data: dict[str, Any]) -> None:
     ASCII: f = other-fossil TWh / other TWh; EF = 0.70*f; fuel price and the imported-fuel
     weighting both scale by f.
 
-    ``G`` are Ember generation figures (TWh) for the data year. Hydro, geothermal and (by
+    ``G`` are Ember generation figures (TWh) for the data year. Geothermal and (by
     grid-accounting convention) bioenergy are carbon-free and domestic, so only the "Other
     Fossil" slice (oil/diesel steam, EF 0.70 tCO2/MWh at ~38% efficiency) emits, pays for fuel
-    and counts toward import dependency. ``import_fuel_fraction`` is read by the LCOE engine's
-    energy-security metric. Buckets with < ``MIN_OTHER_GEN_TWH`` keep the stylized template block.
+    and counts toward import dependency. Hydro has its own bucket and is not part of "other".
+    ``import_fuel_fraction`` is read by the LCOE engine's energy-security metric. Buckets with
+    < ``MIN_OTHER_GEN_TWH`` keep the stylized template block.
     """
     other_gen_twh = data["generation_twh"]["other"]
     if other_gen_twh < MIN_OTHER_GEN_TWH:

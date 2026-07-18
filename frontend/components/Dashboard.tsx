@@ -37,7 +37,7 @@ import {
 // Fallback country list shown while the API is loading or unavailable.
 // Values are real Ember actuals and must stay in sync with backend/data/country_profiles/
 // (regenerate both via backend/data/build_country_profiles.py).
-const GENS = ["solar", "wind_onshore", "wind_offshore", "gas_ccgt", "coal", "nuclear", "other"];
+const GENS = ["solar", "wind_onshore", "wind_offshore", "gas_ccgt", "coal", "nuclear", "hydro", "other"];
 const FALLBACK_COUNTRIES: CountrySummary[] = [
   {
     code: "KR",
@@ -46,8 +46,8 @@ const FALLBACK_COUNTRIES: CountrySummary[] = [
     annual_demand_twh: 625.38,
     discount_rate: 0.055,
     generators: GENS,
-    capacities_gw: { solar: 26.68, wind_onshore: 2.26, wind_offshore: 0.0, gas_ccgt: 50.26, coal: 41.19, nuclear: 26.05, other: 8.0 },
-    shares: { solar: 0.0523, wind_onshore: 0.0054, wind_offshore: 0.0, gas_ccgt: 0.2852, coal: 0.3051, nuclear: 0.3018, other: 0.0502 },
+    capacities_gw: { solar: 26.68, wind_onshore: 2.26, wind_offshore: 0.0, gas_ccgt: 50.26, coal: 41.19, nuclear: 26.05, hydro: 1.82, other: 6.18 },
+    shares: { solar: 0.0523, wind_onshore: 0.0054, wind_offshore: 0.0, gas_ccgt: 0.2852, coal: 0.3051, nuclear: 0.3018, hydro: 0.0069, other: 0.0434 },
     data_year: 2024,
     sources: [],
   },
@@ -58,8 +58,8 @@ const FALLBACK_COUNTRIES: CountrySummary[] = [
     annual_demand_twh: 281.64,
     discount_rate: 0.06,
     generators: GENS,
-    capacities_gw: { solar: 36.0, wind_onshore: 15.56, wind_offshore: 0.0, gas_ccgt: 26.28, coal: 22.83, nuclear: 0.0, other: 11.1 },
-    shares: { solar: 0.1783, wind_onshore: 0.1162, wind_offshore: 0.0, gas_ccgt: 0.1743, coal: 0.4521, nuclear: 0.0, other: 0.079 },
+    capacities_gw: { solar: 36.0, wind_onshore: 15.56, wind_offshore: 0.0, gas_ccgt: 26.28, coal: 22.83, nuclear: 0.0, hydro: 7.71, other: 3.39 },
+    shares: { solar: 0.1783, wind_onshore: 0.1162, wind_offshore: 0.0, gas_ccgt: 0.1743, coal: 0.4521, nuclear: 0.0, hydro: 0.0456, other: 0.0334 },
     data_year: 2024,
     sources: [],
   },
@@ -70,8 +70,8 @@ const FALLBACK_COUNTRIES: CountrySummary[] = [
     annual_demand_twh: 1016.39,
     discount_rate: 0.055,
     generators: GENS,
-    capacities_gw: { solar: 89.6, wind_onshore: 5.66, wind_offshore: 0.2, gas_ccgt: 81.48, coal: 55.25, nuclear: 33.08, other: 54.27 },
-    shares: { solar: 0.0951, wind_onshore: 0.0108, wind_offshore: 0.0006, gas_ccgt: 0.3407, coal: 0.3219, nuclear: 0.0835, other: 0.1475 },
+    capacities_gw: { solar: 89.6, wind_onshore: 5.66, wind_offshore: 0.2, gas_ccgt: 81.48, coal: 55.25, nuclear: 33.08, hydro: 28.23, other: 26.04 },
+    shares: { solar: 0.0951, wind_onshore: 0.0108, wind_offshore: 0.0006, gas_ccgt: 0.3407, coal: 0.3219, nuclear: 0.0835, hydro: 0.0782, other: 0.0693 },
     data_year: 2024,
     sources: [],
   },
@@ -81,7 +81,7 @@ const INITIAL_COUNTRY = "KR";
 // Merit-order panel display order (top → bottom), reversed to peaker-first.
 // Display only — dispatch order is computed from marginal cost in the backend.
 // Must match ALL_GENERATOR_KEYS in @/lib/constants.
-const GENERATOR_KEYS = ["other", "gas_ccgt", "coal", "nuclear", "wind_offshore", "wind_onshore", "solar"] as const;
+const GENERATOR_KEYS = ["other", "gas_ccgt", "coal", "hydro", "nuclear", "wind_offshore", "wind_onshore", "solar"] as const;
 
 function capacityShares(capacities: Capacities): Shares {
   const total = Object.values(capacities).reduce((sum, value) => sum + Math.max(0, value), 0);
@@ -93,6 +93,7 @@ function capacityShares(capacities: Capacities): Shares {
       gas_ccgt: 0,
       coal: 0,
       nuclear: 0,
+      hydro: 0,
       other: 0,
     };
   }
@@ -103,6 +104,7 @@ function capacityShares(capacities: Capacities): Shares {
     gas_ccgt: Math.max(0, capacities.gas_ccgt) / total,
     coal: Math.max(0, capacities.coal) / total,
     nuclear: Math.max(0, capacities.nuclear) / total,
+    hydro: Math.max(0, capacities.hydro) / total,
     other: Math.max(0, capacities.other) / total,
   };
 }
@@ -115,6 +117,7 @@ function capacityInputDefaults(capacities: Capacities): Record<(typeof GENERATOR
     gas_ccgt: String(capacities.gas_ccgt),
     coal: String(capacities.coal),
     nuclear: String(capacities.nuclear),
+    hydro: String(capacities.hydro),
     other: String(capacities.other),
   };
 }
@@ -130,6 +133,7 @@ function capacitiesFromSummary(current: CountrySummary): Capacities {
     gas_ccgt: src.gas_ccgt ?? 0,
     coal: src.coal ?? 0,
     nuclear: src.nuclear ?? 0,
+    hydro: src.hydro ?? 0,
     other: src.other ?? 0,
   };
   const total = Object.values(caps).reduce((sum, value) => sum + Math.max(0, value), 0);
@@ -160,7 +164,7 @@ function storageSeedForDemand(demandTwh: number): StorageInput {
 const DEFAULT_ENSEMBLE: EnsembleConfig = { method: "jitter", n_samples: 5, sigma: 0.04, seed: 42 };
 
 function emptyCfInputs(): Record<(typeof GENERATOR_KEYS)[number], string> {
-  return { solar: "", wind_onshore: "", wind_offshore: "", gas_ccgt: "", coal: "", nuclear: "", other: "" };
+  return { solar: "", wind_onshore: "", wind_offshore: "", gas_ccgt: "", coal: "", nuclear: "", hydro: "", other: "" };
 }
 
 // Parse the per-generator CF text inputs into a {generator: cf} map, keeping only entries with a

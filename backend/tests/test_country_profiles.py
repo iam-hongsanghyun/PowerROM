@@ -17,7 +17,7 @@ import pytest
 from backend.core.lcoe_engine import PROFILE_DIR, calculate_system_lcoe, load_country_profile
 
 _COUNTRY_CODES = sorted(path.stem for path in PROFILE_DIR.glob("*.json"))
-_BUCKETS = ["solar", "wind_onshore", "gas_ccgt", "coal", "nuclear", "other"]
+_BUCKETS = ["solar", "wind_onshore", "gas_ccgt", "coal", "nuclear", "hydro", "other"]
 _REFERENCE_MIX = {
     "solar": 0.15, "wind_onshore": 0.10, "gas_ccgt": 0.30,
     "coal": 0.25, "nuclear": 0.18, "other": 0.02,
@@ -25,12 +25,12 @@ _REFERENCE_MIX = {
 # Physical CF bands mirrored from build_country_profiles.CF_BOUNDS (must stay in sync).
 _CF_BOUNDS = {
     "solar": (0.07, 0.30), "wind_onshore": (0.10, 0.55), "gas_ccgt": (0.10, 0.90),
-    "coal": (0.10, 0.90), "nuclear": (0.40, 0.95), "other": (0.10, 0.85),
+    "coal": (0.10, 0.90), "nuclear": (0.40, 0.95), "hydro": (0.10, 0.65), "other": (0.10, 0.85),
 }
 _EMBER_CSV = Path(__file__).resolve().parents[1] / "data" / "ember" / "yearly_full_release_long_format.csv"
 _FUEL_TO_BUCKET = {
     "Solar": "solar", "Wind": "wind_onshore", "Gas": "gas_ccgt", "Coal": "coal",
-    "Nuclear": "nuclear", "Hydro": "other", "Bioenergy": "other", "Other Fossil": "other",
+    "Nuclear": "nuclear", "Hydro": "hydro", "Bioenergy": "other", "Other Fossil": "other",
     "Other Renewables": "other",
 }
 # code → Ember ISO-3, from the build's provenance manifest (regenerated with the profiles).

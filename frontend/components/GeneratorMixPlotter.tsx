@@ -63,6 +63,7 @@ export function GeneratorMixPlotter({
     gas_ccgt: selected.includes("gas_ccgt") ? 0 : shares.gas_ccgt,
     coal: selected.includes("coal") ? 0 : shares.coal,
     nuclear: selected.includes("nuclear") ? 0 : shares.nuclear,
+    hydro: selected.includes("hydro") ? 0 : shares.hydro,
     other: selected.includes("other") ? 0 : shares.other,
   };
 

@@ -8,7 +8,7 @@ import { GENERATOR_COLORS, GENERATOR_LABELS, STORAGE_COLOR } from "@/lib/constan
 import { InfoTip } from "@/components/InfoTip";
 import type { StorageInput } from "@/components/ControlPanel";
 
-const GENERATOR_KEYS = ["solar", "wind_onshore", "wind_offshore", "nuclear", "coal", "gas_ccgt", "other"] as const;
+const GENERATOR_KEYS = ["solar", "wind_onshore", "wind_offshore", "nuclear", "hydro", "coal", "gas_ccgt", "other"] as const;
 const START_YEAR = 2025;
 
 /** Four evenly-spaced milestone years from START_YEAR to the chosen end year. */

@@ -10,6 +10,7 @@ const GENERATOR_LABELS: Record<GeneratorKey, string> = {
   gas_ccgt: "Gas CCGT",
   coal: "Coal",
   nuclear: "Nuclear",
+  hydro: "Hydro",
   other: "Other",
 };
 

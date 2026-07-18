@@ -255,7 +255,7 @@ def calculate_lcoe(
     app supports (carbon price, EV load, min/max CF limits, storage, capacity expansion, a
     renewable-portfolio-standard target, clean-energy subsidies, and a fuel-import tariff).
 
-    Generators: solar, wind_onshore, wind_offshore, gas_ccgt, coal, nuclear, other. Storage key is
+    Generators: solar, wind_onshore, wind_offshore, gas_ccgt, coal, nuclear, hydro, other. Storage key is
     "storage". Give either capacities_gw (GW) or shares (fractions); omit both to use the country's
     real installed fleet.
 

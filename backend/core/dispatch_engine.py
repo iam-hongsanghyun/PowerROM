@@ -9,7 +9,7 @@ import numpy as np
 from backend.core.hourly_profiles import HOURS_PER_YEAR, EnsembleSettings, YearProfile
 
 VRE_GENERATORS = ("solar", "wind_onshore", "wind_offshore")
-DISPLAY_ORDER = ("solar", "wind_onshore", "wind_offshore", "nuclear", "coal", "gas_ccgt", "other")
+DISPLAY_ORDER = ("solar", "wind_onshore", "wind_offshore", "nuclear", "hydro", "coal", "gas_ccgt", "other")
 QUANTILES = (0.1, 0.5, 0.9)
 
 # Short-duration storage arbitrages only in the priciest hours (top 1−percentile of the marginal

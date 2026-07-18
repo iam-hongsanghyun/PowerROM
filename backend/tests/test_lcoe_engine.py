@@ -2,6 +2,7 @@ import pytest
 
 from backend.core.lcoe_engine import (
     calculate_system_lcoe,
+    load_country_profile,
     simulate_pathway,
     size_for_adequacy,
     size_mix_for_adequacy,
@@ -315,6 +316,45 @@ def test_expansion_grows_storage_for_multiday_drought() -> None:
     assert r["unserved_twh"] < 0.1  # the multi-day drought is firmed
     assert added.get("storage", 0.0) + added.get("storage_long", 0.0) > 0.0  # ...by growing storage
     assert any(added.get(key, 0.0) > 0.0 for key in ("solar", "wind_onshore"))  # + a VRE overbuild
+
+
+def test_meet_full_load_reaches_zero_unserved_with_vre_and_storage() -> None:
+    # "Meet 100% load" is a hard threshold: closing coal and firming with VRE + storage must reach
+    # ZERO unserved. The reservoir sizing grows VRE to the annual energy balance and sizes the long
+    # tier to the worst multi-day draw-down, so the store never empties.
+    p = load_country_profile("KR")
+    caps = dict(p["capacities_gw"])
+    caps["coal"] = 0.0  # close coal
+    r = calculate_system_lcoe(
+        country="KR", shares={}, capacities_gw=caps, carbon_price=0.0, dispatch_mode="data",
+        ensemble={"method": "block_bootstrap", "n_samples": 5, "seed": 42, "block_days": 14},
+        annual_demand_twh=625.38, expandable=["solar", "wind_onshore", "wind_offshore", "storage"],
+        meet_full_load=True, ess_short_power_gw=20.0, ess_short_duration_hr=4.0,
+        ess_long_power_gw=5.0, ess_long_duration_hr=168.0,
+    )
+    added = r["expansion"]["added_capacities_gw"]
+    assert r["unserved_twh"] < 0.05                       # HARD threshold: ~zero unserved
+    assert any(added.get(k, 0.0) > 0.0 for k in ("solar", "wind_onshore", "wind_offshore"))
+    assert added.get("storage_long", 0.0) > 0.0          # a seasonal reservoir bridges the drought
+    assert r["ess_requirement_gwh"] > r["ess_short_gwh"]  # most of the energy is the long reservoir
+
+
+def test_meet_full_load_firm_needs_far_less_storage() -> None:
+    # Keeping/growing a firm generator to ride the drought needs vastly less storage than the
+    # VRE+storage-only reservoir — the tool should reflect that firm is the cheaper firming path.
+    p = load_country_profile("KR")
+    caps = dict(p["capacities_gw"])
+    caps["coal"] = 0.0
+    base = dict(
+        country="KR", shares={}, capacities_gw=caps, carbon_price=0.0, dispatch_mode="data",
+        ensemble={"method": "block_bootstrap", "n_samples": 5, "seed": 42, "block_days": 14},
+        annual_demand_twh=625.38, meet_full_load=True, ess_short_power_gw=20.0,
+        ess_short_duration_hr=4.0, ess_long_power_gw=5.0, ess_long_duration_hr=168.0,
+    )
+    with_gas = calculate_system_lcoe(**base, expandable=["gas_ccgt", "storage"])
+    assert with_gas["unserved_twh"] < 0.05                       # firm also meets 100%
+    assert with_gas["expansion"]["added_capacities_gw"].get("gas_ccgt", 0.0) > 0.0
+    assert with_gas["ess_requirement_gwh"] < 5000.0             # far below the seasonal reservoir
 
 
 def test_expansion_prefers_firm_over_storage_for_a_lull() -> None:

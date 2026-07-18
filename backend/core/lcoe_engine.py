@@ -442,72 +442,110 @@ def _expand_to_meet_load(
             capacities[key] = capacities.get(key, 0.0) + amount
         added[key] = added.get(key, 0.0) + amount
 
-    # ── LDC-based sizing (fast screening) ────────────────────────────────────────
-    # Size directly from the residual net load rather than the old greedy peak-shave, which grew VRE
-    # as a firming tool (through storage recharge) and spiralled to absurd capacities — a windless
-    # drought hour cannot be covered by *any* amount of VRE. Two steps: fill the energy gap with the
-    # checked VRE, then cover the residual net-load peak with the cheapest checked firm/storage,
-    # assuming (per the reduced-order screening) that storage of the given power+duration bridges the
-    # peak block. A handful of dispatches, not ~90 greedy trials.
+    # ── LDC + reservoir sizing (meet 100% load is a HARD threshold) ─────────────────
+    # "Meet 100% load" must actually reach zero unserved. The old greedy solver treated VRE as a
+    # firming tool and spiralled to absurd builds; the fix is a two-part deterministic sizing:
+    #   1. grow the checked VRE until the ANNUAL energy balances (supply ≥ demand + round-trip loss),
+    #   2. firm the residual — a checked firm generator rides the whole drought, OR, if storage is the
+    #      only firming option, size it to the RESERVOIR: power = worst hourly deficit, energy = worst
+    #      cumulative draw-down of the supply−demand signal (so the store never empties).
+    # This is the classic energy-balance + reservoir screening; it hits zero unserved by construction.
     vre_expandable = [g for g in expandable_gens if g in _DISPATCH_VRE]
     firm_expandable = [g for g in expandable_gens if g not in _DISPATCH_VRE]
+    hours = len(year_profile.demand_norm)
+    avg_load = annual_demand_twh * 1000.0 / hours
+    demand = year_profile.demand_norm * avg_load
+    _RESERVOIR_RTE = 0.80        # blended storage round-trip used for the energy margin + drawdown
+    _ENERGY_MARGIN = 0.12        # build VRE ~12% above demand so there is surplus to refill storage
 
-    def _hourly_unserved(
-        caps: dict[str, float], trs: list[dict[str, float]], economic: bool = False
-    ) -> np.ndarray:
+    def _hourly_unserved(caps: dict[str, float], trs: list[dict[str, float]]) -> np.ndarray:
         return dispatch_hourly(
             profile=profile, year_profile=year_profile, shares=caps,
             annual_demand_twh=annual_demand_twh, carbon_price=carbon_price,
-            capacities_gw=caps, storage_tiers=trs, economic_storage=economic,
+            capacities_gw=caps, storage_tiers=trs, economic_storage=True,
             min_cf=min_cf, max_cf=max_cf, ramp_up=ramp_up, ramp_down=ramp_down,
         ).unserved_gw
 
-    # 1. Energy fill: grow the checked VRE to supply the unserved energy (replace the lost baseload
-    #    energy). Split the gap evenly across the checked VRE, each sized by its weather-mean CF.
+    def _vre_output(caps: dict[str, float]) -> np.ndarray:
+        out = caps.get("solar", 0.0) * year_profile.solar_cf + caps.get("wind_onshore", 0.0) * year_profile.wind_cf
+        if caps.get("wind_offshore", 0.0) > 0.0:  # offshore rides the wind shape at its own mean CF
+            base = float(gens.get("wind_offshore", {}).get("cf_base", 0.42))
+            mean = max(float(np.mean(year_profile.wind_cf)), 1e-6)
+            out = out + caps["wind_offshore"] * np.clip(year_profile.wind_cf * (base / mean), 0.0, 1.0)
+        return out
+
+    def _firm_available(caps: dict[str, float]) -> np.ndarray:
+        """Max energy the firm (non-VRE) fleet can deliver per hour, run up to its ceiling."""
+        total = 0.0
+        for gen, block in gens.items():
+            if gen in _DISPATCH_VRE or caps.get(gen, 0.0) <= 0.0:
+                continue
+            ceiling = float((max_cf or {}).get(gen, block.get("max_cf", block.get("cf_base", 1.0))) or 1.0)
+            total = total + caps[gen] * ceiling
+        return np.full(hours, total, dtype=float) if np.isscalar(total) else total
+
+    # 1. Energy fill: grow the checked VRE so annual supply ≥ demand × (1 + margin) — enough surplus
+    #    for storage to refill between droughts. Split the gap across the checked VRE by their mean CF.
     if vre_expandable:
-        cf_mean = {
-            "solar": max(float(np.mean(year_profile.solar_cf)), 0.03),
-            "wind_onshore": max(float(np.mean(year_profile.wind_cf)), 0.03),
-            "wind_offshore": max(float(np.mean(year_profile.wind_cf)), 0.03),
-        }
-        per_gwh = unserved_twh * 1000.0 / len(vre_expandable)
-        for g in vre_expandable:
-            _apply(g, per_gwh / (cf_mean.get(g, 0.15) * _HOURS_PER_YEAR))
-        u = _hourly_unserved(capacities, tiers)
-    else:
-        u = _hourly_unserved(capacities, tiers)
+        target = float(np.sum(demand)) * (1.0 + _ENERGY_MARGIN)
+        gap = target - float(np.sum(_firm_available(capacities))) - float(np.sum(_vre_output(capacities)))
+        if gap > 0.0:
+            per_gwh = gap / len(vre_expandable)
+            for g in vre_expandable:
+                cf = max(float(np.mean(year_profile.solar_cf if g == "solar" else year_profile.wind_cf)), 0.03)
+                if g == "wind_offshore":
+                    cf = min(cf * 1.4, 0.6)
+                _apply(g, per_gwh / (cf * hours))
 
-    # 2. Peak cover: firm the residual net-load peak with the cheapest checked option — a firm
-    #    generator if one is expandable (its max_cf ceiling means peak/ceiling of nameplate), else
-    #    storage power (its energy is assumed to bridge the block over the set duration).
-    peak = float(np.max(u)) if u.size else 0.0
-    if peak > _EXPANSION_PEAK_TOL_GW:
-        if firm_expandable:
-            g = min(firm_expandable, key=lambda x: _annual_fixed_cost_gen(gens[x], discount, 1.0))
-            ceiling = float((max_cf or {}).get(g, gens[g].get("max_cf", 1.0)) or 1.0)
-            _apply(g, peak / max(ceiling, 0.1))
-        elif storage_candidates:
-            _apply("storage" if "storage" in storage_candidates else next(iter(storage_candidates)), peak)
-        u = _hourly_unserved(capacities, tiers)
+    # 2. Firm the residual. A checked firm generator rides the whole drought (cheapest wins). If storage
+    #    is the only firming option, size it to the reservoir so it never empties.
+    net = _vre_output(capacities) + _firm_available(capacities) - demand
+    deficit_peak = float(np.max(np.maximum(-net, 0.0)))
+    if deficit_peak > _EXPANSION_PEAK_TOL_GW and firm_expandable:
+        g = min(firm_expandable, key=lambda x: _annual_fixed_cost_gen(gens[x], discount, 1.0))
+        ceiling = float((max_cf or {}).get(g, gens[g].get("max_cf", 1.0)) or 1.0)
+        _apply(g, deficit_peak / max(ceiling, 0.1))
+    elif deficit_peak > _EXPANSION_PEAK_TOL_GW and storage_candidates:
+        # Reservoir energy = the deepest draw-down below a prior full state (Rippl mass-curve): the
+        # store fills from surplus and empties into deficit, so the requirement is the maximum drop
+        # from any running peak — NOT the total range, which would count accumulated surplus.
+        sqrt_eta = _RESERVOIR_RTE**0.5
+        soc = np.cumsum(np.where(net > 0.0, net * sqrt_eta, net / sqrt_eta))
+        drawdown = np.maximum.accumulate(soc) - soc
+        reservoir_gwh = float(np.max(drawdown)) * 1.05  # +5% headroom for dispatch losses
+        required_hr = reservoir_gwh / max(deficit_peak, 1.0)
+        # A diurnal draw-down fits the short (battery) tier; a multi-day lull needs the long tier.
+        short_hr = float(storage_candidates.get("storage", {}).get("duration_hr", 0.0))
+        if "storage" in storage_candidates and required_hr <= short_hr * 1.25:
+            key = "storage"
+        else:
+            key = "storage_long" if "storage_long" in storage_candidates else "storage"
+        tier = storage_candidates[key]
+        old_power = float(tier.get("power_gw", 0.0))
+        new_power = max(old_power, deficit_peak)
+        tier["power_gw"] = new_power
+        if key == "storage_long" or required_hr > float(tier.get("duration_hr", 0.0)):
+            tier["duration_hr"] = max(float(tier.get("duration_hr", _DEFAULT_LONG_DURATION_HR)),
+                                      reservoir_gwh / max(new_power, 1.0))
+        added[key] = added.get(key, 0.0) + (new_power - old_power)
 
-    # Residual reported against the same (reporting-mode) dispatch the calculate path uses, so the
-    # note matches the unserved figure the user sees — its active-charge storage recovers more than
-    # the conservative sizing pass.
-    unserved_twh = float(np.sum(_hourly_unserved(capacities, tiers, economic=True))) / 1000.0
+    unserved_twh = float(np.sum(_hourly_unserved(capacities, tiers))) / 1000.0
     added = {key: value for key, value in added.items() if value > 1e-6}
 
     note = ""
     if unserved_twh > _EXPANSION_UNSERVED_TOL_TWH:
         if not firm_expandable and not storage_candidates:
-            note = ("Renewables alone cannot firm a low-renewable lull — also make storage "
-                    "expandable (or add a firm generator) to cover the residual peak.")
-        elif storage_candidates and not firm_expandable:
-            note = (f"{unserved_twh:.1f} TWh/yr still unserved through the worst multi-day lull: raise "
-                    "the storage duration or keep some firm capacity — VRE + short storage cannot "
-                    "bridge a multi-day drought on their own.")
+            note = ("Renewables alone cannot meet 100% load — also make storage expandable, or add a "
+                    "firm generator, so the drought can be covered.")
         else:
-            note = (f"{unserved_twh:.1f} TWh/yr still unserved — add another dispatchable generator "
-                    "or more storage.")
+            note = (f"{unserved_twh:.1f} TWh/yr still unserved — the drought is deeper than the sized "
+                    "storage/firm; widen the expandable set or raise the storage duration.")
+    elif storage_candidates and "storage_long" in added:
+        long_tier = storage_candidates.get("storage_long", {})
+        gwh = float(long_tier.get("power_gw", 0.0)) * float(long_tier.get("duration_hr", 0.0))
+        note = (f"Reaching 100% needs seasonal storage (~{gwh / 1000:.0f} TWh over "
+                f"{long_tier.get('duration_hr', 0):.0f} h) to bridge the multi-day lull — keeping or "
+                "uncapping firm capacity would cut this sharply.")
     return added, tiers, note
 
 

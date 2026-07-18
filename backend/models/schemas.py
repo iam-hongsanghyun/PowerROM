@@ -79,6 +79,9 @@ class CalculateRequest(BaseModel):
     subsidy_ptc_usd_mwh: float | None = Field(default=None, ge=0)
     # Energy-security lever: fractional surcharge on imported fuel cost (gas/coal/other).
     fuel_import_tariff_pct: float | None = Field(default=None, ge=0, le=3)
+    # Include the LDC + chronological hourly payloads in the response so one request serves the
+    # whole dashboard (a separate /dispatch call would re-run the entire ensemble dispatch).
+    include_ldc: bool = False
 
     @model_validator(mode="after")
     def validate_shares(self) -> "CalculateRequest":

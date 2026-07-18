@@ -13,7 +13,6 @@ import { ParametersTab } from "@/components/ParametersTab";
 import { ProfileAnalysis } from "@/components/ProfileAnalysis";
 import {
   calculateSystem,
-  dispatchSystem,
   fetchCountries,
   sizeForAdequacy,
   sizeMixForAdequacy,
@@ -425,34 +424,24 @@ export function Dashboard() {
     };
 
     try {
-      const [calculation, dispatch] = await Promise.all([
-        calculateSystem({
-          country,
-          capacities_gw: nextCapacities,
-          carbon_price: carbonPrice,
-          ev_penetration: evPenetration,
-          annual_demand_twh: annualDemandTwh,
-          custom_params,
-          dispatch_mode: dispatchMode,
-          weather_years: weatherYears.length ? weatherYears : null,
-          ensemble,
-          ...essPayload,
-        }),
-        dispatchSystem({
-          country,
-          capacities_gw: nextCapacities,
-          carbon_price: carbonPrice,
-          ev_penetration: evPenetration,
-          annual_demand_twh: annualDemandTwh,
-          custom_params,
-          dispatch_mode: dispatchMode,
-          weather_years: weatherYears.length ? weatherYears : null,
-          ensemble,
-          ...essPayload,
-        }),
-      ]);
+      // One request serves the whole dashboard: include_ldc adds the LDC + hourly payloads a
+      // separate /dispatch call used to fetch by re-running the entire ensemble dispatch —
+      // double the server work, and past the serverless 60 s ceiling on slow cold starts.
+      const calculation = await calculateSystem({
+        country,
+        capacities_gw: nextCapacities,
+        carbon_price: carbonPrice,
+        ev_penetration: evPenetration,
+        annual_demand_twh: annualDemandTwh,
+        custom_params,
+        dispatch_mode: dispatchMode,
+        weather_years: weatherYears.length ? weatherYears : null,
+        ensemble,
+        include_ldc: true,
+        ...essPayload,
+      });
       setResult(calculation);
-      setDispatchResult(dispatch);
+      setDispatchResult(null); // charts read the ldc/chronological on the calculate response
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Analysis failed.");
     } finally {

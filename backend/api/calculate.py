@@ -41,6 +41,7 @@ def calculate(payload: CalculateRequest) -> CalculateResponse:
         subsidy_itc_pct=payload.subsidy_itc_pct,
         subsidy_ptc_usd_mwh=payload.subsidy_ptc_usd_mwh,
         fuel_import_tariff_pct=payload.fuel_import_tariff_pct,
+        include_ldc=payload.include_ldc,
     )
     return CalculateResponse(**result)
 

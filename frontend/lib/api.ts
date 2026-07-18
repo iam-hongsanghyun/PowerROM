@@ -290,6 +290,9 @@ export async function calculateSystem(payload: {
   subsidy_itc_pct?: number | null;
   subsidy_ptc_usd_mwh?: number | null;
   fuel_import_tariff_pct?: number | null;
+  /** Include the LDC + hourly chronological payloads so one request serves the whole
+   *  dashboard (a separate /dispatch call would re-run the entire ensemble dispatch). */
+  include_ldc?: boolean;
 }): Promise<CalculateResponse> {
   return request<CalculateResponse>("/calculate", {
     method: "POST",

@@ -57,9 +57,12 @@ class CalculateRequest(BaseModel):
     weather_years: list[int] | None = None
     ensemble: "EnsembleConfig | None" = None
     # User-set storage: power (GW) + duration (h) per tier; energy = power × duration.
-    # None falls back to no storage (power 0) / the profile's duration.
+    # None falls back to no storage (power 0) / the profile's duration. Three tiers: short
+    # (intraday battery), phs (pumped hydro — bulk, ~78% round-trip), long (seasonal store).
     ess_short_power_gw: float | None = Field(default=None, ge=0)
     ess_short_duration_hr: float | None = Field(default=None, ge=0)
+    ess_phs_power_gw: float | None = Field(default=None, ge=0)
+    ess_phs_duration_hr: float | None = Field(default=None, ge=0)
     ess_long_power_gw: float | None = Field(default=None, ge=0)
     ess_long_duration_hr: float | None = Field(default=None, ge=0)
     # Demand-shape controls for the synthesized load profile.
@@ -242,6 +245,9 @@ class CalculateResponse(BaseModel):
     ess_short_gwh: float = 0.0
     ess_short_gw: float = 0.0
     ess_short_lcoe: float = 0.0
+    ess_phs_gwh: float = 0.0
+    ess_phs_gw: float = 0.0
+    ess_phs_lcoe: float = 0.0
     ess_long_gwh: float = 0.0
     ess_long_gw: float = 0.0
     ess_long_lcoe: float = 0.0
@@ -276,6 +282,8 @@ class PathwayRequest(BaseModel):
     ensemble: "EnsembleConfig | None" = None
     ess_short_power_gw: float | None = Field(default=None, ge=0)
     ess_short_duration_hr: float | None = Field(default=None, ge=0)
+    ess_phs_power_gw: float | None = Field(default=None, ge=0)
+    ess_phs_duration_hr: float | None = Field(default=None, ge=0)
     ess_long_power_gw: float | None = Field(default=None, ge=0)
     ess_long_duration_hr: float | None = Field(default=None, ge=0)
     # Capacity expansion at each milestone year: grow these generators (or "storage") to meet
@@ -306,6 +314,8 @@ class SizeForAdequacyRequest(BaseModel):
     ensemble: "EnsembleConfig | None" = None
     ess_short_power_gw: float | None = Field(default=None, ge=0)
     ess_short_duration_hr: float | None = Field(default=None, ge=0)
+    ess_phs_power_gw: float | None = Field(default=None, ge=0)
+    ess_phs_duration_hr: float | None = Field(default=None, ge=0)
     ess_long_power_gw: float | None = Field(default=None, ge=0)
     ess_long_duration_hr: float | None = Field(default=None, ge=0)
     max_gw: float | None = Field(default=None, ge=0)
@@ -338,6 +348,8 @@ class SizeMixForAdequacyRequest(BaseModel):
     ensemble: "EnsembleConfig | None" = None
     ess_short_power_gw: float | None = Field(default=None, ge=0)
     ess_short_duration_hr: float | None = Field(default=None, ge=0)
+    ess_phs_power_gw: float | None = Field(default=None, ge=0)
+    ess_phs_duration_hr: float | None = Field(default=None, ge=0)
     ess_long_power_gw: float | None = Field(default=None, ge=0)
     ess_long_duration_hr: float | None = Field(default=None, ge=0)
     # Per-generator CF limits applied during co-sizing (e.g. cap gas at 20% CF so clean tech +

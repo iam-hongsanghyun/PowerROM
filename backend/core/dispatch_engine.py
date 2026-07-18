@@ -192,6 +192,85 @@ def _simulate_storage_economic(
     )
 
 
+def _ldc_active_storage(
+    unserved_gw: np.ndarray,
+    dispatch_gw: dict[str, np.ndarray],
+    available_gw: dict[str, np.ndarray],
+    charge_order: list[str],
+    power_cap_gw: float,
+    delivered_budget_gwh: float,
+    efficiency: float,
+) -> np.ndarray:
+    r"""Load-duration-curve peak-shave: storage actively fills for a later shortage.
+
+    The chronological storage passes only charge from *curtailed* surplus, so in a grid with
+    little curtailment storage sits idle. This pass gives it the missing ability to **request
+    generation**: it shaves the top of the unserved-load-duration curve (the deficit hours the
+    firm fleet could not cover) and pays for the delivered energy by running the cheapest
+    generation with spare headroom. No optimiser — the LDC picks which hours to serve.
+
+    Algorithm:
+        1. Discharge — sort hours by unserved descending; from the top, serve
+           $d_h=\min(u_h,\ P,\ \text{budget left})$ until the annual delivered-energy budget
+           $B=\sum_{tiers} E\cdot DoD\cdot n_{cyc}\cdot\eta$ (net of what the chronological pass
+           already delivered) is spent. This flattens the peak of the unserved LDC.
+        2. Charge — the drawn energy $\sum d_h/\eta$ is supplied by the cheapest flexible
+           generators with headroom ($\text{available}-\text{dispatch}$), added to their output
+           proportionally across their spare hours (the "assume it fills from the trough" step).
+    ASCII: shave top of the unserved duration curve up to power P and annual budget B; charge the
+    deficit/eff from the cheapest generation headroom.
+
+    Args:
+        unserved_gw: Hourly unserved demand (GW) — modified in place (reduced by the shave).
+        dispatch_gw: Per-generator hourly dispatch (GW) — the charging generation is added in place.
+        available_gw: Per-generator hourly availability ceiling (GW) — dispatch may rise to here.
+        charge_order: Flexible generators cheapest-first (marginal cost) — the charge merit order.
+        power_cap_gw: Combined storage discharge power (GW) — per-hour shave ceiling.
+        delivered_budget_gwh: Annual delivered-energy budget (GWh) still available to this pass.
+        efficiency: Round-trip efficiency — charge drawn = delivered ÷ efficiency.
+
+    Returns:
+        Hourly net storage flow from this pass (GW): + at shaved peak hours, − at charge hours.
+    """
+    hours = len(unserved_gw)
+    net = np.zeros(hours, dtype=float)
+    if power_cap_gw <= 0.0 or delivered_budget_gwh <= 1e-9 or float(np.max(unserved_gw)) <= 1e-9:
+        return net
+
+    # 1. Discharge: shave the top of the unserved duration curve, capped at power and budget.
+    order = np.argsort(unserved_gw)[::-1]
+    shave_sorted = np.minimum(unserved_gw[order], power_cap_gw)
+    cumulative = np.cumsum(shave_sorted)
+    take_sorted = np.where(cumulative <= delivered_budget_gwh, shave_sorted, 0.0)
+    crossover = int(np.searchsorted(cumulative, delivered_budget_gwh))
+    if crossover < shave_sorted.size:  # partial fill of the boundary hour
+        already = float(cumulative[crossover - 1]) if crossover > 0 else 0.0
+        take_sorted[crossover] = min(shave_sorted[crossover], max(0.0, delivered_budget_gwh - already))
+    served = np.zeros(hours, dtype=float)
+    served[order] = take_sorted
+    total_served = float(served.sum())
+    if total_served <= 1e-9:
+        return net
+    unserved_gw -= served
+    net += served
+
+    # 2. Charge: run the cheapest generation with headroom to supply the drawn energy.
+    charge_needed = total_served / max(1e-6, efficiency)
+    for gen in charge_order:
+        if charge_needed <= 1e-9:
+            break
+        headroom = np.maximum(available_gw.get(gen, np.zeros(hours)) - dispatch_gw[gen], 0.0)
+        total_headroom = float(headroom.sum())
+        if total_headroom <= 1e-9:
+            continue
+        drawn = min(charge_needed, total_headroom)
+        added = headroom * (drawn / total_headroom)  # spread across the generator's spare hours
+        dispatch_gw[gen] = dispatch_gw[gen] + added
+        net -= added
+        charge_needed -= drawn
+    return net
+
+
 def _resolve_ramp_rates(
     explicit: dict[str, float] | None,
     generator_names: list[str],
@@ -583,6 +662,35 @@ def dispatch_hourly(
         for gen in curtailed_gw:
             curtailed_gw[gen] = curtailed_gw[gen] * remaining_fraction
         unserved_gw = np.maximum(deficit_gw, 0.0)
+
+        # LDC active-charge pass: let storage *request generation* to shave the remaining unserved
+        # peak (charging the deficit from the cheapest flexible headroom), not just soak curtailment
+        # — so storage is useful even in a grid with little/no curtailment. Bounded by each tier's
+        # annual delivered-energy budget (energy × dod × cycles × η) net of what the chronological
+        # pass already delivered. Reporting mode only: the capacity-expansion solver
+        # (economic_storage=False) keeps sizing firm capacity conservatively, without crediting
+        # storage's active thermal charging, so its build decisions are unchanged.
+        if economic_storage and float(np.max(unserved_gw)) > 1e-9:
+            delivered_budget = sum(
+                float(t.get("power_gw", 0.0)) * float(t.get("duration_hr", 0.0))
+                * float(t.get("dod", 0.9)) * float(t.get("cycles_per_year", 0.0))
+                * float(t.get("efficiency", 0.85))
+                for t in storage_tiers
+            )
+            already_delivered = float(np.sum(np.maximum(storage_net_gw, 0.0)))
+            power_cap = sum(float(t.get("power_gw", 0.0)) for t in storage_tiers)
+            avg_eff = (
+                sum(float(t.get("power_gw", 0.0)) * float(t.get("efficiency", 0.85)) for t in storage_tiers)
+                / power_cap
+            ) if power_cap > 0 else 0.85
+            charge_order = sorted(
+                flexible_names,
+                key=lambda gen: _marginal_cost_usd_mwh(profile["generators"][gen], carbon_price),
+            )
+            storage_net_gw += _ldc_active_storage(
+                unserved_gw, dispatch_gw, available_gw, charge_order,
+                power_cap, max(0.0, delivered_budget - already_delivered), avg_eff,
+            )
 
     return DispatchResult(
         country=year_profile.country,

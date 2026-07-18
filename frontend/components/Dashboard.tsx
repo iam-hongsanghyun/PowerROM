@@ -150,7 +150,7 @@ const INITIAL_CAPACITIES = capacitiesFromSummary(
 // Scenario-lever defaults. Single source of truth so both the initial state and the
 // per-country reset (handleCountryChange) start from identical values.
 const DEFAULT_RPS_PENALTY_USD_MWH = 50;
-const DEFAULT_STORAGE: StorageInput = { shortPowerGw: 20, longPowerGw: 5 };
+const DEFAULT_STORAGE: StorageInput = { shortPowerGw: 20, phsPowerGw: 5, longPowerGw: 5 };
 // The illustrative storage default above is anchored to Korea (~625 TWh/yr). With the roster now
 // spanning 1–9000 TWh grids, seed each country's storage proportionally to its demand so a small
 // grid doesn't start with Korea-scale storage dominating its LCOE.
@@ -161,6 +161,7 @@ function storageSeedForDemand(demandTwh: number): StorageInput {
   const round1 = (x: number) => Math.round(x * 10) / 10;
   return {
     shortPowerGw: round1(DEFAULT_STORAGE.shortPowerGw * scale),
+    phsPowerGw: round1(DEFAULT_STORAGE.phsPowerGw * scale),
     longPowerGw: round1(DEFAULT_STORAGE.longPowerGw * scale),
   };
 }
@@ -376,6 +377,7 @@ export function Dashboard() {
         block_days: ensemble.block_days ?? 14,
       },
       ess_short_power_gw: storage.shortPowerGw || null,
+      ess_phs_power_gw: storage.phsPowerGw || null,
       ess_long_power_gw: storage.longPowerGw || null,
       min_cf: Object.keys(minCf).length ? minCf : undefined,
       max_cf: Object.keys(maxCf).length ? maxCf : undefined,
@@ -404,6 +406,7 @@ export function Dashboard() {
         block_days: ensemble.block_days ?? 14,
       },
       ess_short_power_gw: storage.shortPowerGw || null,
+      ess_phs_power_gw: storage.phsPowerGw || null,
       ess_long_power_gw: storage.longPowerGw || null,
       min_cf: Object.keys(minCf).length ? minCf : undefined,
       max_cf: Object.keys(maxCf).length ? maxCf : undefined,
@@ -437,6 +440,7 @@ export function Dashboard() {
     const essPayload = {
       // Duration comes from the profile (Parameters -> ESS); only power is set here.
       ess_short_power_gw: storage.shortPowerGw,
+      ess_phs_power_gw: storage.phsPowerGw,
       ess_long_power_gw: storage.longPowerGw,
       demand_monthly: demandEdited ? demandProfile.monthly : null,
       demand_daily: demandEdited ? demandProfile.daily : null,
@@ -630,7 +634,7 @@ export function Dashboard() {
                       ESS:{" "}
                       <strong className="text-slate-900">
                         {result?.ess_requirement_gwh.toFixed(0) ?? "--"} GWh
-                        ({result?.ess_short_gwh.toFixed(0) ?? "--"} S + {result?.ess_long_gwh.toFixed(0) ?? "--"} L)
+                        ({result?.ess_short_gwh.toFixed(0) ?? "--"} S + {result?.ess_phs_gwh.toFixed(0) ?? "--"} P + {result?.ess_long_gwh.toFixed(0) ?? "--"} L)
                       </strong>
                     </span>
                     <span className="text-slate-500">

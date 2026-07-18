@@ -126,6 +126,69 @@ def _flat_year() -> YearProfile:
     )
 
 
+def _two_level_year(low_gw: float, high_gw: float, high_hours: int) -> tuple[YearProfile, float]:
+    """A pure-thermal year with `high_hours` peak hours and the rest at a trough level.
+
+    Returns the profile plus the annual_demand_twh that reproduces the GW pattern exactly.
+    """
+    pattern = np.full(HOURS_PER_YEAR, low_gw, dtype=float)
+    pattern[:high_hours] = high_gw
+    mean_gw = float(pattern.mean())
+    year = YearProfile(
+        country="TT", year=2024,
+        demand_norm=pattern / mean_gw,
+        solar_cf=np.zeros(HOURS_PER_YEAR),
+        wind_cf=np.zeros(HOURS_PER_YEAR),
+        source="test",
+    )
+    return year, mean_gw * HOURS_PER_YEAR / 1000.0  # TWh
+
+
+def test_ldc_active_storage_charges_generation_to_shave_unserved_peak() -> None:
+    # A firm-capped grid with no curtailment: coal (10 GW, max_cf 0.7 → 7 GW/h) cannot cover the
+    # 9 GW peak, so 2 GW/h is unserved in the peak hours. With storage, the LDC active-charge pass
+    # runs coal harder in the troughs (spare below its 7 GW ceiling) to fill for the peak, so the
+    # unserved shrinks and coal's annual generation rises. Storage does this with ZERO curtailment.
+    year, demand_twh = _two_level_year(low_gw=4.0, high_gw=9.0, high_hours=2000)
+    kwargs = dict(
+        profile={"generators": {"coal": {"cf_base": 1.0, "max_cf": 0.7,
+                                          "opex_var_usd_mwh": 5.0, "cycles_per_year": 300}}},
+        year_profile=year,
+        shares={"coal": 1.0},
+        annual_demand_twh=demand_twh,
+        capacities_gw={"coal": 10.0},
+        max_cf={"coal": 0.7},
+    )
+    tiers = [{"name": "short", "power_gw": 5.0, "duration_hr": 10.0, "efficiency": 0.85,
+              "dod": 0.9, "cycles_per_year": 300.0}]
+    without = dispatch_hourly(**kwargs, economic_storage=True)
+    withs = dispatch_hourly(**kwargs, storage_tiers=tiers, economic_storage=True)
+
+    assert without.unserved_gw.sum() > 3000.0  # ~2 GW × 2000 h of unserved, no storage
+    assert withs.unserved_gw.sum() < without.unserved_gw.sum() - 3000.0  # storage shaves the peak
+    assert float(withs.dispatch_gw["coal"].sum()) > float(without.dispatch_gw["coal"].sum())  # charged
+    # storage_net: discharges (+) at the peak, charges (−) in the trough, roughly balanced by η
+    net = withs.storage_net_gw
+    assert float(net[net > 0].sum()) > 0.0 and float(net[net < 0].sum()) < 0.0
+
+
+def test_ldc_active_storage_respects_cycle_budget() -> None:
+    # With a tiny cycle budget, storage can only shave a little of the unserved peak.
+    year, demand_twh = _two_level_year(low_gw=4.0, high_gw=9.0, high_hours=2000)
+    kwargs = dict(
+        profile={"generators": {"coal": {"cf_base": 1.0, "max_cf": 0.7, "cycles_per_year": 1}}},
+        year_profile=year, shares={"coal": 1.0}, annual_demand_twh=demand_twh,
+        capacities_gw={"coal": 10.0}, max_cf={"coal": 0.7},
+    )
+    big = [{"name": "short", "power_gw": 5.0, "duration_hr": 10.0, "efficiency": 0.85,
+            "dod": 0.9, "cycles_per_year": 300.0}]
+    tiny = [{**big[0], "cycles_per_year": 2.0}]
+    shaved_big = kwargs and dispatch_hourly(**kwargs, storage_tiers=big, economic_storage=True).unserved_gw.sum()
+    shaved_tiny = dispatch_hourly(**kwargs, storage_tiers=tiny, economic_storage=True).unserved_gw.sum()
+    # 2 cycles of 45 GWh ≈ 90 GWh delivered vs the multi-thousand-GWh peak → far less shaved
+    assert shaved_tiny > shaved_big
+
+
 def test_vre_is_priority_regardless_of_manual_order() -> None:
     # Even with coal placed first in the manual order, free solar is served first.
     year = _flat_year()

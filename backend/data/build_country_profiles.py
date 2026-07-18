@@ -463,6 +463,21 @@ SOURCE_RAMP = (
     "Per-technology ramp rates (fraction of nameplate per hour) stylized from IEA/NREL unit-"
     "flexibility literature; nuclear runs as flat baseload and VRE is weather-driven (no ramp limit)"
 )
+# Pumped-hydro storage tier (bulk, cheap-per-kWh, ~78% round-trip): IHA 2023 / IEA / NREL ATB
+# ranges — installed energy cost ~65 USD/kWh, ~60-yr life, ~200 cycles/yr, 90% depth-of-discharge,
+# ~10 h default duration. Distinct from batteries (short tier) and seasonal H2 (long tier).
+PHS_ESS_BLOCK: dict[str, Any] = {
+    "capex_usd_kwh": 65,
+    "lifetime_yr": 60,
+    "cycles_per_year": 200,
+    "dod": 0.9,
+    "duration_hr": 10,
+    "round_trip_efficiency": 0.78,
+}
+SOURCE_PHS = (
+    "Pumped-hydro storage tier (bulk, ~78% round-trip, ~65 USD/kWh, ~60-yr life): IHA 2023 / "
+    "IEA / NREL ATB; distinct from the battery (short) and seasonal (long) tiers"
+)
 SOURCE_MAXCF = (
     "Default availability ceiling (max_cf) on firm generators (gas/coal/nuclear/other) = the real "
     "Ember annual capacity factor rounded up to the next 10%; renewables and hydro are uncapped. "
@@ -716,6 +731,9 @@ def build_profile(code: str, iso3: str, name: str, template: dict[str, Any],
         profile["generators"]["wind_onshore"]["wind_ar1_rho"] = _WIND_AR1_RHO
     if "short_dur" in profile.get("ess", {}):
         profile["ess"]["short_dur"]["arbitrage_price_percentile"] = _ARBITRAGE_PRICE_PERCENTILE
+    # Pumped-hydro storage tier economics (stamped in code so it can't drift; power/duration are
+    # user inputs at request time, defaulting to 0 = no PHS).
+    profile.setdefault("ess", {})["phs_dur"] = dict(PHS_ESS_BLOCK)
 
     profile["capacities_gw"] = capacities
     profile["shares"] = shares
@@ -729,6 +747,7 @@ def build_profile(code: str, iso3: str, name: str, template: dict[str, Any],
         SOURCE_DEPENDENCY,
         SOURCE_RAMP,
         SOURCE_MAXCF,
+        SOURCE_PHS,
         SOURCE_SYNTHESIS,
     ]
     return profile

@@ -225,6 +225,8 @@ def calculate_lcoe(
     generator_order: list[str] | None = None,
     ess_short_power_gw: float | None = None,
     ess_short_duration_hr: float | None = None,
+    ess_phs_power_gw: float | None = None,
+    ess_phs_duration_hr: float | None = None,
     ess_long_power_gw: float | None = None,
     ess_long_duration_hr: float | None = None,
     expandable: list[str] | None = None,
@@ -274,6 +276,7 @@ def calculate_lcoe(
             freely; setting either switches to a sequential ramp-constrained dispatch.
         generator_order: Manual merit order override (list of generator keys).
         ess_short_power_gw / ess_short_duration_hr: Intraday battery power (GW) and duration (h).
+        ess_phs_power_gw / ess_phs_duration_hr: Pumped-hydro power (GW) and duration (h).
         ess_long_power_gw / ess_long_duration_hr: Seasonal storage power (GW) and duration (h).
         expandable: Generators (and/or "storage") the solver may grow to meet 100% of load.
         meet_full_load: Grow the expandable resources cheapest-first until load is met.
@@ -323,6 +326,8 @@ def calculate_lcoe(
         ramp_down=ramp_down,
         ess_short_power_gw=ess_short_power_gw,
         ess_short_duration_hr=ess_short_duration_hr,
+        ess_phs_power_gw=ess_phs_power_gw,
+        ess_phs_duration_hr=ess_phs_duration_hr,
         ess_long_power_gw=ess_long_power_gw,
         ess_long_duration_hr=ess_long_duration_hr,
         demand_pattern=demand_pattern,
@@ -352,6 +357,7 @@ def calculate_lcoe(
             "min_cf": min_cf, "max_cf": max_cf, "ramp_up": ramp_up, "ramp_down": ramp_down,
             "generator_order": generator_order,
             "ess_short_power_gw": ess_short_power_gw, "ess_short_duration_hr": ess_short_duration_hr,
+            "ess_phs_power_gw": ess_phs_power_gw, "ess_phs_duration_hr": ess_phs_duration_hr,
             "ess_long_power_gw": ess_long_power_gw, "ess_long_duration_hr": ess_long_duration_hr,
             "expandable": expandable, "meet_full_load": meet_full_load,
             "rps_target_share": rps_target_share, "rps_penalty_usd_mwh": rps_penalty_usd_mwh,

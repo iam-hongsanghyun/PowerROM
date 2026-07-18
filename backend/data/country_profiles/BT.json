@@ -376,6 +376,14 @@
         "source": "Last-gap seasonal storage; kicks in above 65% VRE"
       },
       "round_trip_efficiency": 0.45
+    },
+    "phs_dur": {
+      "capex_usd_kwh": 65,
+      "lifetime_yr": 60,
+      "cycles_per_year": 200,
+      "dod": 0.9,
+      "duration_hr": 10,
+      "round_trip_efficiency": 0.78
     }
   },
   "sources": [
@@ -388,6 +396,7 @@
     "Energy dependency (import_fuel_fraction per generator) from UN Comtrade net fuel imports (coal HS 2701, oil HS 2709+2710, natural gas HS 271111+271121; net weight x IPCC 2006 NCVs) vs the power sector's Ember-derived fuel burn; net exporters count as 0",
     "Per-technology ramp rates (fraction of nameplate per hour) stylized from IEA/NREL unit-flexibility literature; nuclear runs as flat baseload and VRE is weather-driven (no ramp limit)",
     "Default availability ceiling (max_cf) on firm generators (gas/coal/nuclear/other) = the real Ember annual capacity factor rounded up to the next 10%; renewables and hydro are uncapped. Enforced as an hourly power cap in dispatch, overridable per request/generator.",
+    "Pumped-hydro storage tier (bulk, ~78% round-trip, ~65 USD/kWh, ~60-yr life): IHA 2023 / IEA / NREL ATB; distinct from the battery (short) and seasonal (long) tiers",
     "Synthetic-profile stress knobs (VRE-drought frequency/duration/depth, wind AR(1) persistence, short-storage arbitrage price-percentile) \u2014 stylized reliability-modelling defaults, editable per country"
   ],
   "data_year": 2024,

@@ -7,6 +7,7 @@ import { InfoTip } from "@/components/InfoTip";
 /** User-set storage rated power (GW) per tier. Duration is set in the Parameters ESS section. */
 export interface StorageInput {
   shortPowerGw: number;
+  phsPowerGw: number;
   longPowerGw: number;
 }
 
@@ -78,13 +79,14 @@ export function ControlPanel({
         <div className="flex items-center justify-between text-sm font-medium text-slate-800">
           <span className="flex items-center gap-1.5">
             Storage
-            <InfoTip text="Rated power (GW) of short- and long-duration storage. Duration (hours) is set in Parameters → ESS; energy = power x duration." />
+            <InfoTip text="Rated power (GW) of battery (short), pumped-hydro (PHS) and seasonal (long) storage. Duration (hours) is set in Parameters → ESS; energy = power x duration." />
           </span>
           <span className="text-[10px] text-slate-400">GW</span>
         </div>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-3 gap-2">
           {([
             ["Short power", "shortPowerGw", addedStorageGw],
+            ["PHS power", "phsPowerGw", undefined],
             ["Long power", "longPowerGw", addedStorageLongGw],
           ] as const).map(([label, key, added]) => (
             <label key={key} className="flex flex-col gap-1 text-[10px] text-slate-400">

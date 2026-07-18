@@ -132,6 +132,9 @@ export interface CalculateResponse {
   ess_short_gwh: number;
   ess_short_gw: number;
   ess_short_lcoe: number;
+  ess_phs_gwh: number;
+  ess_phs_gw: number;
+  ess_phs_lcoe: number;
   ess_long_gwh: number;
   ess_long_gw: number;
   ess_long_lcoe: number;
@@ -281,6 +284,8 @@ export async function calculateSystem(payload: {
   ensemble?: EnsembleConfig | null;
   ess_short_power_gw?: number | null;
   ess_short_duration_hr?: number | null;
+  ess_phs_power_gw?: number | null;
+  ess_phs_duration_hr?: number | null;
   ess_long_power_gw?: number | null;
   ess_long_duration_hr?: number | null;
   demand_pattern?: "default" | "winter_peak" | "summer_peak" | "flat";
@@ -320,6 +325,8 @@ export async function dispatchSystem(payload: {
   ensemble?: EnsembleConfig | null;
   ess_short_power_gw?: number | null;
   ess_short_duration_hr?: number | null;
+  ess_phs_power_gw?: number | null;
+  ess_phs_duration_hr?: number | null;
   ess_long_power_gw?: number | null;
   ess_long_duration_hr?: number | null;
   demand_pattern?: "default" | "winter_peak" | "summer_peak" | "flat";
@@ -374,6 +381,8 @@ export async function simulatePathway(payload: {
   ensemble?: EnsembleConfig | null;
   ess_short_power_gw?: number | null;
   ess_short_duration_hr?: number | null;
+  ess_phs_power_gw?: number | null;
+  ess_phs_duration_hr?: number | null;
   ess_long_power_gw?: number | null;
   ess_long_duration_hr?: number | null;
   expandable?: string[];
@@ -409,6 +418,8 @@ export async function sizeForAdequacy(payload: {
   ensemble?: EnsembleConfig | null;
   ess_short_power_gw?: number | null;
   ess_short_duration_hr?: number | null;
+  ess_phs_power_gw?: number | null;
+  ess_phs_duration_hr?: number | null;
   ess_long_power_gw?: number | null;
   ess_long_duration_hr?: number | null;
   max_gw?: number | null;
@@ -443,6 +454,8 @@ export async function sizeMixForAdequacy(payload: {
   ensemble?: EnsembleConfig | null;
   ess_short_power_gw?: number | null;
   ess_short_duration_hr?: number | null;
+  ess_phs_power_gw?: number | null;
+  ess_phs_duration_hr?: number | null;
   ess_long_power_gw?: number | null;
   ess_long_duration_hr?: number | null;
   min_cf?: Partial<Record<GeneratorKey, number>>;

@@ -11,7 +11,6 @@ from backend.core.adequacy import estimate_adequacy
 from backend.core.radar import build_radar
 from backend.core.dispatch_engine import (
     VRE_GENERATORS as _DISPATCH_VRE,
-    _marginal_cost_usd_mwh,
     dispatch_hourly,
     run_dispatch_ensemble,
 )
@@ -27,11 +26,21 @@ VRE_GENERATORS = {"solar", "wind_onshore", "wind_offshore"}
 # Round-trip efficiency of each storage tier (energy delivered ÷ energy stored),
 # used when the profile does not specify `round_trip_efficiency`.
 _SHORT_STORAGE_RTE: float = 0.85  # intraday lithium battery
+_PHS_STORAGE_RTE: float = 0.78    # pumped hydro (IHA / IEA typical round-trip)
 _LONG_STORAGE_RTE: float = 0.45   # seasonal store (e.g. hydrogen)
 
 # Fallback storage duration (hours) when neither the request nor the profile sets it.
 _DEFAULT_SHORT_DURATION_HR: float = 4.0
+_DEFAULT_PHS_DURATION_HR: float = 10.0    # bulk pumped hydro: hours-to-a-day of shifting
 _DEFAULT_LONG_DURATION_HR: float = 168.0
+
+# Fallback throughput bounds when the profile ess block omits them: depth-of-discharge and annual
+# full-cycle count (intraday batteries cycle ~daily; pumped hydro somewhat less; seasonal stores
+# only a few times a year).
+_DEFAULT_DOD: float = 0.9
+_DEFAULT_SHORT_CYCLES: float = 300.0
+_DEFAULT_PHS_CYCLES: float = 200.0
+_DEFAULT_LONG_CYCLES: float = 30.0
 
 # Share normalisation tolerance: shares are considered already normalised when
 # |sum − 1| ≤ this value (avoids floating-point noise triggering the flag).
@@ -221,22 +230,27 @@ def _build_storage_tiers(
     ess_short_duration_hr: float | None,
     ess_long_power_gw: float | None,
     ess_long_duration_hr: float | None,
+    ess_phs_power_gw: float | None = None,
+    ess_phs_duration_hr: float | None = None,
 ) -> list[dict[str, float]]:
-    """Assemble the two user-set storage tiers for endogenous dispatch and costing.
+    """Assemble the user-set storage tiers for endogenous dispatch and costing.
 
-    Power (GW) and duration (h) are user inputs (energy = power × duration); capex,
-    lifetime, and round-trip efficiency come from the profile ``ess`` block (with
-    fallbacks). Power defaults to 0 (no storage) when the caller does not set it.
+    Three tiers: ``short`` (intraday battery), ``phs`` (pumped hydro — bulk, cheap per kWh,
+    ~78% round-trip), and ``long`` (seasonal store). Power (GW) and duration (h) are user
+    inputs (energy = power × duration); capex, lifetime, and round-trip efficiency come from
+    the profile ``ess`` block (with fallbacks). Power defaults to 0 (no storage) when unset.
     """
     ess = profile.get("ess", {})
     specs = (
         ("short", ess.get("short_dur", {}), ess_short_power_gw, ess_short_duration_hr,
-         _DEFAULT_SHORT_DURATION_HR, _SHORT_STORAGE_RTE),
+         _DEFAULT_SHORT_DURATION_HR, _SHORT_STORAGE_RTE, _DEFAULT_SHORT_CYCLES),
+        ("phs", ess.get("phs_dur", {}), ess_phs_power_gw, ess_phs_duration_hr,
+         _DEFAULT_PHS_DURATION_HR, _PHS_STORAGE_RTE, _DEFAULT_PHS_CYCLES),
         ("long", ess.get("long_dur", {}), ess_long_power_gw, ess_long_duration_hr,
-         _DEFAULT_LONG_DURATION_HR, _LONG_STORAGE_RTE),
+         _DEFAULT_LONG_DURATION_HR, _LONG_STORAGE_RTE, _DEFAULT_LONG_CYCLES),
     )
     tiers: list[dict[str, float]] = []
-    for name, cfg, power, duration, default_duration, default_rte in specs:
+    for name, cfg, power, duration, default_duration, default_rte, default_cycles in specs:
         tier = {
             "name": name,
             "power_gw": float(power) if power is not None else 0.0,
@@ -244,6 +258,9 @@ def _build_storage_tiers(
             "efficiency": float(cfg.get("round_trip_efficiency", default_rte)),
             "capex_usd_kwh": float(cfg.get("capex_usd_kwh", 0.0)),
             "lifetime_yr": float(cfg.get("lifetime_yr", 15.0)),
+            # Depth-of-discharge and annual full-cycle count bound the LDC active-charge throughput.
+            "dod": float(cfg.get("dod", _DEFAULT_DOD)),
+            "cycles_per_year": float(cfg.get("cycles_per_year", default_cycles)),
         }
         # Short tier's economic-arbitrage price-percentile window (config; dispatch falls back to its
         # own default when absent). Only meaningful for the short/intraday tier.
@@ -279,7 +296,7 @@ def _ess_metrics(profile: dict[str, Any], storage_tiers: list[dict[str, float]])
         result["ess_requirement_gwh"] += energy
         result["ess_requirement_gw"] += power
         result["ess_lcoe"] += lcoe
-    for name in ("short", "long"):
+    for name in ("short", "phs", "long"):
         result.setdefault(f"ess_{name}_gwh", 0.0)
         result.setdefault(f"ess_{name}_gw", 0.0)
         result.setdefault(f"ess_{name}_lcoe", 0.0)
@@ -288,6 +305,7 @@ def _ess_metrics(profile: dict[str, Any], storage_tiers: list[dict[str, float]])
 
 # ── Capacity expansion (least firm-cost, to meet 100% load) ─────────────────────
 _EXPANSION_UNSERVED_TOL_TWH: float = 0.02   # treat as "no unserved hour"
+_EXPANSION_PEAK_TOL_GW: float = 0.5         # residual net-load peak below this needs no firming
 _EXPANSION_MAX_STEPS: int = 90              # greedy increments before giving up
 _EXPANSION_STEP_DIVISOR: float = 12.0       # base increment size = initial unserved peak ÷ this
 _EXPANSION_MAX_STEP_DOUBLINGS: int = 12     # escalate the step this many times to cross VRE thresholds
@@ -411,7 +429,7 @@ def _expand_to_meet_load(
         )
         return float(np.sum(result.unserved_gw)) / 1000, float(np.max(result.unserved_gw))
 
-    unserved_twh, peak_gw = _unserved(capacities, tiers)
+    unserved_twh, _peak0 = _unserved(capacities, tiers)
     if unserved_twh <= _EXPANSION_UNSERVED_TOL_TWH:
         return {}, tiers, ""
 
@@ -424,160 +442,72 @@ def _expand_to_meet_load(
             capacities[key] = capacities.get(key, 0.0) + amount
         added[key] = added.get(key, 0.0) + amount
 
-    base_step = max(1.0, peak_gw / _EXPANSION_STEP_DIVISOR)
-    max_step = base_step * (2.0**_EXPANSION_MAX_STEP_DOUBLINGS)
-    last_key: str | None = None
-    last_amount = 0.0
+    # ── LDC-based sizing (fast screening) ────────────────────────────────────────
+    # Size directly from the residual net load rather than the old greedy peak-shave, which grew VRE
+    # as a firming tool (through storage recharge) and spiralled to absurd capacities — a windless
+    # drought hour cannot be covered by *any* amount of VRE. Two steps: fill the energy gap with the
+    # checked VRE, then cover the residual net-load peak with the cheapest checked firm/storage,
+    # assuming (per the reduced-order screening) that storage of the given power+duration bridges the
+    # peak block. A handful of dispatches, not ~90 greedy trials.
+    vre_expandable = [g for g in expandable_gens if g in _DISPATCH_VRE]
+    firm_expandable = [g for g in expandable_gens if g not in _DISPATCH_VRE]
 
-    def _best_size(
-        probe: "Any", cost_at: "Any"
-    ) -> tuple[float | None, float]:
-        """Cheapest (size, $/GW-of-peak) for one candidate, scanning escalating increments.
+    def _hourly_unserved(
+        caps: dict[str, float], trs: list[dict[str, float]], economic: bool = False
+    ) -> np.ndarray:
+        return dispatch_hourly(
+            profile=profile, year_profile=year_profile, shares=caps,
+            annual_demand_twh=annual_demand_twh, carbon_price=carbon_price,
+            capacities_gw=caps, storage_tiers=trs, economic_storage=economic,
+            min_cf=min_cf, max_cf=max_cf, ramp_up=ramp_up, ramp_down=ramp_down,
+        ).unserved_gw
 
-        A candidate's marginal peak-shaving is not monotonic in a single fixed step: a small
-        VRE overbuild shaves nothing until it crosses a threshold, and a fixed-duration battery
-        saturates its energy window so a small power bump shaves ~0 while a larger one firms the
-        peak. Scanning ``base_step`` upward (doubling) and taking the *minimum* $/GW-shaved lets
-        each candidate be priced at the size where it is actually effective — so cheap short
-        storage is not abandoned for the dear long tier just because one small step saturated.
-        """
-        best_sz: float | None = None
-        best_m = float("inf")
-        worse = 0
-        size = base_step
-        while size <= max_step:
-            trial_twh, trial_peak = probe(size)
-            shaved = peak_gw - trial_peak
-            if shaved > 1e-6:
-                metric = cost_at(size, max(unserved_twh - trial_twh, 0.0)) / shaved
-                if metric < best_m:
-                    best_m, best_sz, worse = metric, size, 0
-                else:
-                    worse += 1
-                    if worse >= 2:  # past this candidate's sweet spot
-                        break
-                if shaved >= 0.999 * peak_gw:  # fully shaves the peak; larger is pointless
-                    break
-            size *= 2.0
-        return best_sz, best_m
+    # 1. Energy fill: grow the checked VRE to supply the unserved energy (replace the lost baseload
+    #    energy). Split the gap evenly across the checked VRE, each sized by its weather-mean CF.
+    if vre_expandable:
+        cf_mean = {
+            "solar": max(float(np.mean(year_profile.solar_cf)), 0.03),
+            "wind_onshore": max(float(np.mean(year_profile.wind_cf)), 0.03),
+            "wind_offshore": max(float(np.mean(year_profile.wind_cf)), 0.03),
+        }
+        per_gwh = unserved_twh * 1000.0 / len(vre_expandable)
+        for g in vre_expandable:
+            _apply(g, per_gwh / (cf_mean.get(g, 0.15) * _HOURS_PER_YEAR))
+        u = _hourly_unserved(capacities, tiers)
+    else:
+        u = _hourly_unserved(capacities, tiers)
 
-    for _ in range(_EXPANSION_MAX_STEPS):
-        if unserved_twh <= _EXPANSION_UNSERVED_TOL_TWH:
-            break
-        best_key: str | None = None
-        best_size = 0.0
-        best_metric = float("inf")
+    # 2. Peak cover: firm the residual net-load peak with the cheapest checked option — a firm
+    #    generator if one is expandable (its max_cf ceiling means peak/ceiling of nameplate), else
+    #    storage power (its energy is assumed to bridge the block over the set duration).
+    peak = float(np.max(u)) if u.size else 0.0
+    if peak > _EXPANSION_PEAK_TOL_GW:
+        if firm_expandable:
+            g = min(firm_expandable, key=lambda x: _annual_fixed_cost_gen(gens[x], discount, 1.0))
+            ceiling = float((max_cf or {}).get(g, gens[g].get("max_cf", 1.0)) or 1.0)
+            _apply(g, peak / max(ceiling, 0.1))
+        elif storage_candidates:
+            _apply("storage" if "storage" in storage_candidates else next(iter(storage_candidates)), peak)
+        u = _hourly_unserved(capacities, tiers)
 
-        # Firm dispatchables shave the peak monotonically (1 GW firm ≈ 1 GW less peak), so a single
-        # fine step is enough and keeps a baseload+peaker blend sharp: (fixed + fuel/carbon on the
-        # energy served) per GW of peak shaved.
-        for g in expandable_gens:
-            if g in _DISPATCH_VRE:
-                continue
-            trial = dict(capacities)
-            trial[g] = trial.get(g, 0.0) + base_step
-            trial_twh, trial_peak = _unserved(trial, tiers)
-            shaved = peak_gw - trial_peak
-            if shaved <= 1e-6:
-                continue
-            served_mwh = max(unserved_twh - trial_twh, 0.0) * 1e6
-            running = _marginal_cost_usd_mwh(gens[g], carbon_price) * served_mwh
-            metric = (_annual_fixed_cost_gen(gens[g], discount, base_step) + running) / shaved
-            if metric < best_metric:
-                best_key, best_size, best_metric = g, base_step, metric
-
-        # VRE (threshold response) and storage (fixed-duration saturation) are non-monotonic in a
-        # single step, so each is priced at the escalated size where it is actually effective.
-        for g in expandable_gens:
-            if g not in _DISPATCH_VRE:
-                continue
-
-            def probe(size: float, g: str = g) -> tuple[float, float]:
-                trial = dict(capacities)
-                trial[g] = trial.get(g, 0.0) + size
-                return _unserved(trial, tiers)
-
-            def cost_at(size: float, served_twh: float, g: str = g) -> float:
-                running = _marginal_cost_usd_mwh(gens[g], carbon_price) * served_twh * 1e6
-                return _annual_fixed_cost_gen(gens[g], discount, size) + running
-
-            size, metric = _best_size(probe, cost_at)
-            if size is not None and metric < best_metric:
-                best_key, best_size, best_metric = g, size, metric
-
-        # Short firms diurnal peaks cheaply; long-duration is dear per GW but is the only thing that
-        # can bridge a multi-day drought. Priced at its efficient size, so long wins only where short
-        # genuinely cannot shave the peak more cheaply.
-        for skey, stier in storage_candidates.items():
-            tier_name = stier.get("name")
-
-            def probe(size: float, tier_name: "Any" = tier_name) -> tuple[float, float]:
-                trial_tiers = [dict(t) for t in tiers]
-                trial_tier = next(t for t in trial_tiers if t.get("name") == tier_name)
-                trial_tier["power_gw"] = float(trial_tier.get("power_gw", 0.0)) + size
-                return _unserved(capacities, trial_tiers)
-
-            def cost_at(size: float, served_twh: float, stier: dict[str, float] = stier) -> float:
-                return _annual_fixed_cost_storage(stier, discount, size)
-
-            size, metric = _best_size(probe, cost_at)
-            if size is not None and metric < best_metric:
-                best_key, best_size, best_metric = skey, size, metric
-
-        if best_key is None:  # nothing shaves the peak, even escalated to max_step
-            break
-
-        _apply(best_key, best_size)
-        last_key, last_amount = best_key, best_size
-        unserved_twh, peak_gw = _unserved(capacities, tiers)
-
-    # Trim overshoot: the move that finally closed the gap is often a large escalated VRE step.
-    # Bisect it down to the smallest amount that still holds 100% load.
-    if last_key is not None and unserved_twh <= _EXPANSION_UNSERVED_TOL_TWH and last_amount > base_step:
-        keep_lo, keep_hi = 0.0, last_amount  # how much of the last move we can give back
-        for _ in range(_EXPANSION_TRIM_ITERS):
-            give_back = (keep_lo + keep_hi) / 2.0
-            _apply(last_key, -give_back)
-            twh, _ = _unserved(capacities, tiers)
-            _apply(last_key, give_back)
-            if twh <= _EXPANSION_UNSERVED_TOL_TWH:
-                keep_lo = give_back  # still feasible after removing this much
-            else:
-                keep_hi = give_back
-        if keep_lo > 0.0:
-            _apply(last_key, -keep_lo)
-            unserved_twh, peak_gw = _unserved(capacities, tiers)
-
+    # Residual reported against the same (reporting-mode) dispatch the calculate path uses, so the
+    # note matches the unserved figure the user sees — its active-charge storage recovers more than
+    # the conservative sizing pass.
+    unserved_twh = float(np.sum(_hourly_unserved(capacities, tiers, economic=True))) / 1000.0
     added = {key: value for key, value in added.items() if value > 1e-6}
-    only_vre_expandable = bool(expandable_gens) and all(g in _DISPATCH_VRE for g in expandable_gens)
+
     note = ""
     if unserved_twh > _EXPANSION_UNSERVED_TOL_TWH:
-        if only_vre_expandable and not can_storage:
-            note = (
-                "Renewables cannot firm the load on their own — also make storage expandable "
-                "(or add a firm generator) so surplus can be shifted into the shortfall."
-            )
-        elif only_vre_expandable:
-            note = (
-                "Renewables + this storage narrowed the gap but a multi-day lull remains — the "
-                "storage cannot hold enough energy to bridge it. Add more/longer-duration storage "
-                "or a firm generator to reach 100%."
-            )
+        if not firm_expandable and not storage_candidates:
+            note = ("Renewables alone cannot firm a low-renewable lull — also make storage "
+                    "expandable (or add a firm generator) to cover the residual peak.")
+        elif storage_candidates and not firm_expandable:
+            note = (f"{unserved_twh:.1f} TWh/yr still unserved through the worst multi-day lull: raise "
+                    "the storage duration or keep some firm capacity — VRE + short storage cannot "
+                    "bridge a multi-day drought on their own.")
         else:
-            note = (
-                "Could not fully close the gap with the selected options — add another "
-                "dispatchable generator or more storage."
-            )
-    elif (
-        can_storage
-        and not any(key in added for key in storage_candidates)
-        and not only_vre_expandable
-        and expandable_gens
-    ):
-        note = (
-            "Storage was not built: it could not cover the binding peak (a low-renewable lull) "
-            "more cheaply than firm generation, which reaches 100% at lower cost here."
-        )
+            note = (f"{unserved_twh:.1f} TWh/yr still unserved — add another dispatchable generator "
+                    "or more storage.")
     return added, tiers, note
 
 
@@ -762,6 +692,9 @@ def _calculate_from_dispatch_summary(
         "ess_short_gwh": ess_metrics["ess_short_gwh"],
         "ess_short_gw": ess_metrics["ess_short_gw"],
         "ess_short_lcoe": ess_metrics["ess_short_lcoe"],
+        "ess_phs_gwh": ess_metrics["ess_phs_gwh"],
+        "ess_phs_gw": ess_metrics["ess_phs_gw"],
+        "ess_phs_lcoe": ess_metrics["ess_phs_lcoe"],
         "ess_long_gwh": ess_metrics["ess_long_gwh"],
         "ess_long_gw": ess_metrics["ess_long_gw"],
         "ess_long_lcoe": ess_metrics["ess_long_lcoe"],
@@ -794,6 +727,8 @@ def _calculate_system_lcoe_dispatch(
     ess_short_duration_hr: float | None = None,
     ess_long_power_gw: float | None = None,
     ess_long_duration_hr: float | None = None,
+    ess_phs_power_gw: float | None = None,
+    ess_phs_duration_hr: float | None = None,
     demand_pattern: str = "default",
     demand_peak_ratio: float | None = None,
     demand_monthly: list[float] | None = None,
@@ -814,7 +749,8 @@ def _calculate_system_lcoe_dispatch(
         _apply_fuel_import_tariff(profile, fuel_import_tariff_pct)
 
     storage_tiers = _build_storage_tiers(
-        profile, ess_short_power_gw, ess_short_duration_hr, ess_long_power_gw, ess_long_duration_hr
+        profile, ess_short_power_gw, ess_short_duration_hr, ess_long_power_gw, ess_long_duration_hr,
+        ess_phs_power_gw, ess_phs_duration_hr,
     )
     settings = _coerce_ensemble_settings(ensemble)
     if capacities_gw:
@@ -1050,6 +986,8 @@ def calculate_system_lcoe(
     ess_short_duration_hr: float | None = None,
     ess_long_power_gw: float | None = None,
     ess_long_duration_hr: float | None = None,
+    ess_phs_power_gw: float | None = None,
+    ess_phs_duration_hr: float | None = None,
     demand_pattern: str = "default",
     demand_peak_ratio: float | None = None,
     demand_monthly: list[float] | None = None,
@@ -1083,6 +1021,8 @@ def calculate_system_lcoe(
         ess_short_duration_hr=ess_short_duration_hr,
         ess_long_power_gw=ess_long_power_gw,
         ess_long_duration_hr=ess_long_duration_hr,
+        ess_phs_power_gw=ess_phs_power_gw,
+        ess_phs_duration_hr=ess_phs_duration_hr,
         demand_pattern=demand_pattern,
         demand_peak_ratio=demand_peak_ratio,
         demand_monthly=demand_monthly,
@@ -1221,6 +1161,8 @@ def size_for_adequacy(
     ess_short_duration_hr: float | None = None,
     ess_long_power_gw: float | None = None,
     ess_long_duration_hr: float | None = None,
+    ess_phs_power_gw: float | None = None,
+    ess_phs_duration_hr: float | None = None,
     max_gw: float | None = None,
     min_cf: dict[str, float] | None = None,
     max_cf: dict[str, float] | None = None,
@@ -1264,6 +1206,7 @@ def size_for_adequacy(
                 annual_demand_twh=annual_demand_twh, ensemble=ensemble,
                 ess_short_power_gw=ess_short_power_gw, ess_short_duration_hr=ess_short_duration_hr,
                 ess_long_power_gw=ess_long_power_gw, ess_long_duration_hr=ess_long_duration_hr,
+                ess_phs_power_gw=ess_phs_power_gw, ess_phs_duration_hr=ess_phs_duration_hr,
                 min_cf=min_cf, max_cf=max_cf,
             )
             adequacy = result.get("adequacy")
@@ -1323,6 +1266,8 @@ def size_mix_for_adequacy(
     ess_short_duration_hr: float | None = None,
     ess_long_power_gw: float | None = None,
     ess_long_duration_hr: float | None = None,
+    ess_phs_power_gw: float | None = None,
+    ess_phs_duration_hr: float | None = None,
     min_cf: dict[str, float] | None = None,
     max_cf: dict[str, float] | None = None,
 ) -> dict[str, Any]:
@@ -1356,6 +1301,7 @@ def size_mix_for_adequacy(
         annual_demand_twh=annual_demand_twh, ensemble=ensemble,
         ess_short_power_gw=ess_short_power_gw, ess_short_duration_hr=ess_short_duration_hr,
         ess_long_power_gw=ess_long_power_gw, ess_long_duration_hr=ess_long_duration_hr,
+        ess_phs_power_gw=ess_phs_power_gw, ess_phs_duration_hr=ess_phs_duration_hr,
         expandable=expandable, meet_full_load=True, min_cf=min_cf, max_cf=max_cf,
     )
     added_full = dict((full.get("expansion") or {}).get("added_capacities_gw", {}))
@@ -1377,6 +1323,7 @@ def size_mix_for_adequacy(
                 ess_short_duration_hr=ess_short_duration_hr,
                 ess_long_power_gw=base_long + scale * added_full.get("storage_long", 0.0),
                 ess_long_duration_hr=ess_long_duration_hr,
+                ess_phs_power_gw=ess_phs_power_gw, ess_phs_duration_hr=ess_phs_duration_hr,
                 min_cf=min_cf, max_cf=max_cf,
             )
             adequacy = result.get("adequacy")

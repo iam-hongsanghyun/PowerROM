@@ -31,6 +31,8 @@ def pathway(payload: PathwayRequest) -> PathwayResponse:
         ess_short_duration_hr=payload.ess_short_duration_hr,
         ess_long_power_gw=payload.ess_long_power_gw,
         ess_long_duration_hr=payload.ess_long_duration_hr,
+        ess_phs_power_gw=payload.ess_phs_power_gw,          # via **calculate_kwargs to each year
+        ess_phs_duration_hr=payload.ess_phs_duration_hr,
         expandable=payload.expandable,
         meet_full_load=payload.meet_full_load,
         min_cf=payload.min_cf,          # forwarded to each year's calculate via **calculate_kwargs
@@ -53,6 +55,8 @@ def size_adequacy(payload: SizeForAdequacyRequest) -> SizeForAdequacyResponse:
         ess_short_duration_hr=payload.ess_short_duration_hr,
         ess_long_power_gw=payload.ess_long_power_gw,
         ess_long_duration_hr=payload.ess_long_duration_hr,
+        ess_phs_power_gw=payload.ess_phs_power_gw,
+        ess_phs_duration_hr=payload.ess_phs_duration_hr,
         max_gw=payload.max_gw,
         min_cf=payload.min_cf,
         max_cf=payload.max_cf,
@@ -74,6 +78,8 @@ def size_mix_adequacy(payload: SizeMixForAdequacyRequest) -> SizeMixForAdequacyR
         ess_short_duration_hr=payload.ess_short_duration_hr,
         ess_long_power_gw=payload.ess_long_power_gw,
         ess_long_duration_hr=payload.ess_long_duration_hr,
+        ess_phs_power_gw=payload.ess_phs_power_gw,
+        ess_phs_duration_hr=payload.ess_phs_duration_hr,
         min_cf=payload.min_cf,
         max_cf=payload.max_cf,
     )

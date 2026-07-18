@@ -138,6 +138,29 @@ def test_expansion_meets_full_load_and_prices_it() -> None:
     assert set(added).issubset({"gas_ccgt", "nuclear"})  # only the checked generators grew
 
 
+def test_phs_tier_is_built_priced_and_reported() -> None:
+    from backend.core.lcoe_engine import _build_storage_tiers, load_country_profile
+
+    p = load_country_profile("KR")
+    tiers = _build_storage_tiers(p, 20.0, 4.0, 5.0, 168.0, 8.0, 10.0)
+    assert [t["name"] for t in tiers] == ["short", "phs", "long"]
+    phs = next(t for t in tiers if t["name"] == "phs")
+    assert phs["power_gw"] == 8.0 and phs["duration_hr"] == 10.0
+    assert 0.70 <= phs["efficiency"] <= 0.85  # pumped-hydro round-trip (not the battery's 0.85+)
+    assert phs["capex_usd_kwh"] > 0.0        # priced from the profile ess block
+
+    caps = {"solar": 26.68, "wind_onshore": 2.26, "gas_ccgt": 50.26, "coal": 41.19,
+            "nuclear": 26.05, "hydro": 1.82, "other": 6.18}
+    r = calculate_system_lcoe(
+        country="KR", shares={}, capacities_gw=caps, carbon_price=0.0, ensemble=_SINGLE,
+        annual_demand_twh=625.38, ess_phs_power_gw=8.0, ess_phs_duration_hr=10.0,
+    )
+    assert r["ess_phs_gw"] == 8.0
+    assert r["ess_phs_gwh"] == pytest.approx(80.0)  # 8 GW × 10 h
+    assert r["ess_phs_lcoe"] > 0.0
+    assert r["ess_requirement_gwh"] == pytest.approx(80.0)  # only PHS set here
+
+
 def test_short_storage_displaces_thermal_and_cuts_emissions() -> None:
     # Economic dispatch: short storage charges free surplus and discharges to displace the priciest
     # running thermal, so adding it cuts emissions even where there is little unserved to serve —
@@ -244,20 +267,19 @@ def test_expansion_holds_across_weather_ensemble() -> None:
     assert band["p90"] < 0.1  # ~zero unserved even in the worst sampled weather year
 
 
-def test_expansion_blends_baseload_and_peaker_by_screening() -> None:
-    # A wide unserved block (energy shortfall). Folding running cost into the metric pulls
-    # cheap-to-run baseload into the base and leaves a cheap-to-build peaker for the top,
-    # so a gas+nuclear blend beats gas-only on total system cost.
+def test_expansion_meets_load_with_cheapest_firm() -> None:
+    # LDC sizing covers the residual net-load peak with the cheapest-to-build dispatchable among the
+    # checked candidates — gas here (far lower capex than nuclear) — sized directly from the peak,
+    # and reaches ~100% served.
     caps = {"solar": 160, "wind_onshore": 70, "gas_ccgt": 18, "coal": 4, "nuclear": 10, "other": 3}
     base = dict(country="KR", shares=caps, carbon_price=50.0, capacities_gw=caps, ensemble=_SINGLE)
 
-    gas_only = calculate_system_lcoe(**base, expandable=["gas_ccgt"], meet_full_load=True)
-    blend = calculate_system_lcoe(**base, expandable=["gas_ccgt", "nuclear"], meet_full_load=True)
+    r = calculate_system_lcoe(**base, expandable=["gas_ccgt", "nuclear"], meet_full_load=True)
 
-    assert gas_only["unserved_twh"] < 0.1 and blend["unserved_twh"] < 0.1  # both firm the load
-    added = blend["expansion"]["added_capacities_gw"]
-    assert added.get("gas_ccgt", 0.0) > 0.0 and added.get("nuclear", 0.0) > 0.0  # a real blend
-    assert blend["system_lcoe"] < gas_only["system_lcoe"]  # cheaper than peaker-only
+    assert r["unserved_twh"] < 0.1                         # firms the load
+    added = r["expansion"]["added_capacities_gw"]
+    assert added.get("gas_ccgt", 0.0) > 0.0               # cheapest firm to build covers the peak
+    assert added.get("nuclear", 0.0) == 0.0               # dearer nuclear is not chosen
 
 
 def test_expansion_prefers_short_storage_for_diurnal_peak() -> None:
@@ -295,9 +317,10 @@ def test_expansion_grows_storage_for_multiday_drought() -> None:
     assert any(added.get(key, 0.0) > 0.0 for key in ("solar", "wind_onshore"))  # + a VRE overbuild
 
 
-def test_expansion_storage_only_built_when_it_firms_the_peak() -> None:
-    # The binding peak is a low-renewable lull a 4h battery cannot cover, so short storage
-    # must NOT be force-grown: the least-firm-cost expansion firms it with gas, not storage.
+def test_expansion_prefers_firm_over_storage_for_a_lull() -> None:
+    # When both a firm generator and storage are expandable, the LDC sizing covers the residual
+    # net-load peak with the firm generator (a 4h battery cannot bridge a low-renewable lull), so
+    # gas is grown and storage is left alone, and the gap closes cleanly.
     caps = {"solar": 160, "wind_onshore": 70, "gas_ccgt": 18, "coal": 4, "nuclear": 10, "other": 3}
     base = dict(
         country="KR", shares=caps, carbon_price=50.0, capacities_gw=caps, ensemble=_SINGLE,
@@ -308,8 +331,7 @@ def test_expansion_storage_only_built_when_it_firms_the_peak() -> None:
 
     assert with_both["unserved_twh"] < 0.1                 # firmed to ~100% served
     assert added.get("gas_ccgt", 0.0) > 0.0                # gas firms the drought peak
-    assert "storage" not in added                          # storage cannot firm it -> not built
-    assert with_both["expansion"]["note"]                  # and the UI is told why
+    assert "storage" not in added                          # firm covers the peak; storage not grown
 
 
 def test_expansion_vre_plus_storage_can_firm() -> None:

@@ -97,19 +97,19 @@ def test_validate_and_fit_tools() -> None:
 
 
 def test_calculate_reports_required_ess_addition() -> None:
-    # A VRE-heavy build with thermal throttled must add storage to meet load; the tool reports that
-    # required ESS both as power (GW) and energy (GWh), and short energy = power x duration.
-    prof = srv.get_country_profile("KR")
-    caps = dict(prof["capacities_gw"])
-    caps["coal"] = 0.0
+    # When storage is the least-cost firming (cheap pumped hydro shaving a diurnal summer peak), the
+    # expansion builds it and the tool reports the required ESS as power (GW) and energy (GWh), with
+    # PHS energy = PHS power x its duration (>= the 10 h the tier was configured with).
+    caps = {"solar": 130, "wind_onshore": 20, "nuclear": 74, "gas_ccgt": 6, "coal": 0, "other": 0}
     r = srv.calculate_lcoe("KR", capacities_gw=caps, carbon_price=50.0,
-                           expandable=["solar", "wind_onshore", "storage"], meet_full_load=True,
-                           max_cf={"gas_ccgt": 0.2}, ess_short_power_gw=20.0, ess_long_power_gw=5.0,
-                           dispatch_mode="parametric")
+                           expandable=["storage_phs"], meet_full_load=True, demand_pattern="summer_peak",
+                           ess_phs_power_gw=2.0, ess_phs_duration_hr=10.0,
+                           ess_short_power_gw=0.0, ess_long_power_gw=0.0, dispatch_mode="parametric")
     ess = r["required_ess_addition"]
     assert ess["total_power_gw"] > 0 and ess["total_energy_gwh"] > 0
-    # Short energy = short power x duration (4 h for the short tier: 80 GWh / 20 GW).
-    assert ess["short_energy_gwh"] == pytest.approx(ess["short_power_gw"] * 4.0, rel=0.02)
+    assert ess["phs_power_gw"] > 0  # pumped hydro is the least-cost firming here
+    # PHS energy = PHS power x duration; the sizing loop only ever raises duration above the 10 h set.
+    assert ess["phs_energy_gwh"] >= ess["phs_power_gw"] * 10.0 * 0.99
 
 
 def test_run_dispatch_accepts_ramp_limits() -> None:

@@ -305,11 +305,7 @@ def _ess_metrics(profile: dict[str, Any], storage_tiers: list[dict[str, float]])
 
 # ── Capacity expansion (least firm-cost, to meet 100% load) ─────────────────────
 _EXPANSION_UNSERVED_TOL_TWH: float = 0.02   # treat as "no unserved hour"
-_EXPANSION_PEAK_TOL_GW: float = 0.5         # residual net-load peak below this needs no firming
-_EXPANSION_MAX_STEPS: int = 90              # greedy increments before giving up
-_EXPANSION_STEP_DIVISOR: float = 12.0       # base increment size = initial unserved peak ÷ this
-_EXPANSION_MAX_STEP_DOUBLINGS: int = 12     # escalate the step this many times to cross VRE thresholds
-_EXPANSION_TRIM_ITERS: int = 8             # bisection sweeps to shave overshoot off the last move
+_EXPANSION_MAX_STEPS: int = 90              # firming increments before giving up (a plateau backstop)
 _DEFAULT_STORAGE_LIFETIME_YR: float = 15.0
 _HOURS_PER_YEAR: int = 8760
 
@@ -366,38 +362,35 @@ def _expand_to_meet_load(
     ramp_up: dict[str, float] | None = None,
     ramp_down: dict[str, float] | None = None,
 ) -> tuple[dict[str, float], list[dict[str, float]], str]:
-    """Grow the checked generators and/or storage to meet 100% of load at least system cost.
+    """Grow the fleet to meet 100% of load at least system cost — a GUARANTEED hard threshold.
 
-    The binding constraint for "no unserved hour" is **reliability**: firm capacity must cover
-    the residual net-load *peak* — the largest unserved hour, a low-renewable lull (a VRE
-    drought). So every candidate is priced **per GW of that peak it actually shaves**, measured
-    by re-dispatching. The numerator is the increment's *full* cost — annualised fixed cost
-    **plus** the fuel + carbon it burns over the energy it serves — so the ranking is a
-    screening curve:
+    "Meet 100% load" must reach zero unserved; "cannot" is not an outcome. The binding constraint
+    for "no unserved hour" is **reliability**: firm capacity must cover the residual net-load
+    *peak* — the largest unserved hour, a low-renewable lull (a VRE drought). Each step of a
+    verified loop re-dispatches and compares the cheapest way to shave the current peak:
 
-    * a **wide** unserved block (an energy shortfall) makes the running term dominate, so
-      cheap-to-run baseload (nuclear) wins even though it needs more GW;
-    * a **narrow** peak (few hours) makes the fixed term dominate, so a cheap-to-build peaker
-      (gas) wins.
+    * a **firm generator** — annualised fixed cost of ``peak / ceiling`` GW (the "1 MW vs capex"
+      ratio). Dispatchable, needs no charging, and can always cover the peak by adding capacity;
+    * **shifting the load with storage** — annualised capex of a reservoir sized to the deepest
+      supply−demand draw-down (Rippl mass-curve), at power = the peak.
 
-    Dividing by GW-of-peak (not MWh-of-energy) is what keeps **storage** honest: it is built
-    only to the extent it lowers the firm-capacity requirement.
+    It grows the cheaper. Storage wins for cheap **diurnal** cycling; a **multi-day** lull makes
+    the reservoir dearer than firm capacity, so a generator takes over instead of building an
+    absurd seasonal store (no more "~120 TWh / 4800 h" reservoirs). **Renewables** are grown first
+    to the annual energy balance so surplus can charge storage; they firm only *through* storage.
 
-    **Renewables can firm too — but only through storage.** Solar and wind are valid candidates
-    when checked: overbuilding VRE raises the surplus that charges storage, which then discharges
-    into the shortfall and shaves the peak. Because the metric is measured *through* the storage
-    dispatch, a VRE increment is credited only for the peak it lets storage cover — so VRE alone
-    (no storage, or storage already saturated) shaves ~0 and scores ∞, while VRE + enough storage
-    can reach 100% at a (high) cost the tool then makes visible. Whether it fully closes depends
-    on storage energy vs the longest drought: a multi-day lull needs storage deeper than any
-    single-cycle can bridge, so some residual may remain and is reported.
+    Because a dispatchable generator can always cover the peak, the **cheapest fleet thermal is
+    always available as a backstop even if unchecked**, so closure is guaranteed. The only exit
+    with residual is a true physical plateau — no dispatchable plant exists and storage cannot
+    charge — where adding capacity genuinely adds no generation; that (only) case is reported.
 
     Returns ``(added_by_key, grown_storage_tiers, note)`` where ``added_by_key`` may include
     ``"storage"`` (added short/battery power, GW), ``"storage_phs"`` (pumped-hydro power, GW),
-    and/or ``"storage_long"`` (seasonal power, GW) alongside the grown generators.
+    ``"storage_long"`` (seasonal power, GW), and/or a firm generator grown to firm the peak.
     """
     gens = profile["generators"]
     discount = profile["discount_rate"]
+    expandable = list(expandable or [])  # tolerate None (the schema default when nothing is checked)
     expandable_gens = [g for g in expandable if g in gens]  # VRE included: it firms via storage
     tiers = [dict(tier) for tier in storage_tiers]
     # Storage is expandable per tier so the user picks which type to build: "storage_short" (battery),
@@ -416,12 +409,11 @@ def _expand_to_meet_load(
         tier = tier_by_name.get(name)
         if tier is not None:
             storage_candidates[_REPORT_KEY[name]] = tier
-    can_storage = bool(storage_candidates)
     added: dict[str, float] = {g: 0.0 for g in expandable_gens}
     capacities = {key: max(0.0, float(value)) for key, value in base_capacities.items()}
 
-    if not expandable_gens and not can_storage:
-        return {}, tiers, "Select a generator or storage to expand to meet 100% load."
+    # "Meet 100% load" is a HARD promise — there is no "cannot expand" outcome. Even with nothing
+    # (or only VRE / only storage) checked, the guaranteed firm closer below can still cover the peak.
 
     def _unserved(caps: dict[str, float], trs: list[dict[str, float]]) -> tuple[float, float]:
         """Return (unserved energy TWh, residual peak GW) for a candidate build.
@@ -505,90 +497,124 @@ def _expand_to_meet_load(
                     cf = min(cf * 1.4, 0.6)
                 _apply(g, per_gwh / (cf * hours))
 
-    # 2. First-guess reservoir (a fast starting point only — the loop below is what guarantees the
-    #    number is real). Storage bridges a drought only if its energy ≥ the deepest draw-down of
-    #    supply−demand below a prior full state (Rippl mass-curve). A diurnal draw-down fits the short
-    #    (battery) tier; a multi-day lull needs the long tier — pick the vehicle once and keep it.
-    net0 = _vre_output(capacities) + _firm_available(capacities) - demand
-    peak0 = float(np.max(np.maximum(-net0, 0.0)))
-    sqrt_eta = _RESERVOIR_RTE**0.5
-    soc0 = np.cumsum(np.where(net0 > 0.0, net0 * sqrt_eta, net0 / sqrt_eta))
-    reservoir0 = float(np.max(np.maximum.accumulate(soc0) - soc0))
-    # Among the checked tiers, use the shortest whose native duration already covers the reservoir
-    # (cheaper, higher round-trip); if none is long enough, use the longest and raise its duration.
-    required_hr = reservoir0 / max(peak0, 1.0)
-    ordered_tiers = sorted(storage_candidates.items(), key=lambda kv: float(kv[1].get("duration_hr", 0.0)))
-    storage_key: str | None = None
-    for k, t in ordered_tiers:
-        if float(t.get("duration_hr", 0.0)) >= required_hr:
-            storage_key = k
-            break
-    if storage_key is None and ordered_tiers:
-        storage_key = ordered_tiers[-1][0]
-    if peak0 > _EXPANSION_PEAK_TOL_GW and storage_key and not firm_expandable:
-        tier = storage_candidates[storage_key]
-        old_power = float(tier.get("power_gw", 0.0))
-        new_power = max(old_power, peak0)
-        tier["power_gw"] = new_power
-        tier["duration_hr"] = max(float(tier.get("duration_hr", _DEFAULT_LONG_DURATION_HR)),
-                                  reservoir0 * 1.05 / max(new_power, 1.0))
-        added[storage_key] = added.get(storage_key, 0.0) + (new_power - old_power)
+    # Guaranteed firm closer: the cheapest DISPATCHABLE thermal in the fleet, priced per GW of the
+    # peak it shaves — annualised fixed cost ÷ its availability ceiling (the "1 MW vs capex" ratio).
+    # "Meet 100% load" is a HARD promise, so this generator is always available to firm the residual
+    # peak even if the user did not check it: a power system serves its peak with firm capacity;
+    # storage only shifts energy in time and cannot, alone, invent it across a multi-day lull.
+    def _peak_ceiling(g: str) -> float:
+        return float((max_cf or {}).get(g, gens[g].get("max_cf", gens[g].get("cf_base", 1.0))) or 1.0)
 
-    # 3. VERIFIED firming loop: re-dispatch and grow the checked resources until unserved is actually
-    #    zero (a hard threshold) or it provably stops improving. A firm generator covers the residual
-    #    net-load peak reliably (dispatchable, needs no charging); storage-only grows in power AND
-    #    energy (duration) with extra VRE for the surplus that charges it — but a drought storage
-    #    cannot charge through is reported honestly instead of a false "100%".
+    # A generator is a firm backstop if it is dispatchable (non-VRE) and buildable (real capex).
+    # NOT keyed on the optional max_cf field — 13 country profiles omit it, and _peak_ceiling already
+    # falls back to cf_base, so requiring max_cf would leave those fleets with no closer (false plateau).
+    firm_pool = [g for g in gens if g not in _DISPATCH_VRE and float(gens[g].get("capex_usd_kw", 0.0)) > 0.0]
+
+    def _firm_cost_per_peak_gw(g: str) -> float:
+        return _annual_fixed_cost_gen(gens[g], discount, 1.0) / max(_peak_ceiling(g), 0.05)
+
+    firm_closer = min(firm_pool, key=_firm_cost_per_peak_gw) if firm_pool else None
+    # Prefer a firm generator the user checked; otherwise fall back to the guaranteed closer.
+    firm_choice = min(firm_expandable, key=_firm_cost_per_peak_gw) if firm_expandable else firm_closer
+    checked_firm = set(firm_expandable)
+    sqrt_eta = _RESERVOIR_RTE**0.5
+
+    # 2. Verified least-cost closure loop — meet 100% is a HARD threshold that MUST reach zero
+    #    unserved. Each step compares the cheapest way to shave the CURRENT residual peak:
+    #      • a firm generator: annualised fixed cost of peak / ceiling GW, versus
+    #      • shifting the load with storage: annualised capex of a reservoir sized to the deepest
+    #        supply−demand draw-down (Rippl mass-curve), at power = the peak.
+    #    It grows the cheaper. Storage wins for cheap diurnal cycling; a multi-day lull makes the
+    #    reservoir dearer than firm capacity, so a generator takes over instead of building an absurd
+    #    seasonal store. Because a dispatchable generator can always cover the peak, closure is
+    #    GUARANTEED — the only exit with residual is a true plateau (no dispatchable plant exists and
+    #    storage cannot charge), i.e. where adding capacity genuinely adds no generation.
+    auto_firm_gw = 0.0       # firm capacity added to an UN-checked generator (worth flagging)
     prev = float("inf")
+    firm_forced = False      # once storage proves it cannot help, close with firm only
     for _ in range(_EXPANSION_MAX_STEPS):
         u = _hourly_unserved(capacities, tiers)
         total_gwh = float(np.sum(u))
         if total_gwh / 1000.0 <= _EXPANSION_UNSERVED_TOL_TWH:
             break
-        if total_gwh >= prev * 0.98:  # <2% improvement per step → plateau, cannot close further
-            break
-        prev = total_gwh
         peak = float(np.max(u))
-        # Small overshoot margins so the last bit closes cleanly instead of stalling just above tol.
-        if firm_expandable:
-            g = min(firm_expandable, key=lambda x: _annual_fixed_cost_gen(gens[x], discount, 1.0))
-            ceiling = float((max_cf or {}).get(g, gens[g].get("max_cf", 1.0)) or 1.0)
-            _apply(g, max(peak / max(ceiling, 0.1), 0.5) * 1.05)
-        elif storage_key:
-            tier = storage_candidates[storage_key]
+
+        # Firm option: annualised fixed cost of the capacity needed to shave the peak. Size against
+        # the generator's REAL availability ceiling (only guarded against divide-by-zero, not floored
+        # at 0.05) — a firm plant capped at, say, 3% CF needs peak/0.03 GW to cover the peak, and
+        # under-sizing it to peak/0.05 would leave a residual and a false plateau.
+        cost_firm = float("inf")
+        firm_gw = 0.0
+        if firm_choice is not None:
+            firm_gw = max(peak / max(_peak_ceiling(firm_choice), 1e-3), 0.5)
+            cost_firm = _annual_fixed_cost_gen(gens[firm_choice], discount, firm_gw)
+
+        # Storage option: only if a tier is checked, it has a real capex (else it looks free), and
+        # there is surplus for it to charge (VRE is grown, or the fleet already spills some hours).
+        cost_stor = float("inf")
+        reservoir = 0.0
+        tier_key: str | None = None
+        net = _vre_output(capacities) + _firm_available(capacities) - demand
+        chargeable = bool(vre_expandable) or bool(np.any(net > 0.0))
+        if storage_candidates and chargeable and not firm_forced:
+            soc = np.cumsum(np.where(net > 0.0, net * sqrt_eta, net / sqrt_eta))
+            reservoir = float(np.max(np.maximum.accumulate(soc) - soc))
+            if reservoir > 0.0:
+                for k, t in storage_candidates.items():
+                    if float(t.get("capex_usd_kwh", 0.0)) <= 0.0:
+                        continue  # a zero-capex tier would look free and build an absurd reservoir
+                    priced = {**t, "duration_hr": reservoir / max(peak, 0.5)}  # energy = reservoir at power = peak
+                    c = _annual_fixed_cost_storage(priced, discount, max(peak, 0.5))
+                    if c < cost_stor:
+                        cost_stor, tier_key = c, k
+
+        grew = "none"
+        if tier_key is not None and cost_stor <= cost_firm:
+            tier = storage_candidates[tier_key]
             old_power = float(tier.get("power_gw", 0.0))
             new_power = max(old_power, peak * 1.05)
             tier["power_gw"] = new_power
-            tier["duration_hr"] = float(tier.get("duration_hr", _DEFAULT_LONG_DURATION_HR)) + \
-                (total_gwh * 1.3) / max(new_power, 1.0)  # hold the residual block, +30% margin
-            added[storage_key] = added.get(storage_key, 0.0) + (new_power - old_power)
-            for g in vre_expandable:  # more surplus so the store can actually charge
+            tier["duration_hr"] = max(
+                float(tier.get("duration_hr", _DEFAULT_LONG_DURATION_HR)),
+                reservoir * 1.15 / max(new_power, 1.0),
+            )
+            added[tier_key] = added.get(tier_key, 0.0) + (new_power - old_power)
+            for g in vre_expandable:  # extra surplus so the store can actually charge
                 cf = max(float(np.mean(year_profile.solar_cf if g == "solar" else year_profile.wind_cf)), 0.03)
-                _apply(g, (total_gwh * 1.5 / len(vre_expandable)) / (cf * hours))
+                _apply(g, (reservoir * 1.5 / max(len(vre_expandable), 1)) / (cf * hours))
+            grew = "storage"
+        elif firm_choice is not None:
+            _apply(firm_choice, firm_gw * 1.05)  # small overshoot so the last bit closes cleanly
+            if firm_choice not in checked_firm:
+                auto_firm_gw += firm_gw * 1.05
+            grew = "firm"
         else:
-            break  # only VRE checked — it cannot cover a windless drought
+            break  # no dispatchable plant in the fleet and storage cannot help — a physical limit
+
+        # Growth that stops cutting unserved (< 0.1% improvement, a scale-free test that holds on a
+        # 2 TWh island and a 9000 TWh grid alike) means this lever is saturated. If it was storage,
+        # fall back to firm (which can always cover the peak); if it was firm, it is a genuine plateau.
+        if total_gwh >= prev * 0.999:
+            if grew == "storage":
+                firm_forced = True
+            else:
+                break
+        prev = total_gwh
 
     unserved_twh = float(np.sum(_hourly_unserved(capacities, tiers))) / 1000.0
     added = {key: value for key, value in added.items() if value > 1e-6}
 
+    _FIRM_LABEL = {"gas_ccgt": "gas", "coal": "coal", "nuclear": "nuclear", "other": "thermal", "hydro": "hydro"}
     note = ""
     if unserved_twh > _EXPANSION_UNSERVED_TOL_TWH:
-        # Suggest only the options the user has NOT already selected.
-        fixes: list[str] = []
-        if not storage_candidates:
-            fixes.append("make a storage tier expandable")
-        if not firm_expandable:
-            fixes.append("make a firm generator (e.g. gas) expandable")
-        fixes.append("uncap the firm fleet's max CF")
-        note = (f"{unserved_twh:.2f} TWh/yr still unserved through the worst lull — "
-                + ", or ".join(fixes) + " to cover the drought.")
-    elif any(added.get(k, 0.0) > 0.0 for k in ("storage", "storage_phs", "storage_long")):
-        biggest = max((storage_candidates[k] for k in ("storage_long", "storage_phs", "storage")
-                       if k in storage_candidates), key=lambda t: float(t.get("power_gw", 0.0)) * float(t.get("duration_hr", 0.0)), default={})
-        gwh = float(biggest.get("power_gw", 0.0)) * float(biggest.get("duration_hr", 0.0))
-        if gwh / 1000.0 > 3.0:
-            note = (f"Reaching 100% needs ~{gwh / 1000:.0f} TWh of storage (~{biggest.get('duration_hr', 0):.0f} h "
-                    "duration) to bridge the multi-day lull — keeping or uncapping firm capacity cuts this sharply.")
+        # Only reachable at a true physical plateau: no dispatchable plant to grow and storage that
+        # cannot charge. This is a limit of the fleet, not a setting to toggle.
+        note = (f"{unserved_twh:.2f} TWh/yr can't be served — adding capacity no longer adds "
+                "generation (the renewables are fully curtailed and no dispatchable plant can grow).")
+    elif auto_firm_gw > 0.5 and firm_choice is not None:
+        label = _FIRM_LABEL.get(firm_choice, firm_choice)
+        note = (f"Reached 100% by adding {auto_firm_gw:.0f} GW of {label} — the least-cost firming "
+                f"for the worst lull. Check {label} in the merit list (or cap its max CF) to steer the mix.")
     return added, tiers, note
 
 
@@ -860,9 +886,11 @@ def _calculate_system_lcoe_dispatch(
         demand_daily=demand_daily,
     )
 
-    # Capacity expansion: grow the checked generators to meet 100% of load, cheapest-first.
+    # Capacity expansion: grow the fleet to meet 100% of load, cheapest-first. "Meet 100% load" is a
+    # hard promise, so this runs whenever it is checked — even with no lever selected, the guaranteed
+    # firm closer serves the peak (expandable just names the resources the user prefers to grow).
     expansion: dict[str, Any] | None = None
-    if meet_full_load and expandable and normalized_capacities:
+    if meet_full_load and normalized_capacities:
         # Size against the worst-case weather sample so 100% load holds across the ensemble.
         worst_profile = _worst_case_profile(
             profile, sample_ensemble(year_profiles, settings), normalized_capacities
@@ -891,7 +919,7 @@ def _calculate_system_lcoe_dispatch(
                 key: normalized_capacities.get(key, 0.0) / total_expanded for key in profile["generators"]
             }
         expansion = {
-            "requested": list(expandable),
+            "requested": list(expandable or []),
             "added_capacities_gw": {key: round(value, 3) for key, value in added.items() if value > 1e-6},
             "note": note,
         }
@@ -1419,7 +1447,7 @@ def size_mix_for_adequacy(
     def _report(scale: float, met: bool) -> dict[str, Any]:
         lole, result = evaluate(scale)
         return {
-            "requested": list(expandable),
+            "requested": list(expandable or []),
             "added_capacities_gw": {
                 gen: round(scale * value, 2) for gen, value in added_full.items() if scale * value > 0.01
             },

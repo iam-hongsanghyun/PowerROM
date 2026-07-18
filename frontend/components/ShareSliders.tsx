@@ -146,7 +146,7 @@ export function ShareSliders({
       <label className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs text-slate-700">
         <span>
           Meet 100% load
-          <span className="ml-1 text-[10px] text-slate-400">grow the checked generators &amp; storage, cheapest-first</span>
+          <span className="ml-1 text-[10px] text-slate-400">always reaches 100% — grows the checked resources cheapest-first, adding firm capacity if needed</span>
         </span>
         <input
           type="checkbox"

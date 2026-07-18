@@ -121,17 +121,24 @@ def _summarize_calculation(result: dict[str, Any]) -> dict[str, Any]:
     if result.get("expansion"):
         summary["expansion"] = result["expansion"]
         added = (result["expansion"].get("added_capacities_gw") or {})
-        if added.get("storage") or added.get("storage_long"):
+        if added.get("storage") or added.get("storage_phs") or added.get("storage_long"):
             # Storage duration (h) = total energy ÷ total power for each tier; added energy is the
             # added power × that duration. This is the ESS the expansion had to build to meet load.
-            short_dur = (result["ess_short_gwh"] / result["ess_short_gw"]) if result.get("ess_short_gw") else 4.0
-            long_dur = (result["ess_long_gwh"] / result["ess_long_gw"]) if result.get("ess_long_gw") else 168.0
-            short_p, long_p = added.get("storage", 0.0), added.get("storage_long", 0.0)
+            def _dur(gwh_key: str, gw_key: str, default: float) -> float:
+                return (result[gwh_key] / result[gw_key]) if result.get(gw_key) else default
+
+            short_dur = _dur("ess_short_gwh", "ess_short_gw", 4.0)
+            phs_dur = _dur("ess_phs_gwh", "ess_phs_gw", 10.0)
+            long_dur = _dur("ess_long_gwh", "ess_long_gw", 168.0)
+            short_p = added.get("storage", 0.0)
+            phs_p = added.get("storage_phs", 0.0)
+            long_p = added.get("storage_long", 0.0)
             summary["required_ess_addition"] = {
                 "short_power_gw": round(short_p, 2), "short_energy_gwh": round(short_p * short_dur, 1),
+                "phs_power_gw": round(phs_p, 2), "phs_energy_gwh": round(phs_p * phs_dur, 1),
                 "long_power_gw": round(long_p, 2), "long_energy_gwh": round(long_p * long_dur, 1),
-                "total_power_gw": round(short_p + long_p, 2),
-                "total_energy_gwh": round(short_p * short_dur + long_p * long_dur, 1),
+                "total_power_gw": round(short_p + phs_p + long_p, 2),
+                "total_energy_gwh": round(short_p * short_dur + phs_p * phs_dur + long_p * long_dur, 1),
             }
     return summary
 

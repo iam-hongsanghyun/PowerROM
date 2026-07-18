@@ -137,7 +137,8 @@
       "variability_factor": 0.0,
       "ramp_up_frac_per_hr": 0.8,
       "ramp_down_frac_per_hr": 0.8,
-      "import_fuel_fraction": 0.0
+      "import_fuel_fraction": 0.0,
+      "max_cf": 0.6
     },
     "coal": {
       "capex_usd_kw": 2800,
@@ -181,7 +182,8 @@
       "variability_factor": 0.1,
       "ramp_up_frac_per_hr": 0.5,
       "ramp_down_frac_per_hr": 0.5,
-      "import_fuel_fraction": 0.0
+      "import_fuel_fraction": 0.0,
+      "max_cf": 0.7
     },
     "nuclear": {
       "capex_usd_kw": 4500,
@@ -217,7 +219,8 @@
         },
         "source": "Default system overhead"
       },
-      "variability_factor": 0.2
+      "variability_factor": 0.2,
+      "max_cf": 0.9
     },
     "other": {
       "capex_usd_kw": 1800,
@@ -225,7 +228,7 @@
       "opex_var_usd_mwh": 6,
       "lifetime_yr": 30,
       "emission_factor_tco2_mwh": 0.6603,
-      "fuel_usd_mmbtu": 0.0474,
+      "fuel_usd_mmbtu": 4.7161,
       "heat_rate_mmbtu_mwh": 7.5,
       "cf_base": 0.85,
       "cf_eff_func": {
@@ -257,7 +260,8 @@
       "ramp_up_frac_per_hr": 0.7,
       "ramp_down_frac_per_hr": 0.7,
       "import_fuel_fraction": 0.0,
-      "fossil_fraction": 0.9432
+      "fossil_fraction": 0.9432,
+      "max_cf": 0.9
     },
     "wind_offshore": {
       "capex_usd_kw": 3500.0,
@@ -387,6 +391,7 @@
     "'Other' bucket (bioenergy/geothermal/other fossil) emission factor, fuel cost and import-fuel weighting scaled by the bucket's real fossil share from Ember generation by fuel; oil/diesel steam EF 0.70 tCO2/MWh (IPCC 2006 at ~38% efficiency)",
     "Energy dependency (import_fuel_fraction per generator) from UN Comtrade net fuel imports (coal HS 2701, oil HS 2709+2710, natural gas HS 271111+271121; net weight x IPCC 2006 NCVs) vs the power sector's Ember-derived fuel burn; net exporters count as 0",
     "Per-technology ramp rates (fraction of nameplate per hour) stylized from IEA/NREL unit-flexibility literature; nuclear runs as flat baseload and VRE is weather-driven (no ramp limit)",
+    "Default availability ceiling (max_cf) on firm generators (gas/coal/nuclear/other) = the real Ember annual capacity factor rounded up to the next 10%; renewables and hydro are uncapped. Enforced as an hourly power cap in dispatch, overridable per request/generator.",
     "Synthetic-profile stress knobs (VRE-drought frequency/duration/depth, wind AR(1) persistence, short-storage arbitrage price-percentile) \u2014 stylized reliability-modelling defaults, editable per country"
   ],
   "data_year": 2024,

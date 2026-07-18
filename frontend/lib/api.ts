@@ -71,6 +71,9 @@ export interface CountrySummary {
   capacities_gw: Record<string, number>;
   /** Default generation mix (fraction, sums to 1) per technology, sourced from Ember. */
   shares: Record<string, number>;
+  /** Default availability ceiling (max capacity factor) per firm generator — the ceil-to-10%
+   *  utilization cap. Renewables and hydro are absent (uncapped). Seeds the max-CF inputs. */
+  max_cf?: Record<string, number>;
   data_year?: number | null;
   sources: string[];
 }
@@ -375,6 +378,8 @@ export async function simulatePathway(payload: {
   ess_long_duration_hr?: number | null;
   expandable?: string[];
   meet_full_load?: boolean;
+  min_cf?: Partial<Record<GeneratorKey, number>>;
+  max_cf?: Partial<Record<GeneratorKey, number>>;
 }): Promise<PathwayResponse> {
   return request<PathwayResponse>("/pathway", {
     method: "POST",

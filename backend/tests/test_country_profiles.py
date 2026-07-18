@@ -150,6 +150,70 @@ def test_profile_matches_ember_source(code: str) -> None:
 _DEPENDENCY_JSON = Path(__file__).resolve().parents[1] / "data" / "energy_dependency.json"
 
 
+_FIRM = ("gas_ccgt", "coal", "nuclear", "other")
+_UNCAPPED = ("solar", "wind_onshore", "wind_offshore", "hydro")
+
+
+@pytest.mark.parametrize("cf,expected", [
+    (0.72, 0.8), (0.40, 0.4), (0.401, 0.5), (0.05, 0.1), (0.0, 0.1), (0.90, 0.9), (0.999, 1.0), (1.0, 1.0),
+])
+def test_ceil_to_step(cf: float, expected: float) -> None:
+    from backend.data.build_country_profiles import ceil_to_step
+    assert ceil_to_step(cf) == pytest.approx(expected, abs=1e-9)
+
+
+@pytest.mark.skipif(not _EMBER_CSV.exists(), reason="Ember source CSV not present (git-ignored)")
+def test_other_fuel_scaling_is_idempotent() -> None:
+    """The 'other' (oil/diesel) fuel price scales from a fixed base × fossil share, so rebuilding
+    a profile never re-scales an already-scaled value (regression for the compounding-to-zero bug;
+    the structural template is itself a built profile)."""
+    from backend.data.build_country_profiles import (
+        COUNTRIES, PROFILE_DIR, TEMPLATE_COUNTRY, _load_energy_dependency,
+        build_profile, extract_country, latest_settled_year, load_ember,
+    )
+
+    rows = load_ember()
+    template = json.loads((PROFILE_DIR / f"{TEMPLATE_COUNTRY}.json").read_text())
+    dep = _load_energy_dependency()
+    year_cap = latest_settled_year(rows)
+    for code in ("SA", "KR", "IN"):  # SA all-oil (f=1) must land on the full base, not near zero
+        iso3, name = COUNTRIES[code]
+        data = extract_country(rows, iso3, year_cap)
+        once = build_profile(code, iso3, name, template, data, dep)
+        twice = build_profile(code, iso3, name, once, data, dep)  # feed the built profile back in
+        f1 = once["generators"]["other"]["fuel_usd_mmbtu"]
+        f2 = twice["generators"]["other"]["fuel_usd_mmbtu"]
+        assert f1 == pytest.approx(f2, abs=1e-9), f"{code} other fuel not idempotent: {f1} vs {f2}"
+        if code == "SA":  # fossil_fraction 1.0 → the full 5.0 base
+            assert f1 == pytest.approx(5.0, abs=1e-4)
+
+
+@pytest.mark.parametrize("code", _COUNTRY_CODES)
+def test_firm_max_cf_default(code: str) -> None:
+    """Firm generators carry a default availability ceiling = real CF rounded up to a 10% mark;
+    renewables and hydro never carry one; a firm plant the country lacks carries none either."""
+    import math
+
+    p = load_country_profile(code)
+    g = p["generators"]
+    for gen in _UNCAPPED:
+        assert "max_cf" not in g[gen], f"{code} {gen} must be uncapped (weather/water-limited)"
+    for gen in _FIRM:
+        block = g[gen]
+        cap = p["capacities_gw"].get(gen, 0.0)
+        if "max_cf" not in block:
+            assert cap < 0.20, f"{code} {gen} has capacity {cap} but no default max_cf"
+            continue
+        mc = block["max_cf"]
+        # a clean 10% mark, in (0, 1], and never below the real CF it ceilings
+        assert 0.10 <= mc <= 1.0, f"{code} {gen} max_cf {mc} out of range"
+        assert abs(mc / 0.10 - round(mc / 0.10)) < 1e-6, f"{code} {gen} max_cf {mc} not a 10% mark"
+        assert mc >= float(block["cf_base"]) - 1e-9, f"{code} {gen} max_cf {mc} < cf_base {block['cf_base']}"
+        assert mc == pytest.approx(
+            min(1.0, max(0.10, math.ceil(round(float(block["cf_base"]), 4) / 0.10 - 1e-9) * 0.10)), abs=1e-9
+        )
+
+
 @pytest.mark.skipif(not _DEPENDENCY_JSON.exists(), reason="energy_dependency.json not built")
 def test_import_fractions_match_real_fuel_trade() -> None:
     """import_fuel_fraction comes from UN Comtrade net trade: fuel exporters burn domestic fuel

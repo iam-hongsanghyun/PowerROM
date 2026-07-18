@@ -201,6 +201,55 @@ def test_max_cf_caps_thermal_availability() -> None:
     np.testing.assert_allclose(capped.unserved_gw, np.full(HOURS_PER_YEAR, 3.0))
 
 
+def test_profile_max_cf_default_is_enforced() -> None:
+    # A max_cf carried in the generator block (the build's firm-plant utilization ceiling) is
+    # honored by default, with no max_cf argument — identical to passing it explicitly.
+    year = _flat_year()
+    kwargs = dict(
+        profile={"generators": {"coal": {"cf_base": 1.0, "max_cf": 0.5}}},
+        year_profile=year,
+        shares={"coal": 1.0},
+        annual_demand_twh=8.0 * HOURS_PER_YEAR / 1000,  # 8 GW flat on a 10 GW fleet
+        capacities_gw={"coal": 10.0},
+    )
+    result = dispatch_hourly(**kwargs)  # no max_cf arg → profile default applies
+    np.testing.assert_allclose(result.dispatch_gw["coal"], np.full(HOURS_PER_YEAR, 5.0))
+    np.testing.assert_allclose(result.unserved_gw, np.full(HOURS_PER_YEAR, 3.0))
+
+
+def test_request_max_cf_overrides_profile_default() -> None:
+    # An explicit call value wins over the profile-block default (per generator): 1.0 lifts the cap.
+    year = _flat_year()
+    kwargs = dict(
+        profile={"generators": {"coal": {"cf_base": 1.0, "max_cf": 0.5}}},
+        year_profile=year,
+        shares={"coal": 1.0},
+        annual_demand_twh=8.0 * HOURS_PER_YEAR / 1000,
+        capacities_gw={"coal": 10.0},
+    )
+    uncapped = dispatch_hourly(**kwargs, max_cf={"coal": 1.0})
+    np.testing.assert_allclose(uncapped.dispatch_gw["coal"], np.full(HOURS_PER_YEAR, 8.0))
+    np.testing.assert_allclose(uncapped.unserved_gw, np.zeros(HOURS_PER_YEAR))
+
+
+def test_explicit_min_cf_lifts_a_lower_default_max_cf() -> None:
+    # An explicit must-run floor above the profile's default ceiling raises the ceiling, rather
+    # than being silently clamped to it: coal (default max_cf 0.6) told to run at min 0.8 dispatches
+    # at 0.8, not 0.6.
+    year = _flat_year()
+    kwargs = dict(
+        profile={"generators": {"coal": {"cf_base": 1.0, "max_cf": 0.6}}},
+        year_profile=year,
+        shares={"coal": 1.0},
+        annual_demand_twh=8.0 * HOURS_PER_YEAR / 1000,  # 8 GW demand on a 10 GW fleet
+        capacities_gw={"coal": 10.0},
+    )
+    lifted = dispatch_hourly(**kwargs, min_cf={"coal": 0.8})
+    # floor 0.8 > default ceiling 0.6 → dispatch runs at 8 GW (0.8 × 10), fully serving the load
+    np.testing.assert_allclose(lifted.dispatch_gw["coal"], np.full(HOURS_PER_YEAR, 8.0))
+    np.testing.assert_allclose(lifted.unserved_gw, np.zeros(HOURS_PER_YEAR))
+
+
 def test_min_cf_forces_must_run_floor_and_spills() -> None:
     # A must-run floor: coal runs at least capacity × min_cf every hour even when demand (3 GW)
     # is below the 5 GW floor on a 10 GW fleet — the 2 GW/h surplus is spilled (curtailed).

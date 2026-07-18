@@ -33,6 +33,8 @@ def pathway(payload: PathwayRequest) -> PathwayResponse:
         ess_long_duration_hr=payload.ess_long_duration_hr,
         expandable=payload.expandable,
         meet_full_load=payload.meet_full_load,
+        min_cf=payload.min_cf,          # forwarded to each year's calculate via **calculate_kwargs
+        max_cf=payload.max_cf,
     )
     return PathwayResponse(**result)
 

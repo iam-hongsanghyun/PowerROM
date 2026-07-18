@@ -48,6 +48,7 @@ const FALLBACK_COUNTRIES: CountrySummary[] = [
     generators: GENS,
     capacities_gw: { solar: 26.68, wind_onshore: 2.26, wind_offshore: 0.0, gas_ccgt: 50.26, coal: 41.19, nuclear: 26.05, hydro: 1.82, other: 6.18 },
     shares: { solar: 0.0523, wind_onshore: 0.0054, wind_offshore: 0.0, gas_ccgt: 0.2852, coal: 0.3051, nuclear: 0.3018, hydro: 0.0069, other: 0.0434 },
+    max_cf: { gas_ccgt: 0.5, coal: 0.6, nuclear: 0.9, other: 0.6 },
     data_year: 2024,
     sources: [],
   },
@@ -60,6 +61,7 @@ const FALLBACK_COUNTRIES: CountrySummary[] = [
     generators: GENS,
     capacities_gw: { solar: 36.0, wind_onshore: 15.56, wind_offshore: 0.0, gas_ccgt: 26.28, coal: 22.83, nuclear: 0.0, hydro: 7.71, other: 3.39 },
     shares: { solar: 0.1783, wind_onshore: 0.1162, wind_offshore: 0.0, gas_ccgt: 0.1743, coal: 0.4521, nuclear: 0.0, hydro: 0.0456, other: 0.0334 },
+    max_cf: { gas_ccgt: 0.3, coal: 0.7, other: 0.4 },
     data_year: 2024,
     sources: [],
   },
@@ -72,6 +74,7 @@ const FALLBACK_COUNTRIES: CountrySummary[] = [
     generators: GENS,
     capacities_gw: { solar: 89.6, wind_onshore: 5.66, wind_offshore: 0.2, gas_ccgt: 81.48, coal: 55.25, nuclear: 33.08, hydro: 28.23, other: 26.04 },
     shares: { solar: 0.0951, wind_onshore: 0.0108, wind_offshore: 0.0006, gas_ccgt: 0.3407, coal: 0.3219, nuclear: 0.0835, hydro: 0.0782, other: 0.0693 },
+    max_cf: { gas_ccgt: 0.5, coal: 0.7, nuclear: 0.4, other: 0.4 },
     data_year: 2024,
     sources: [],
   },
@@ -167,6 +170,20 @@ function emptyCfInputs(): Record<(typeof GENERATOR_KEYS)[number], string> {
   return { solar: "", wind_onshore: "", wind_offshore: "", gas_ccgt: "", coal: "", nuclear: "", hydro: "", other: "" };
 }
 
+// Seed the max-CF inputs from a country's default availability ceilings (firm generators only;
+// renewables and hydro stay blank = uncapped). Shown pre-filled so the default is visible and
+// editable. A blank firm field falls back to that profile default (still capped); set 1 to remove
+// the cap. Editing the value overrides the default for the run.
+function maxCfInputsFromSummary(current: CountrySummary): Record<(typeof GENERATOR_KEYS)[number], string> {
+  const src = current.max_cf ?? {};
+  const inputs = emptyCfInputs();
+  for (const key of GENERATOR_KEYS) {
+    const value = src[key];
+    if (typeof value === "number" && value > 0) inputs[key] = String(value);
+  }
+  return inputs;
+}
+
 // Parse the per-generator CF text inputs into a {generator: cf} map, keeping only entries with a
 // valid fraction in [0, 1]; blank/invalid inputs leave that generator unconstrained.
 function parseCfLimits(
@@ -206,10 +223,16 @@ export function Dashboard() {
   const [capacityInputs, setCapacityInputs] = useState<Record<(typeof GENERATOR_KEYS)[number], string>>(
     capacityInputDefaults(INITIAL_CAPACITIES),
   );
-  // Per-generator capacity-factor limits (0–1). Blank = unconstrained. min = must-run floor,
-  // max = availability ceiling. Applied in the backend dispatch.
+  // Per-generator capacity-factor limits (0–1), applied in the backend dispatch. min = must-run
+  // floor (blank = none). max = availability ceiling: firm generators are pre-filled with the
+  // country's default ceiling (ceil-to-10% of real CF); a blank firm field falls back to that
+  // default, and a value of 1 removes the cap. Renewables and hydro are uncapped (blank).
   const [minCfInputs, setMinCfInputs] = useState<Record<(typeof GENERATOR_KEYS)[number], string>>(emptyCfInputs());
-  const [maxCfInputs, setMaxCfInputs] = useState<Record<(typeof GENERATOR_KEYS)[number], string>>(emptyCfInputs());
+  // Max-CF inputs seed from the country's default firm-generator availability ceilings (visible
+  // + editable); reseeded on country change, re-fetched from the API profile once it loads.
+  const [maxCfInputs, setMaxCfInputs] = useState<Record<(typeof GENERATOR_KEYS)[number], string>>(
+    maxCfInputsFromSummary(FALLBACK_COUNTRIES.find((c) => c.code === INITIAL_COUNTRY) ?? FALLBACK_COUNTRIES[0]),
+  );
   const [generatorOrder, setGeneratorOrder] = useState<GeneratorKey[]>([...GENERATOR_KEYS]);
   // Capacity expansion: which generators (or "storage") the solver may grow to meet 100% load.
   const [expandable, setExpandable] = useState<Set<string>>(new Set());
@@ -266,6 +289,7 @@ export function Dashboard() {
     const caps = capacitiesFromSummary(current);
     setCapacities(caps);
     setCapacityInputs(capacityInputDefaults(caps));
+    setMaxCfInputs(maxCfInputsFromSummary(current)); // firm-generator availability ceilings
   }
 
   // Switching country invalidates every value and result on screen, so start the new
@@ -280,9 +304,9 @@ export function Dashboard() {
       applyCountryDefaults(current); // annual demand + installed capacities
     }
 
-    // Left-rail overrides back to unconstrained / default order.
+    // Left-rail overrides back to unconstrained / default order. Max-CF is seeded (not cleared)
+    // from the new country's firm-generator ceilings by applyCountryDefaults above.
     setMinCfInputs(emptyCfInputs());
-    setMaxCfInputs(emptyCfInputs());
     setGeneratorOrder([...GENERATOR_KEYS]);
     setExpandable(new Set());
     setMeetFullLoad(false);
@@ -705,6 +729,8 @@ export function Dashboard() {
                   startDemandTwh={annualDemandTwh}
                   ensemble={ensemble}
                   storage={storage}
+                  minCf={parseCfLimits(minCfInputs)}
+                  maxCf={parseCfLimits(maxCfInputs)}
                 />
               </Tabs.Content>
             </Tabs.Root>

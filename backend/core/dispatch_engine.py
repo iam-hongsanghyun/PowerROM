@@ -216,6 +216,31 @@ def _resolve_ramp_rates(
     return resolved
 
 
+def _resolve_max_cf(
+    explicit: dict[str, float] | None,
+    generator_names: list[str],
+    profile: dict[str, Any],
+    field: str,
+) -> dict[str, float]:
+    """Merge each generator's availability ceiling (max capacity factor) from two sources.
+
+    An explicit call value wins per generator; otherwise the value falls back to the profile's
+    generator block ``max_cf`` (the firm-plant utilization ceiling the build script writes as
+    ceil(annual CF → next 10%); renewables and hydro carry none). A generator present in neither
+    is omitted, meaning "uncapped" — so a profile without the field (and no override) dispatches
+    exactly as before. Mirrors :func:`_resolve_ramp_rates`; the caller clamps to [0, 1].
+    """
+    explicit = explicit or {}
+    generators = profile.get("generators", {})
+    resolved: dict[str, float] = {}
+    for gen in generator_names:
+        if gen in explicit:
+            resolved[gen] = float(explicit[gen])
+        elif field in generators.get(gen, {}):
+            resolved[gen] = float(generators[gen][field])
+    return resolved
+
+
 def _marginal_cost_usd_mwh(generator_config: dict[str, Any], carbon_price: float) -> float:
     """Short-run (dispatch) marginal cost of a flexible generator, $/MWh.
 
@@ -272,7 +297,10 @@ def dispatch_hourly(
 
     * ``max_cf`` — availability ceiling. A generator can never dispatch above
       ``capacity × max_cf`` (planned outages, fuel/water limits, grid-connection caps). For VRE
-      it clips the resource; the excess is curtailed.
+      it clips the resource; the excess is curtailed. Resolved per generator from two sources:
+      an explicit call value wins, otherwise the per-generator default carried in the profile's
+      generator block (``max_cf`` — the firm-plant utilization ceiling written by the build,
+      editable via ``custom_params``). A generator present in neither is uncapped.
     * ``min_cf`` — must-run floor. A generator runs at **at least** ``capacity × min_cf`` every
       hour, dispatched ahead of the merit order; any floor output above the residual load is
       spilled (curtailed). This is the general take-or-pay / must-run rule the nuclear baseload
@@ -296,7 +324,20 @@ def dispatch_hourly(
     normalized_shares = _normalize_shares(shares)
     fixed_capacities = _normalize_capacities(capacities_gw or {})
     min_cf = {k: max(0.0, min(1.0, float(v))) for k, v in (min_cf or {}).items()}
-    max_cf = {k: max(0.0, min(1.0, float(v))) for k, v in (max_cf or {}).items()}
+    # Availability ceiling: explicit call value overrides the per-generator profile default
+    # (``max_cf`` on firm blocks — the ceil-to-10% utilization cap written by the build script);
+    # a generator in neither is uncapped. Clamped to [0, 1].
+    max_cf = {
+        k: max(0.0, min(1.0, v))
+        for k, v in _resolve_max_cf(max_cf, generator_names, profile, "max_cf").items()
+    }
+    # An explicit must-run floor above a generator's (possibly profile-default) ceiling lifts the
+    # ceiling: committing a plant to run at X% implies it can. Without this an invisible default
+    # max_cf would silently clamp an explicit min_cf the caller passed on its own (the request
+    # validator only catches min > max when BOTH are given explicitly, not vs the profile default).
+    for gen, floor in min_cf.items():
+        if floor > max_cf.get(gen, 1.0):
+            max_cf[gen] = floor
     # Ramp rates (fraction of nameplate per hour, >1 ⇒ effectively unconstrained): the per-technology
     # default lives in the profile's generator block (``ramp_up_frac_per_hr`` / ``ramp_down_frac_per_hr``
     # — config, and user-editable via custom_params); an explicit arg overrides it per generator. A

@@ -22,6 +22,11 @@ def countries() -> CountriesResponse:
                 generators=list(profile["generators"].keys()),
                 capacities_gw=profile.get("capacities_gw", {}),
                 shares=profile.get("shares", {}),
+                max_cf={
+                    gen: float(block["max_cf"])
+                    for gen, block in profile.get("generators", {}).items()
+                    if "max_cf" in block
+                },
                 data_year=profile.get("data_year"),
                 sources=profile.get("sources", []),
             )

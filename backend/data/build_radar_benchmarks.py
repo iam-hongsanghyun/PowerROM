@@ -42,9 +42,18 @@ BASELINE_DISPATCH_MODE = "data"
 BASELINE_ENSEMBLE: dict[str, Any] = {
     "method": "block_bootstrap", "n_samples": 5, "seed": 42, "block_days": 14,
 }
+# The baseline represents the country's real, reliable system, in which firm plants CAN ramp to
+# their nameplate. So it explicitly lifts the default firm-generator availability ceiling (the
+# ceil-to-10% utilization cap the build writes into the profiles): every firm generator runs
+# uncapped here. This keeps the baseline polygon a clean reference — the radar then shows the
+# reliability cost of the utilization cap as the gap between the (capped) scenario and this
+# (uncapped) baseline, rather than baking artificial shortfalls into the reference itself.
+FIRM_GENERATORS = ("gas_ccgt", "coal", "nuclear", "other")
+BASELINE_UNCAP = {gen: 1.0 for gen in FIRM_GENERATORS}
 BASELINE_NOTE = (
     "Country baseline: real Ember installed capacities and demand, real weather years, "
-    "zero carbon price, no added storage, 5-member block-bootstrap weather ensemble (seed 42)."
+    "zero carbon price, no added storage, firm plants uncapped (reality), 5-member "
+    "block-bootstrap weather ensemble (seed 42)."
 )
 
 
@@ -59,6 +68,7 @@ def baseline_metrics(code: str) -> dict[str, Any]:
         carbon_price=BASELINE_CARBON_PRICE,
         dispatch_mode=BASELINE_DISPATCH_MODE,
         ensemble=BASELINE_ENSEMBLE,
+        max_cf=dict(BASELINE_UNCAP),
     )
     return {
         "country": code,

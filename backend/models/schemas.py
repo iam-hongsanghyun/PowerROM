@@ -282,6 +282,10 @@ class PathwayRequest(BaseModel):
     # 100% of load, cheapest-first, on top of the interpolated target capacities.
     expandable: list[str] | None = None
     meet_full_load: bool = False
+    # Per-generator CF limits applied at every milestone year, so a cap edited on the left rail
+    # (e.g. a tighter firm ceiling, or 1.0 to lift the default) carries into the trajectory too.
+    min_cf: dict[str, float] | None = None
+    max_cf: dict[str, float] | None = None
 
 
 class PathwayResponse(BaseModel):
@@ -416,6 +420,10 @@ class CountrySummary(BaseModel):
     # sourced from Ember; the UI seeds the left-panel inputs from these per country.
     capacities_gw: dict[str, float] = Field(default_factory=dict)
     shares: dict[str, float] = Field(default_factory=dict)
+    # Default availability ceiling (max capacity factor) per firm generator — the ceil-to-10%
+    # utilization cap the build writes onto gas/coal/nuclear/other. The UI seeds the max-CF
+    # inputs from these (renewables and hydro are absent = uncapped).
+    max_cf: dict[str, float] = Field(default_factory=dict)
     data_year: int | None = None
     sources: list[str]
 

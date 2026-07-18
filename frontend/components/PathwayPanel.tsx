@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-import type { Capacities, EnsembleConfig, PathwayStep } from "@/lib/api";
+import type { Capacities, EnsembleConfig, GeneratorKey, PathwayStep } from "@/lib/api";
 import { simulatePathway } from "@/lib/api";
 import { GENERATOR_COLORS, GENERATOR_LABELS, STORAGE_COLOR } from "@/lib/constants";
 import { InfoTip } from "@/components/InfoTip";
@@ -29,6 +29,8 @@ export function PathwayPanel({
   startDemandTwh,
   ensemble,
   storage,
+  minCf,
+  maxCf,
 }: {
   country: string;
   startCapacities: Capacities;
@@ -36,6 +38,10 @@ export function PathwayPanel({
   startDemandTwh: number;
   ensemble: EnsembleConfig;
   storage: StorageInput;
+  // Per-generator CF limits from the left rail (parsed), so an edited firm ceiling carries into
+  // the trajectory. Undefined/empty = fall back to the profile's default caps at each year.
+  minCf?: Partial<Record<GeneratorKey, number>>;
+  maxCf?: Partial<Record<GeneratorKey, number>>;
 }) {
   const [endYear, setEndYear] = useState(2050);
   const [endCarbon, setEndCarbon] = useState(150);
@@ -75,6 +81,8 @@ export function PathwayPanel({
         ess_long_power_gw: storage.longPowerGw || null,
         expandable: meetFullLoad ? [...expandable] : undefined,
         meet_full_load: meetFullLoad,
+        min_cf: minCf && Object.keys(minCf).length ? minCf : undefined,
+        max_cf: maxCf && Object.keys(maxCf).length ? maxCf : undefined,
       });
       setSteps(response.steps);
     } catch (caught) {

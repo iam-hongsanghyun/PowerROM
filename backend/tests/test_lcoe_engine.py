@@ -143,9 +143,14 @@ def test_short_storage_displaces_thermal_and_cuts_emissions() -> None:
     # running thermal, so adding it cuts emissions even where there is little unserved to serve —
     # the old reliability-only dispatch could not (storage sat below thermals in the merit stack).
     caps = {"solar": 180, "wind_onshore": 50, "gas_ccgt": 40, "coal": 10, "nuclear": 15, "other": 3}
+    # Uncap the firm generators (lift the default utilization ceiling) so this isolates the
+    # storage-displaces-thermal feature: with the cap, this deliberately thermal-light mix is so
+    # short of firm capacity that storage serves *unserved load* instead of displacing thermal,
+    # masking the emissions effect under test.
+    uncap = {gen: 1.0 for gen in ("gas_ccgt", "coal", "nuclear", "other")}
     base = dict(
         country="KR", shares=caps, carbon_price=80.0, capacities_gw=caps, ensemble=_SINGLE,
-        annual_demand_twh=595.0, ess_short_duration_hr=6.0, ess_long_power_gw=0.0,
+        annual_demand_twh=595.0, ess_short_duration_hr=6.0, ess_long_power_gw=0.0, max_cf=uncap,
     )
     without = calculate_system_lcoe(**base, ess_short_power_gw=0.0)
     with_storage = calculate_system_lcoe(**base, ess_short_power_gw=25.0)

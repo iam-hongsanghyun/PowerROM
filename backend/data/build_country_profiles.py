@@ -37,6 +37,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import math
 import sys
 import urllib.request
 from collections import defaultdict
@@ -297,6 +298,7 @@ SOURCE_HYDRO = (
 # fuel cost and import exposure for hydro/geothermal grids (KE, PY, NP, ...) and understate them
 # for oil-fired ones (SA, KW, LB, ...).
 EF_OTHER_FOSSIL_TCO2_MWH = 0.70  # oil/diesel steam turbine: IPCC 2006 oil EF at ~38% efficiency
+OTHER_FUEL_BASE_USD_MMBTU = 5.0  # base "other" (oil/diesel) delivered fuel price, scaled by fossil share
 MIN_OTHER_GEN_TWH = 0.05  # below this the fossil fraction is numerically meaningless → template
 
 # ── Energy dependency: UN Comtrade net fuel imports → import_fuel_fraction ──────
@@ -323,6 +325,25 @@ CF_BOUNDS: dict[str, tuple[float, float]] = {
     "other": (0.10, 0.85),
 }
 MIN_CAPACITY_GW = 0.20  # below this, CF is numerically unreliable → use template default
+
+# ── Firm-generator availability ceiling (default max_cf) ──────────────────────────
+# Each firm/dispatchable thermal generator gets a default maximum capacity factor equal to its
+# real annual CF (Ember generation ÷ capacity) rounded UP to the next 10% mark — a "hold the plant
+# near its historical utilization, plus one step of headroom" ceiling. The dispatch enforces it as
+# an hourly power cap (capacity × max_cf) with a request override; renewables and hydro are NOT
+# capped this way (a weather resource's annual mean is far below its hourly peak, and hydro is
+# energy-limited — capping either at its annual CF throws away real output / manufactures blackouts).
+# Firm plants with a low annual CF (backup/peakers) get a correspondingly low ceiling: this is the
+# intended semantics — it reveals when a grid's reliability depends on running firm plant well above
+# its historical utilization. Users see and can raise each value in the UI.
+FIRM_GENERATORS = ("gas_ccgt", "coal", "nuclear", "other")
+MAX_CF_STEP = 0.10  # ceiling granularity
+
+
+def ceil_to_step(cf: float, step: float = MAX_CF_STEP) -> float:
+    """Smallest multiple of ``step`` that is ≥ ``cf`` (a value already on a mark stays put)."""
+    steps = math.ceil(round(cf, 4) / step - 1e-9)
+    return round(min(1.0, max(step, steps * step)), 4)
 
 # ── Cost / fuel / discount template ─────────────────────────────────────────────
 # Technology *structure* (dispatch functions, heat rates, emission factors, storage, and the
@@ -441,6 +462,11 @@ RAMP_DEFAULTS: dict[str, dict[str, float]] = {
 SOURCE_RAMP = (
     "Per-technology ramp rates (fraction of nameplate per hour) stylized from IEA/NREL unit-"
     "flexibility literature; nuclear runs as flat baseload and VRE is weather-driven (no ramp limit)"
+)
+SOURCE_MAXCF = (
+    "Default availability ceiling (max_cf) on firm generators (gas/coal/nuclear/other) = the real "
+    "Ember annual capacity factor rounded up to the next 10%; renewables and hydro are uncapped. "
+    "Enforced as an hourly power cap in dispatch, overridable per request/generator."
 )
 
 # ── Synthetic-profile knobs written into every profile as config (were hardcoded in the core) ────
@@ -662,6 +688,18 @@ def build_profile(code: str, iso3: str, name: str, template: dict[str, Any],
     hydro_block = profile["generators"]["hydro"]
     hydro_block["cf_eff_func"]["params"]["a"] = hydro_block["cf_base"]
 
+    # Default availability ceiling on firm generators: real annual CF rounded up to the next 10%
+    # (see FIRM_GENERATORS / ceil_to_step). Renewables and hydro are left uncapped. Pop first so a
+    # generator the country lacks (near-zero capacity) never keeps a max_cf inherited from the
+    # structural template via the deep copy.
+    for gen in FIRM_GENERATORS:
+        block = profile["generators"].get(gen)
+        if block is None:
+            continue
+        block.pop("max_cf", None)
+        if capacities.get(gen, 0.0) >= MIN_CAPACITY_GW:
+            block["max_cf"] = ceil_to_step(float(block["cf_base"]))
+
     _split_offshore_wind(code, profile, template, capacities, shares, data, total_gen, region)
     _scale_other_bucket(profile, data)
     _apply_import_fractions(code, profile, data, dependency or _load_energy_dependency())
@@ -690,6 +728,7 @@ def build_profile(code: str, iso3: str, name: str, template: dict[str, Any],
         SOURCE_OTHER,
         SOURCE_DEPENDENCY,
         SOURCE_RAMP,
+        SOURCE_MAXCF,
         SOURCE_SYNTHESIS,
     ]
     return profile
@@ -701,9 +740,9 @@ def _scale_other_bucket(profile: dict[str, Any], data: dict[str, Any]) -> None:
     Algorithm:
         $$f = G_{other\\ fossil} / G_{other}$$
         $$EF_{other} = 0.70 \\cdot f \\quad [tCO_2/MWh], \\qquad
-          p_{fuel,other} = p_{template} \\cdot f \\quad [USD/MMBtu]$$
-    ASCII: f = other-fossil TWh / other TWh; EF = 0.70*f; fuel price and the imported-fuel
-    weighting both scale by f.
+          p_{fuel,other} = p_{base} \\cdot f \\quad [USD/MMBtu],\\ p_{base}=5.0$$
+    ASCII: f = other-fossil TWh / other TWh; EF = 0.70*f; fuel price = 5.0*f (fixed base, so the
+    scaling is idempotent across rebuilds); the imported-fuel weighting also scales by f.
 
     ``G`` are Ember generation figures (TWh) for the data year. Geothermal and (by
     grid-accounting convention) bioenergy are carbon-free and domestic, so only the "Other
@@ -718,7 +757,10 @@ def _scale_other_bucket(profile: dict[str, Any], data: dict[str, Any]) -> None:
     f = min(max(data["other_fossil_twh"] / other_gen_twh, 0.0), 1.0)
     gen_block = profile["generators"]["other"]
     gen_block["emission_factor_tco2_mwh"] = round(EF_OTHER_FOSSIL_TCO2_MWH * f, 4)
-    gen_block["fuel_usd_mmbtu"] = round(float(gen_block["fuel_usd_mmbtu"]) * f, 4)
+    # Scale from the fixed base price, NOT the block's current value — the structural template
+    # (KR.json) is itself a built profile whose "other" fuel is already scaled, so reading the
+    # block and re-multiplying compounds the value toward zero on every rebuild (non-idempotent).
+    gen_block["fuel_usd_mmbtu"] = round(OTHER_FUEL_BASE_USD_MMBTU * f, 4)
     gen_block["fossil_fraction"] = round(f, 4)
     # Import exposure = fossil slice × how much of that oil is imported (Comtrade); refined in
     # _apply_import_fractions once the country's net-import data is known.

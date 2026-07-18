@@ -393,21 +393,29 @@ def _expand_to_meet_load(
     single-cycle can bridge, so some residual may remain and is reported.
 
     Returns ``(added_by_key, grown_storage_tiers, note)`` where ``added_by_key`` may include
-    ``"storage"`` (added short-duration power, GW) and/or ``"storage_long"`` (added
-    long-duration power, GW) alongside the grown generators.
+    ``"storage"`` (added short/battery power, GW), ``"storage_phs"`` (pumped-hydro power, GW),
+    and/or ``"storage_long"`` (seasonal power, GW) alongside the grown generators.
     """
     gens = profile["generators"]
     discount = profile["discount_rate"]
     expandable_gens = [g for g in expandable if g in gens]  # VRE included: it firms via storage
     tiers = [dict(tier) for tier in storage_tiers]
-    # Both storage tiers are expansion candidates when "storage" is checked: short-duration
-    # firms sharp/diurnal peaks, long-duration bridges multi-day droughts. Keyed for reporting.
+    # Storage is expandable per tier so the user picks which type to build: "storage_short" (battery),
+    # "storage_phs" (pumped hydro), "storage_long" (seasonal). "storage" is a legacy alias enabling
+    # short + long. Reporting keys: short -> "storage", phs -> "storage_phs", long -> "storage_long".
+    tier_by_name = {t.get("name"): t for t in tiers}
+    _REPORT_KEY = {"short": "storage", "phs": "storage_phs", "long": "storage_long"}
     storage_candidates: dict[str, dict[str, float]] = {}
-    if "storage" in expandable:
-        for key, name in (("storage", "short"), ("storage_long", "long")):
-            tier = next((t for t in tiers if t.get("name") == name), None)
-            if tier is not None:
-                storage_candidates[key] = tier
+    checked_names: set[str] = set()
+    if "storage" in expandable:  # legacy alias
+        checked_names.update({"short", "long"})
+    for key, name in (("storage_short", "short"), ("storage_phs", "phs"), ("storage_long", "long")):
+        if key in expandable:
+            checked_names.add(name)
+    for name in checked_names:
+        tier = tier_by_name.get(name)
+        if tier is not None:
+            storage_candidates[_REPORT_KEY[name]] = tier
     can_storage = bool(storage_candidates)
     added: dict[str, float] = {g: 0.0 for g in expandable_gens}
     capacities = {key: max(0.0, float(value)) for key, value in base_capacities.items()}
@@ -506,13 +514,17 @@ def _expand_to_meet_load(
     sqrt_eta = _RESERVOIR_RTE**0.5
     soc0 = np.cumsum(np.where(net0 > 0.0, net0 * sqrt_eta, net0 / sqrt_eta))
     reservoir0 = float(np.max(np.maximum.accumulate(soc0) - soc0))
-    short_hr = float(storage_candidates.get("storage", {}).get("duration_hr", 0.0))
-    storage_key = (
-        "storage" if "storage" in storage_candidates and reservoir0 / max(peak0, 1.0) <= short_hr * 1.25
-        else "storage_long" if "storage_long" in storage_candidates
-        else "storage" if "storage" in storage_candidates
-        else None
-    )
+    # Among the checked tiers, use the shortest whose native duration already covers the reservoir
+    # (cheaper, higher round-trip); if none is long enough, use the longest and raise its duration.
+    required_hr = reservoir0 / max(peak0, 1.0)
+    ordered_tiers = sorted(storage_candidates.items(), key=lambda kv: float(kv[1].get("duration_hr", 0.0)))
+    storage_key: str | None = None
+    for k, t in ordered_tiers:
+        if float(t.get("duration_hr", 0.0)) >= required_hr:
+            storage_key = k
+            break
+    if storage_key is None and ordered_tiers:
+        storage_key = ordered_tiers[-1][0]
     if peak0 > _EXPANSION_PEAK_TOL_GW and storage_key and not firm_expandable:
         tier = storage_candidates[storage_key]
         old_power = float(tier.get("power_gw", 0.0))
@@ -533,25 +545,26 @@ def _expand_to_meet_load(
         total_gwh = float(np.sum(u))
         if total_gwh / 1000.0 <= _EXPANSION_UNSERVED_TOL_TWH:
             break
-        if total_gwh >= prev - 1.0:  # not improving → cannot close further with the checked set
+        if total_gwh >= prev * 0.98:  # <2% improvement per step → plateau, cannot close further
             break
         prev = total_gwh
         peak = float(np.max(u))
+        # Small overshoot margins so the last bit closes cleanly instead of stalling just above tol.
         if firm_expandable:
             g = min(firm_expandable, key=lambda x: _annual_fixed_cost_gen(gens[x], discount, 1.0))
             ceiling = float((max_cf or {}).get(g, gens[g].get("max_cf", 1.0)) or 1.0)
-            _apply(g, max(peak / max(ceiling, 0.1), 0.5))
+            _apply(g, max(peak / max(ceiling, 0.1), 0.5) * 1.05)
         elif storage_key:
             tier = storage_candidates[storage_key]
             old_power = float(tier.get("power_gw", 0.0))
-            new_power = max(old_power, peak)
+            new_power = max(old_power, peak * 1.05)
             tier["power_gw"] = new_power
             tier["duration_hr"] = float(tier.get("duration_hr", _DEFAULT_LONG_DURATION_HR)) + \
-                total_gwh / max(new_power, 1.0)  # add enough energy to hold the residual block
+                (total_gwh * 1.3) / max(new_power, 1.0)  # hold the residual block, +30% margin
             added[storage_key] = added.get(storage_key, 0.0) + (new_power - old_power)
             for g in vre_expandable:  # more surplus so the store can actually charge
                 cf = max(float(np.mean(year_profile.solar_cf if g == "solar" else year_profile.wind_cf)), 0.03)
-                _apply(g, (total_gwh / len(vre_expandable)) / (cf * hours))
+                _apply(g, (total_gwh * 1.5 / len(vre_expandable)) / (cf * hours))
         else:
             break  # only VRE checked — it cannot cover a windless drought
 
@@ -560,14 +573,21 @@ def _expand_to_meet_load(
 
     note = ""
     if unserved_twh > _EXPANSION_UNSERVED_TOL_TWH:
-        note = (f"Cannot reach 100% with the selected options — {unserved_twh:.0f} TWh/yr still "
-                "unserved through the worst lull. Make storage expandable, add a firm generator, or "
-                "uncap the existing firm fleet (max CF) so the drought can be covered.")
-    elif storage_candidates and any(k in added for k in ("storage", "storage_long")):
-        lt = storage_candidates.get("storage_long", storage_candidates.get("storage", {}))
-        gwh = float(lt.get("power_gw", 0.0)) * float(lt.get("duration_hr", 0.0))
+        # Suggest only the options the user has NOT already selected.
+        fixes: list[str] = []
+        if not storage_candidates:
+            fixes.append("make a storage tier expandable")
+        if not firm_expandable:
+            fixes.append("make a firm generator (e.g. gas) expandable")
+        fixes.append("uncap the firm fleet's max CF")
+        note = (f"{unserved_twh:.2f} TWh/yr still unserved through the worst lull — "
+                + ", or ".join(fixes) + " to cover the drought.")
+    elif any(added.get(k, 0.0) > 0.0 for k in ("storage", "storage_phs", "storage_long")):
+        biggest = max((storage_candidates[k] for k in ("storage_long", "storage_phs", "storage")
+                       if k in storage_candidates), key=lambda t: float(t.get("power_gw", 0.0)) * float(t.get("duration_hr", 0.0)), default={})
+        gwh = float(biggest.get("power_gw", 0.0)) * float(biggest.get("duration_hr", 0.0))
         if gwh / 1000.0 > 3.0:
-            note = (f"Reaching 100% needs ~{gwh / 1000:.0f} TWh of storage (~{lt.get('duration_hr', 0):.0f} h "
+            note = (f"Reaching 100% needs ~{gwh / 1000:.0f} TWh of storage (~{biggest.get('duration_hr', 0):.0f} h "
                     "duration) to bridge the multi-day lull — keeping or uncapping firm capacity cuts this sharply.")
     return added, tiers, note
 
@@ -1354,6 +1374,7 @@ def size_mix_for_adequacy(
     base = {key: max(0.0, float(value)) for key, value in capacities.items()}
     target = max(0.0, float(lole_target_hours))
     base_short = float(ess_short_power_gw or 0.0)
+    base_phs = float(ess_phs_power_gw or 0.0)
     base_long = float(ess_long_power_gw or 0.0)
 
     # 1. Full least-cost expansion to zero unserved on the worst weather sample.
@@ -1375,7 +1396,7 @@ def size_mix_for_adequacy(
             caps = {
                 gen: base.get(gen, 0.0) + scale * added_full.get(gen, 0.0)
                 for gen in set(base) | set(added_full)
-                if gen not in ("storage", "storage_long")
+                if gen not in ("storage", "storage_phs", "storage_long")
             }
             result = calculate_system_lcoe(
                 country=country, shares=caps, capacities_gw=caps, carbon_price=carbon_price,
@@ -1384,7 +1405,8 @@ def size_mix_for_adequacy(
                 ess_short_duration_hr=ess_short_duration_hr,
                 ess_long_power_gw=base_long + scale * added_full.get("storage_long", 0.0),
                 ess_long_duration_hr=ess_long_duration_hr,
-                ess_phs_power_gw=ess_phs_power_gw, ess_phs_duration_hr=ess_phs_duration_hr,
+                ess_phs_power_gw=base_phs + scale * added_full.get("storage_phs", 0.0),
+                ess_phs_duration_hr=ess_phs_duration_hr,
                 min_cf=min_cf, max_cf=max_cf,
             )
             adequacy = result.get("adequacy")

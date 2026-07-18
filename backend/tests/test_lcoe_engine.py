@@ -318,6 +318,58 @@ def test_expansion_grows_storage_for_multiday_drought() -> None:
     assert any(added.get(key, 0.0) > 0.0 for key in ("solar", "wind_onshore"))  # + a VRE overbuild
 
 
+def test_expansion_per_type_phs_grows_only_phs() -> None:
+    # Per-type expandable storage: checking ONLY the PHS tier makes the solver firm the peak with
+    # pumped hydro (reported under "storage_phs") and leave the battery/seasonal tiers untouched.
+    caps = {"solar": 130, "wind_onshore": 20, "nuclear": 74, "gas_ccgt": 6, "coal": 0, "other": 0}
+    r = calculate_system_lcoe(
+        country="KR", shares=caps, carbon_price=50.0, capacities_gw=caps, ensemble=_SINGLE,
+        annual_demand_twh=595.0, demand_pattern="summer_peak",
+        ess_short_power_gw=0.0, ess_short_duration_hr=12.0,
+        ess_phs_power_gw=2.0, ess_phs_duration_hr=10.0,
+        ess_long_power_gw=0.0, ess_long_duration_hr=168.0,
+        expandable=["storage_phs"], meet_full_load=True,
+    )
+    added = r["expansion"]["added_capacities_gw"]
+    assert r["unserved_twh"] < 0.05
+    assert added.get("storage_phs", 0.0) > 0.0     # PHS firms the diurnal peak
+    assert added.get("storage", 0.0) == 0.0        # the battery tier is not built
+    assert added.get("storage_long", 0.0) == 0.0   # the seasonal tier is not built
+
+
+def test_expansion_note_suggests_only_unchecked_options_when_it_cannot_close() -> None:
+    # VRE alone cannot firm a windless night, so a residual remains. The note must (a) report the
+    # residual PRECISELY — never round a real shortfall to "0 TWh" — and (b) suggest only the options
+    # the user has NOT selected: here storage and firm are both un-checked, so both are offered.
+    caps = {"solar": 30, "wind_onshore": 10, "gas_ccgt": 8, "nuclear": 5, "coal": 0, "other": 2}
+    r = calculate_system_lcoe(
+        country="KR", shares=caps, carbon_price=50.0, capacities_gw=caps, ensemble=_SINGLE,
+        annual_demand_twh=595.0, ess_short_power_gw=0.0, expandable=["solar"], meet_full_load=True,
+    )
+    note = r["expansion"]["note"]
+    assert r["unserved_twh"] > 1.0                              # a real, un-closed shortfall
+    assert "0.00 TWh/yr still unserved" not in note            # not rounded/contradictory
+    assert "still unserved" in note
+    assert "storage tier expandable" in note                   # un-checked -> suggested
+    assert "firm generator" in note                            # un-checked -> suggested
+
+
+def test_expansion_note_does_not_cry_failure_when_it_closes() -> None:
+    # When storage is expandable and the solver DOES reach 100% (by building a large reservoir), the
+    # note must not contradict itself with a "still unserved" failure line — it reports the storage
+    # cost instead, and never re-suggests making storage expandable (it already is).
+    caps = {"solar": 50, "wind_onshore": 20, "gas_ccgt": 5, "coal": 0, "nuclear": 0, "other": 0}
+    r = calculate_system_lcoe(
+        country="KR", shares=caps, carbon_price=50.0, capacities_gw=caps, ensemble=_SINGLE,
+        annual_demand_twh=595.0, ess_short_power_gw=10.0, ess_short_duration_hr=4.0,
+        expandable=["storage_short"], meet_full_load=True,
+    )
+    note = r["expansion"]["note"]
+    assert r["unserved_twh"] < 0.05                            # it closed
+    assert "still unserved" not in note                       # so no failure note
+    assert "storage tier expandable" not in note              # already checked -> not re-suggested
+
+
 def test_meet_full_load_reaches_zero_unserved_with_vre_and_storage() -> None:
     # "Meet 100% load" is a hard threshold: closing coal and firming with VRE + storage must reach
     # ZERO unserved. The reservoir sizing grows VRE to the annual energy balance and sizes the long

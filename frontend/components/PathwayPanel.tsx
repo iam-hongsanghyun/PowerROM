@@ -6,7 +6,7 @@ import type { Capacities, EnsembleConfig, GeneratorKey, PathwayStep } from "@/li
 import { simulatePathway } from "@/lib/api";
 import { GENERATOR_COLORS, GENERATOR_LABELS, STORAGE_COLOR } from "@/lib/constants";
 import { InfoTip } from "@/components/InfoTip";
-import type { StorageInput } from "@/components/ControlPanel";
+import type { StorageInput } from "@/components/ShareSliders";
 
 const GENERATOR_KEYS = ["solar", "wind_onshore", "wind_offshore", "nuclear", "hydro", "coal", "gas_ccgt", "other"] as const;
 const START_YEAR = 2025;

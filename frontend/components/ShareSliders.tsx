@@ -8,6 +8,22 @@ import { ALL_GENERATOR_KEYS, GENERATOR_COLORS, GENERATOR_LABELS } from "@/lib/co
 
 const DEFAULT_ORDER = [...ALL_GENERATOR_KEYS] as GeneratorKey[];
 
+/** User-set storage rated power (GW) per tier. Duration is set in the Parameters ESS section. */
+export interface StorageInput {
+  shortPowerGw: number;
+  phsPowerGw: number;
+  longPowerGw: number;
+}
+
+// Storage tiers shown as rows below the generators — dispatched endogenously (not merit-ordered),
+// each independently expandable to help meet 100% load. `field` indexes StorageInput; `expandKey`
+// is the per-tier flag sent to the solver; `addedKey` is the report key the solver grows under.
+const STORAGE_TIERS = [
+  { field: "shortPowerGw", expandKey: "storage_short", addedKey: "storage", label: "Battery (short)", color: "#8BC34A" },
+  { field: "phsPowerGw", expandKey: "storage_phs", addedKey: "storage_phs", label: "Pumped hydro (PHS)", color: "#26A69A" },
+  { field: "longPowerGw", expandKey: "storage_long", addedKey: "storage_long", label: "Seasonal (long)", color: "#558B2F" },
+] as const;
+
 function completeOrder(generatorOrder: GeneratorKey[]): GeneratorKey[] {
   const seen = new Set<GeneratorKey>();
   const ordered: GeneratorKey[] = [];
@@ -43,12 +59,14 @@ export function ShareSliders({
   meetFullLoad,
   addedCapacities,
   expansionNote,
+  storage,
   onChange,
   onMinCfChange,
   onMaxCfChange,
   onOrderChange,
   onExpandableToggle,
   onMeetFullLoadChange,
+  onStorageChange,
 }: {
   capacityInputs: Record<GeneratorKey, string>;
   /** Per-generator must-run floor CF (0–1), as text; blank = unconstrained. */
@@ -58,18 +76,21 @@ export function ShareSliders({
   generatorOrder: GeneratorKey[];
   /** Model-calculated generation share per generator (0–1) from the last run. */
   calculatedShares?: Record<string, number>;
-  /** Generators (or "storage") the solver may grow to meet 100% load. */
+  /** Generators or storage tiers ("storage_short"/"storage_phs"/"storage_long") the solver may grow to meet 100% load. */
   expandable: Set<string>;
   meetFullLoad: boolean;
-  /** GW the solver added per generator on the last run. */
+  /** GW the solver added per generator/storage tier on the last run. */
   addedCapacities?: Record<string, number>;
   expansionNote?: string;
+  /** User-set storage rated power (GW) per tier, shown as rows below the generators. */
+  storage: StorageInput;
   onChange: (key: GeneratorKey, value: string) => void;
   onMinCfChange: (key: GeneratorKey, value: string) => void;
   onMaxCfChange: (key: GeneratorKey, value: string) => void;
   onOrderChange: (order: GeneratorKey[]) => void;
-  onExpandableToggle: (key: GeneratorKey) => void;
+  onExpandableToggle: (key: string) => void;
   onMeetFullLoadChange: (value: boolean) => void;
+  onStorageChange: (value: StorageInput) => void;
 }) {
   const [draggingKey, setDraggingKey] = useState<GeneratorKey | null>(null);
   const rowRefs = useRef(new Map<GeneratorKey, HTMLDivElement | null>());
@@ -125,7 +146,7 @@ export function ShareSliders({
       <label className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs text-slate-700">
         <span>
           Meet 100% load
-          <span className="ml-1 text-[10px] text-slate-400">grow the checked (⤢) generators, cheapest-first</span>
+          <span className="ml-1 text-[10px] text-slate-400">grow the checked generators &amp; storage, cheapest-first</span>
         </span>
         <input
           type="checkbox"
@@ -241,6 +262,62 @@ export function ShareSliders({
           </div>
         );
       })}
+
+      {/* Storage tiers — below the generators, treated like a generator: each has a rated-power (GW)
+          input and its own expandable checkbox, but no merit position or CF (dispatched endogenously). */}
+      <div className="pt-1">
+        <div className="flex items-baseline justify-between px-1 pb-1">
+          <h4 className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Storage</h4>
+          <span className="text-[10px] text-slate-400">GW · endogenous · duration in Parameters</span>
+        </div>
+        {STORAGE_TIERS.map((tier) => {
+          const added = addedCapacities?.[tier.addedKey] ?? 0;
+          return (
+            <div
+              key={tier.expandKey}
+              className="mb-2 flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2 py-1.5 last:mb-0"
+            >
+              <div className="flex min-w-0 flex-1 items-center gap-1.5">
+                <span className="w-[33px] shrink-0" aria-hidden />
+                <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: tier.color }} />
+                <span className="truncate text-sm text-slate-800">{tier.label}</span>
+              </div>
+
+              <div className="relative shrink-0">
+                <input
+                  type="number"
+                  min={0}
+                  value={storage[tier.field]}
+                  onChange={(event) =>
+                    onStorageChange({ ...storage, [tier.field]: Math.max(0, Number(event.target.value)) })
+                  }
+                  aria-label={`${tier.label} rated power in GW`}
+                  className="w-16 rounded-md border border-slate-200 bg-white px-2 py-1 text-right text-sm tabular-nums text-slate-900 outline-none transition focus:border-slate-400"
+                />
+                {added > 0 ? (
+                  <span
+                    title="Storage power added to meet 100% load"
+                    className="pointer-events-none absolute -top-1.5 -right-1 rounded bg-emerald-500 px-1 text-[9px] font-semibold leading-tight text-white shadow-sm"
+                  >
+                    +{added.toFixed(0)}
+                  </span>
+                ) : null}
+              </div>
+
+              <input
+                type="checkbox"
+                checked={expandable.has(tier.expandKey)}
+                onChange={() => onExpandableToggle(tier.expandKey)}
+                aria-label={`Make ${tier.label} expandable`}
+                title="Expandable — the solver may build this storage tier to meet 100% load"
+                className="h-3.5 w-3.5 shrink-0 rounded border-slate-300"
+              />
+
+              <span className="w-11 shrink-0" aria-hidden />
+            </div>
+          );
+        })}
+      </div>
 
       {expansionNote ? (
         <p className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] text-amber-700">

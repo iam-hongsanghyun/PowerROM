@@ -4,11 +4,11 @@ import { useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight, Play } from "lucide-react";
 import * as Tabs from "@radix-ui/react-tabs";
 
-import { ControlPanel, type StorageInput } from "@/components/ControlPanel";
+import { ControlPanel } from "@/components/ControlPanel";
 import { ScenarioSettings } from "@/components/ScenarioSettings";
 import { PathwayPanel } from "@/components/PathwayPanel";
 import { DemandProfileEditor, DEFAULT_DEMAND_PROFILE, type DemandProfile } from "@/components/DemandProfileEditor";
-import { ShareSliders } from "@/components/ShareSliders";
+import { ShareSliders, type StorageInput } from "@/components/ShareSliders";
 import { ParametersTab } from "@/components/ParametersTab";
 import { ProfileAnalysis } from "@/components/ProfileAnalysis";
 import {
@@ -535,14 +535,8 @@ export function Dashboard() {
               <ControlPanel
                 countries={countries}
                 country={country}
-                storage={storage}
-                storageExpandable={expandable.has("storage")}
-                addedStorageGw={result?.expansion?.added_capacities_gw?.storage}
-                addedStorageLongGw={result?.expansion?.added_capacities_gw?.storage_long}
                 annualDemandTwh={annualDemandTwh}
                 onCountryChange={handleCountryChange}
-                onStorageChange={setStorage}
-                onStorageExpandableToggle={() => toggleExpandable("storage")}
                 onAnnualDemandChange={setAnnualDemandTwh}
               />
               <ShareSliders
@@ -555,12 +549,14 @@ export function Dashboard() {
                 meetFullLoad={meetFullLoad}
                 addedCapacities={result?.expansion?.added_capacities_gw}
                 expansionNote={result?.expansion?.note || undefined}
+                storage={storage}
                 onChange={handleCapacityInputChange}
                 onMinCfChange={handleMinCfChange}
                 onMaxCfChange={handleMaxCfChange}
                 onOrderChange={setGeneratorOrder}
                 onExpandableToggle={toggleExpandable}
                 onMeetFullLoadChange={setMeetFullLoad}
+                onStorageChange={setStorage}
               />
               <button
                 type="button"

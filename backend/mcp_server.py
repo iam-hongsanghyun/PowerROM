@@ -285,8 +285,11 @@ def calculate_lcoe(
         ess_short_power_gw / ess_short_duration_hr: Intraday battery power (GW) and duration (h).
         ess_phs_power_gw / ess_phs_duration_hr: Pumped-hydro power (GW) and duration (h).
         ess_long_power_gw / ess_long_duration_hr: Seasonal storage power (GW) and duration (h).
-        expandable: Generators (and/or "storage") the solver may grow to meet 100% of load.
-        meet_full_load: Grow the expandable resources cheapest-first until load is met.
+        expandable: Generators (and/or "storage") the solver may grow to meet 100% of load. ONLY the
+            checked resources grow — an unchecked generator is never built to force closure.
+        meet_full_load: Grow the checked expandable resources cheapest-first toward 100% of load. If
+            those levers can't cover the worst multi-day lull, the residual shortfall is reported (in
+            the expansion note) rather than closed by conjuring an unchecked firm plant.
         rps_target_share: Renewable-portfolio-standard target VRE share (0-1); requires a penalty.
         rps_penalty_usd_mwh: Shortfall penalty for missing the RPS target (USD/MWh).
         subsidy_itc_pct: Investment tax credit as a fraction of capex for clean tech (0-1).

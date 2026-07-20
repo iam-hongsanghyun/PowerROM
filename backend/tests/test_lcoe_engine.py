@@ -285,33 +285,35 @@ def test_expansion_meets_load_with_cheapest_firm() -> None:
 
 def test_expansion_screens_firm_over_expensive_short_battery() -> None:
     # The firming choice is a CAPEX screening (annualised fixed cost ÷ availability ceiling per GW of
-    # the worst peak). An expensive short battery (280 $/kWh over a 12 h reservoir) costs more per GW
-    # than a gas peaker, so meet-100% closes with gas. Storage is built only where genuinely cheaper
-    # (see the PHS test). Either way the hard threshold MUST be met.
+    # the worst peak). When BOTH gas and a short battery are checked, an expensive short battery
+    # (280 $/kWh over a 12 h reservoir) costs more per GW than a gas peaker, so the screen grows gas.
+    # Storage is built only where genuinely cheaper (see the PHS test). Both levers are checked here —
+    # gas is grown because it was chosen and is cheaper, NOT auto-added.
     caps = {"solar": 130, "wind_onshore": 20, "nuclear": 74, "gas_ccgt": 6, "coal": 0, "other": 0}
     r = calculate_system_lcoe(
         country="KR", shares=caps, carbon_price=50.0, capacities_gw=caps, ensemble=_SINGLE,
         annual_demand_twh=595.0, demand_pattern="summer_peak",
         ess_short_power_gw=2.0, ess_short_duration_hr=12.0, ess_long_power_gw=0.0,
-        ess_long_duration_hr=168.0, expandable=["storage"], meet_full_load=True,
+        ess_long_duration_hr=168.0, expandable=["storage", "gas_ccgt"], meet_full_load=True,
     )
     added = r["expansion"]["added_capacities_gw"]
-    assert r["unserved_twh"] < 0.05                  # hard threshold met
+    assert r["unserved_twh"] < 0.05                  # hard threshold met (both levers checked)
     assert added.get("gas_ccgt", 0.0) > 0.0          # gas is cheaper per GW-of-peak than the battery
     assert added.get("storage_long", 0.0) == 0.0     # the dear seasonal tier is never built
 
 
 def test_expansion_firms_multiday_drought_without_absurd_storage() -> None:
-    # A near-100%-renewable fleet must ride a multi-day winter Dunkelflaute. Firming it with STORAGE
-    # alone would need a seasonal reservoir of absurd size (the old "~120 TWh / 4800 h" pathology);
-    # the capex screening instead covers the lull with the cheapest firm generator. Meet-100% still
-    # closes, VRE grows to the energy balance, and storage stays bounded — no seasonal store.
+    # A near-100%-renewable fleet must ride a multi-day winter Dunkelflaute. With a firm generator
+    # CHECKED alongside VRE + storage, firming it with STORAGE alone would need a seasonal reservoir of
+    # absurd size (the old "~120 TWh / 4800 h" pathology); the capex screening instead covers the lull
+    # with the checked firm generator. Meet-100% closes, VRE grows to the energy balance, storage stays
+    # bounded — no seasonal store. (Gas is grown because it is checked, not auto-added.)
     caps = {"solar": 80, "wind_onshore": 40, "nuclear": 2, "coal": 1, "gas_ccgt": 3, "other": 1}
     r = calculate_system_lcoe(
         country="KR", shares=caps, carbon_price=50.0, capacities_gw=caps, ensemble=_SINGLE,
         annual_demand_twh=595.0, ess_short_power_gw=30.0, ess_short_duration_hr=12.0,
         ess_long_power_gw=0.0, ess_long_duration_hr=168.0,
-        expandable=["solar", "wind_onshore", "storage"], meet_full_load=True,
+        expandable=["solar", "wind_onshore", "storage", "gas_ccgt"], meet_full_load=True,
     )
     added = r["expansion"]["added_capacities_gw"]
     assert r["unserved_twh"] < 0.1  # the multi-day drought is firmed
@@ -338,31 +340,51 @@ def test_expansion_per_type_phs_grows_only_phs() -> None:
     assert added.get("storage_long", 0.0) == 0.0   # the seasonal tier is not built
 
 
-def test_expansion_note_does_not_cry_failure_when_it_closes() -> None:
-    # Meet-100% is a hard promise, so it always reaches ~zero unserved: the note must NEVER contain a
-    # "still unserved" failure line. When an UN-checked firm generator is auto-added to guarantee it,
-    # the note says so (and points the user to the merit list) rather than claiming failure.
+def test_expansion_note_is_empty_when_checked_levers_close_it() -> None:
+    # When the checked levers are sufficient to reach ~zero unserved, the note is empty — no failure
+    # line, and no "auto-added an unchecked generator" line (that behaviour is gone). Here gas + a
+    # short battery are both checked, so the fleet closes and reports nothing to steer.
+    caps = {"solar": 50, "wind_onshore": 20, "gas_ccgt": 5, "coal": 0, "nuclear": 0, "other": 0}
+    r = calculate_system_lcoe(
+        country="KR", shares=caps, carbon_price=50.0, capacities_gw=caps, ensemble=_SINGLE,
+        annual_demand_twh=595.0, ess_short_power_gw=10.0, ess_short_duration_hr=4.0,
+        expandable=["storage_short", "gas_ccgt"], meet_full_load=True,
+    )
+    note = r["expansion"]["note"]
+    assert r["unserved_twh"] < 0.05                           # it closed
+    assert "still unserved" not in note                      # no failure line
+    assert note == ""                                         # nothing to flag
+
+
+def test_meet_full_load_never_builds_an_unchecked_generator() -> None:
+    # THE core rule: only checked levers grow. With only storage checked (gas UN-checked) on an
+    # energy-short fleet that storage alone cannot firm, the solver must NOT conjure gas — it reports
+    # the shortfall honestly and names what to check. This is the regression for the "129 GW of gas I
+    # never checked" bug.
     caps = {"solar": 50, "wind_onshore": 20, "gas_ccgt": 5, "coal": 0, "nuclear": 0, "other": 0}
     r = calculate_system_lcoe(
         country="KR", shares=caps, carbon_price=50.0, capacities_gw=caps, ensemble=_SINGLE,
         annual_demand_twh=595.0, ess_short_power_gw=10.0, ess_short_duration_hr=4.0,
         expandable=["storage_short"], meet_full_load=True,
     )
+    added = r["expansion"]["added_capacities_gw"]
     note = r["expansion"]["note"]
-    assert r["unserved_twh"] < 0.05                           # it closed
-    assert "still unserved" not in note                      # so no failure note, ever
-    assert "Reached 100%" in note                            # it reports the firming it added
+    assert added.get("gas_ccgt", 0.0) == 0.0   # unchecked gas is NEVER auto-added
+    assert added.get("coal", 0.0) == 0.0       # nor any other unchecked firm plant
+    assert added.get("nuclear", 0.0) == 0.0
+    assert r["ess_requirement_gwh"] < 50_000.0  # storage stays bounded — no 120 TWh reservoir either
+    assert "still unserved" in note             # the shortfall is reported honestly
+    assert "gas" in note                        # and points to checking a dispatchable generator
 
 
 @pytest.mark.parametrize(
     "expandable",
-    [[], ["solar"], ["wind_onshore"], ["storage_short"], ["storage_phs"], ["storage_long"],
-     ["solar", "storage_short"], ["gas_ccgt"], ["nuclear"]],
+    [["solar", "storage_short"], ["gas_ccgt"], ["nuclear"], ["solar", "wind_onshore", "storage"]],
 )
-def test_meet_full_load_always_reaches_zero(expandable: list[str]) -> None:
-    # The core promise: whatever the user checks — even nothing — meet-100% MUST reach ~zero
-    # unserved. A dispatchable generator is always available as the backstop, so "cannot" is never
-    # an outcome, and no selection ever leaves load unserved.
+def test_meet_full_load_reaches_zero_with_sufficient_levers(expandable: list[str]) -> None:
+    # When the CHECKED levers are physically sufficient — a firm generator, or VRE paired with enough
+    # storage to shift it — meet-100% reaches ~zero unserved. Sufficiency, not a hidden backstop, is
+    # what closes it.
     caps = {"solar": 60, "wind_onshore": 25, "gas_ccgt": 6, "coal": 0, "nuclear": 4, "other": 1}
     r = calculate_system_lcoe(
         country="KR", shares=caps, carbon_price=50.0, capacities_gw=caps, ensemble=_SINGLE,
@@ -372,50 +394,56 @@ def test_meet_full_load_always_reaches_zero(expandable: list[str]) -> None:
     assert r["unserved_twh"] < 0.05, f"{expandable} left {r['unserved_twh']:.2f} TWh unserved"
 
 
-def test_meet_full_load_no_absurd_reservoir_uses_firm() -> None:
-    # The reported "~120 TWh of storage" pathology: an energy-short, storage-only selection must NOT
-    # build a seasonal reservoir — the capex screening firms with the cheapest generator instead and
-    # storage stays bounded. Closure holds and no "cannot reach 100%" note is ever emitted.
-    caps = {"solar": 50, "wind_onshore": 20, "gas_ccgt": 5, "coal": 0, "nuclear": 0, "other": 0}
+@pytest.mark.parametrize("expandable", [[], ["solar"], ["wind_onshore"], ["storage_long"]])
+def test_meet_full_load_reports_shortfall_for_insufficient_levers(expandable: list[str]) -> None:
+    # When the checked levers CANNOT close the gap (nothing checked, or a single lever that can't firm
+    # a multi-day lull), the solver reaches as far as it can and reports the residual honestly. It NEVER
+    # builds an unchecked firm generator to force closure.
+    caps = {"solar": 60, "wind_onshore": 25, "gas_ccgt": 6, "coal": 0, "nuclear": 4, "other": 1}
     r = calculate_system_lcoe(
         country="KR", shares=caps, carbon_price=50.0, capacities_gw=caps, ensemble=_SINGLE,
-        annual_demand_twh=595.0, ess_short_power_gw=10.0, ess_short_duration_hr=4.0,
-        expandable=["storage_short"], meet_full_load=True,
+        annual_demand_twh=595.0, ess_short_power_gw=5.0, ess_phs_power_gw=2.0, ess_long_power_gw=2.0,
+        expandable=expandable, meet_full_load=True,
     )
     added = r["expansion"]["added_capacities_gw"]
-    assert r["unserved_twh"] < 0.05
-    assert added.get("gas_ccgt", 0.0) > 0.0                # firmed by gas, not a reservoir
-    assert r["ess_requirement_gwh"] < 50_000.0             # bounded — no 120 TWh store
-    assert "still unserved" not in r["expansion"]["note"]  # never a "cannot reach 100%" note
+    checked = set(expandable)
+    for firm in ("gas_ccgt", "coal", "nuclear", "other"):  # no UN-checked firm plant is ever built
+        if firm not in checked:
+            assert added.get(firm, 0.0) == 0.0
+    assert r["unserved_twh"] > 0.05                # genuinely short of 100%
+    assert "still unserved" in r["expansion"]["note"]
 
 
 def test_meet_full_load_tolerates_none_expandable() -> None:
     # `expandable` defaults to None (the schema default) when nothing is checked. Meet-100% must still
-    # run and close via the guaranteed firm closer — NOT crash with a TypeError (a 500 on /calculate).
+    # run WITHOUT crashing (a TypeError here was a 500 on /calculate) — and, with nothing checked,
+    # build nothing and report the shortfall rather than conjuring capacity.
     r = calculate_system_lcoe(
         country="DE", shares={}, capacities_gw={"solar": 50, "wind_onshore": 40}, carbon_price=30.0,
         ensemble=_SINGLE, meet_full_load=True, expandable=None,
     )
-    assert r["unserved_twh"] < 0.05
+    assert r["expansion"]["added_capacities_gw"] == {}    # nothing checked → nothing built
+    assert "still unserved" in r["expansion"]["note"]
 
 
 def test_meet_full_load_closes_with_firm_capped_below_sizing_floor() -> None:
-    # A firm generator capped well below 5% CF (here 3%) must still be sized correctly — peak / its
-    # REAL ceiling, not floored at 0.05 — so meet-100% closes instead of under-building into a false
-    # plateau. (Regression for the 0.05 sizing-floor under-sizing.)
+    # A CHECKED firm generator capped well below 5% CF (here 3%) must still be sized correctly —
+    # peak / its REAL ceiling, not floored at 0.05 — so meet-100% closes instead of under-building into
+    # a false plateau. (Regression for the 0.05 sizing-floor under-sizing.)
     caps = {"solar": 60, "wind_onshore": 25, "gas_ccgt": 6, "coal": 4, "nuclear": 4, "other": 2}
     r = calculate_system_lcoe(
         country="KR", shares={}, capacities_gw=caps, carbon_price=50.0, ensemble=_SINGLE,
-        annual_demand_twh=595.0, expandable=[], meet_full_load=True,
+        annual_demand_twh=595.0, expandable=["gas_ccgt", "coal", "nuclear", "other"],
+        meet_full_load=True,
         max_cf={"gas_ccgt": 0.03, "coal": 0.03, "nuclear": 0.03, "other": 0.03},
     )
     assert r["unserved_twh"] < 0.05  # closed despite every firm cap being below the old floor
 
 
-def test_meet_full_load_reaches_zero_unserved_with_vre_and_firm() -> None:
-    # "Meet 100% load" is a HARD threshold: closing coal and checking VRE + storage must reach ZERO
-    # unserved. VRE grows to the annual energy balance; the multi-day lull is firmed by the cheapest
-    # generator (a seasonal reservoir would be far dearer), so storage stays bounded — not ballooned.
+def test_meet_full_load_reaches_zero_with_vre_and_storage_no_firm() -> None:
+    # The user's scenario: close coal, check VRE + storage but NO firm generator. Meet-100% must reach
+    # ~zero unserved by OVERBUILDING VRE and shifting it with storage — NOT by silently adding gas. No
+    # firm plant is grown because none is checked, and storage stays bounded (no seasonal reservoir).
     p = load_country_profile("KR")
     caps = dict(p["capacities_gw"])
     caps["coal"] = 0.0  # close coal
@@ -427,9 +455,10 @@ def test_meet_full_load_reaches_zero_unserved_with_vre_and_firm() -> None:
         ess_long_power_gw=5.0, ess_long_duration_hr=168.0,
     )
     added = r["expansion"]["added_capacities_gw"]
-    assert r["unserved_twh"] < 0.05                       # HARD threshold: ~zero unserved
-    assert any(added.get(k, 0.0) > 0.0 for k in ("solar", "wind_onshore", "wind_offshore"))  # energy fill
-    assert any(added.get(k, 0.0) > 0.0 for k in ("gas_ccgt", "nuclear", "other"))            # firm covers the lull
+    assert r["unserved_twh"] < 0.05                       # closed by VRE + storage alone
+    assert any(added.get(k, 0.0) > 0.0 for k in ("solar", "wind_onshore", "wind_offshore"))  # VRE grown
+    for firm in ("gas_ccgt", "nuclear", "other"):         # NO unchecked firm plant was added
+        assert added.get(firm, 0.0) == 0.0
     assert r["ess_requirement_gwh"] < 50_000.0           # storage bounded, no seasonal reservoir
 
 

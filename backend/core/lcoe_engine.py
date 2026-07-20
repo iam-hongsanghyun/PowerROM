@@ -375,14 +375,17 @@ def _expand_to_meet_load(
       supply−demand draw-down (Rippl mass-curve), at power = the peak.
 
     It grows the cheaper. Storage wins for cheap **diurnal** cycling; a **multi-day** lull makes
-    the reservoir dearer than firm capacity, so a generator takes over instead of building an
-    absurd seasonal store (no more "~120 TWh / 4800 h" reservoirs). **Renewables** are grown first
-    to the annual energy balance so surplus can charge storage; they firm only *through* storage.
+    the reservoir dearer than firm capacity, so a *checked* firm generator takes over instead of
+    building an absurd seasonal store (no more "~120 TWh / 4800 h" reservoirs). **Renewables** are
+    grown first to the annual energy balance so surplus can charge storage; they firm only *through*
+    storage.
 
-    Because a dispatchable generator can always cover the peak, the **cheapest fleet thermal is
-    always available as a backstop even if unchecked**, so closure is guaranteed. The only exit
-    with residual is a true physical plateau — no dispatchable plant exists and storage cannot
-    charge — where adding capacity genuinely adds no generation; that (only) case is reported.
+    **Only the user's checked ``expandable`` levers ever grow** — the expandable set is the
+    constraint, not a suggestion. An unchecked generator is NEVER built to force closure: if the
+    checked levers can't cover a multi-day lull (e.g. VRE + storage only, and the reservoir
+    saturates), the shortfall is reported honestly with a hint on what to check, rather than silently
+    conjuring firm capacity the user didn't ask for. Closure is therefore NOT guaranteed for every
+    selection — it is guaranteed only when the checked levers are physically sufficient.
 
     Returns ``(added_by_key, grown_storage_tiers, note)`` where ``added_by_key`` may include
     ``"storage"`` (added short/battery power, GW), ``"storage_phs"`` (pumped-hydro power, GW),
@@ -412,8 +415,8 @@ def _expand_to_meet_load(
     added: dict[str, float] = {g: 0.0 for g in expandable_gens}
     capacities = {key: max(0.0, float(value)) for key, value in base_capacities.items()}
 
-    # "Meet 100% load" is a HARD promise — there is no "cannot expand" outcome. Even with nothing
-    # (or only VRE / only storage) checked, the guaranteed firm closer below can still cover the peak.
+    # Only the user's checked levers grow. With nothing checked there is nothing to expand, so the
+    # dispatch is returned as-is and any shortfall is reported — no capacity the user didn't ask for.
 
     def _unserved(caps: dict[str, float], trs: list[dict[str, float]]) -> tuple[float, float]:
         """Return (unserved energy TWh, residual peak GW) for a candidate build.
@@ -497,41 +500,32 @@ def _expand_to_meet_load(
                     cf = min(cf * 1.4, 0.6)
                 _apply(g, per_gwh / (cf * hours))
 
-    # Guaranteed firm closer: the cheapest DISPATCHABLE thermal in the fleet, priced per GW of the
-    # peak it shaves — annualised fixed cost ÷ its availability ceiling (the "1 MW vs capex" ratio).
-    # "Meet 100% load" is a HARD promise, so this generator is always available to firm the residual
-    # peak even if the user did not check it: a power system serves its peak with firm capacity;
-    # storage only shifts energy in time and cannot, alone, invent it across a multi-day lull.
+    # Firm closer: the cheapest firm generator THE USER CHECKED, priced per GW of the peak it shaves
+    # — annualised fixed cost ÷ its availability ceiling (the "1 MW vs capex" ratio). Only checked
+    # levers grow, so if no firm generator is checked there is no firm closer: the peak is covered by
+    # storage (+ checked VRE to charge it) alone, and a shortfall it cannot bridge is reported, not
+    # papered over with an unchecked plant.
     def _peak_ceiling(g: str) -> float:
         return float((max_cf or {}).get(g, gens[g].get("max_cf", gens[g].get("cf_base", 1.0))) or 1.0)
-
-    # A generator is a firm backstop if it is dispatchable (non-VRE) and buildable (real capex).
-    # NOT keyed on the optional max_cf field — 13 country profiles omit it, and _peak_ceiling already
-    # falls back to cf_base, so requiring max_cf would leave those fleets with no closer (false plateau).
-    firm_pool = [g for g in gens if g not in _DISPATCH_VRE and float(gens[g].get("capex_usd_kw", 0.0)) > 0.0]
 
     def _firm_cost_per_peak_gw(g: str) -> float:
         return _annual_fixed_cost_gen(gens[g], discount, 1.0) / max(_peak_ceiling(g), 0.05)
 
-    firm_closer = min(firm_pool, key=_firm_cost_per_peak_gw) if firm_pool else None
-    # Prefer a firm generator the user checked; otherwise fall back to the guaranteed closer.
-    firm_choice = min(firm_expandable, key=_firm_cost_per_peak_gw) if firm_expandable else firm_closer
-    checked_firm = set(firm_expandable)
+    firm_choice = min(firm_expandable, key=_firm_cost_per_peak_gw) if firm_expandable else None
     sqrt_eta = _RESERVOIR_RTE**0.5
 
-    # 2. Verified least-cost closure loop — meet 100% is a HARD threshold that MUST reach zero
-    #    unserved. Each step compares the cheapest way to shave the CURRENT residual peak:
-    #      • a firm generator: annualised fixed cost of peak / ceiling GW, versus
-    #      • shifting the load with storage: annualised capex of a reservoir sized to the deepest
-    #        supply−demand draw-down (Rippl mass-curve), at power = the peak.
+    # 2. Verified least-cost closure loop — grow the CHECKED levers toward zero unserved. Each step
+    #    compares the cheapest way to shave the CURRENT residual peak:
+    #      • a checked firm generator: annualised fixed cost of peak / ceiling GW, versus
+    #      • shifting the load with checked storage: annualised capex of a reservoir sized to the
+    #        deepest supply−demand draw-down (Rippl mass-curve), at power = the peak.
     #    It grows the cheaper. Storage wins for cheap diurnal cycling; a multi-day lull makes the
-    #    reservoir dearer than firm capacity, so a generator takes over instead of building an absurd
-    #    seasonal store. Because a dispatchable generator can always cover the peak, closure is
-    #    GUARANTEED — the only exit with residual is a true plateau (no dispatchable plant exists and
-    #    storage cannot charge), i.e. where adding capacity genuinely adds no generation.
-    auto_firm_gw = 0.0       # firm capacity added to an UN-checked generator (worth flagging)
+    #    reservoir dearer than firm capacity, so a checked firm generator takes over instead of building
+    #    an absurd seasonal store. Closure holds only when the checked levers are physically sufficient:
+    #    with no firm generator checked and storage saturated on a multi-day lull, the loop exits and
+    #    the residual is reported honestly — an unchecked generator is never built to force zero.
     prev = float("inf")
-    firm_forced = False      # once storage proves it cannot help, close with firm only
+    firm_forced = False      # once storage proves it cannot help, close with firm (if one is checked)
     for _ in range(_EXPANSION_MAX_STEPS):
         u = _hourly_unserved(capacities, tiers)
         total_gwh = float(np.sum(u))
@@ -585,11 +579,9 @@ def _expand_to_meet_load(
             grew = "storage"
         elif firm_choice is not None:
             _apply(firm_choice, firm_gw * 1.05)  # small overshoot so the last bit closes cleanly
-            if firm_choice not in checked_firm:
-                auto_firm_gw += firm_gw * 1.05
             grew = "firm"
         else:
-            break  # no dispatchable plant in the fleet and storage cannot help — a physical limit
+            break  # no checked firm generator and storage cannot help — reported as a shortfall
 
         # Growth that stops cutting unserved (< 0.1% improvement, a scale-free test that holds on a
         # 2 TWh island and a 9000 TWh grid alike) means this lever is saturated. If it was storage,
@@ -604,17 +596,19 @@ def _expand_to_meet_load(
     unserved_twh = float(np.sum(_hourly_unserved(capacities, tiers))) / 1000.0
     added = {key: value for key, value in added.items() if value > 1e-6}
 
-    _FIRM_LABEL = {"gas_ccgt": "gas", "coal": "coal", "nuclear": "nuclear", "other": "thermal", "hydro": "hydro"}
     note = ""
     if unserved_twh > _EXPANSION_UNSERVED_TOL_TWH:
-        # Only reachable at a true physical plateau: no dispatchable plant to grow and storage that
-        # cannot charge. This is a limit of the fleet, not a setting to toggle.
-        note = (f"{unserved_twh:.2f} TWh/yr can't be served — adding capacity no longer adds "
-                "generation (the renewables are fully curtailed and no dispatchable plant can grow).")
-    elif auto_firm_gw > 0.5 and firm_choice is not None:
-        label = _FIRM_LABEL.get(firm_choice, firm_choice)
-        note = (f"Reached 100% by adding {auto_firm_gw:.0f} GW of {label} — the least-cost firming "
-                f"for the worst lull. Check {label} in the merit list (or cap its max CF) to steer the mix.")
+        # The checked expandable levers can't fully close the gap. Only checked levers grow — an
+        # unchecked generator is never built — so report the shortfall and what would close it.
+        if not expandable_gens and not storage_candidates:
+            hint = "nothing is checked to expand — check a generator or storage in the merit list"
+        elif firm_choice is None:
+            hint = ("the worst multi-day lull needs firm capacity that storage alone can't bridge — "
+                    "check a dispatchable generator (e.g. gas) or add more storage headroom")
+        else:
+            hint = ("raise the checked levers' headroom (max CF / ramp limits) or check more "
+                    "capacity to expand")
+        note = f"{unserved_twh:.2f} TWh/yr still unserved with the checked expandable set — {hint}."
     return added, tiers, note
 
 
